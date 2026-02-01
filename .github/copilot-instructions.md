@@ -285,11 +285,14 @@ if (isDevelopment) {
 
 **Security Features Enabled with Helmet v8**:
 - `contentSecurityPolicy` - Enforces the CSP directives configured above
-- `xContentTypeOptions` - Sends `X-Content-Type-Options: nosniff` to prevent MIME sniffing
+- `X-Content-Type-Options: nosniff` - Set by default in Helmet v8 (no configuration needed)
 - `referrerPolicy: { policy: "strict-origin-when-cross-origin" }` - Controls referrer leaking
-- `crossOriginEmbedderPolicy` - Enabled by default; only relax for specific local tooling needs
+- `crossOriginEmbedderPolicy: false` - Disabled to allow embedding external resources for the SPA
 
-> Note: Helmet's legacy `xssFilter` option (and the `X-XSS-Protection` header) are deprecated in modern browsers and are not used with Helmet v8.
+**Deprecated Options (Removed from Helmet v8 - Do NOT Use)**:
+- `xssFilter` - Sends `X-XSS-Protection` header (deprecated by browsers, no longer needed)
+- `noSniff` - This functionality is now always enabled by default in Helmet v8
+- **Important**: These options are not supported in Helmet v8 and will cause configuration errors if used
 **When Modifying CSP**:
 1. **Test in both light and dark modes** - Ensure styles load
 2. **Test Vite HMR** - Dev server must stay responsive
@@ -393,9 +396,13 @@ app.use(async (req, res, next) => {
 
 ### Security Issues & Resolutions (Recent Session)
 
-**Issue 1: Insecure Helmet Configuration**
-- **Problem**: Missing explicit security feature enablement
-- **Resolution**: Added `xssFilter`, `noSniff`, `referrerPolicy` explicitly
+**Issue 1: Helmet v8 Compatibility (Deprecated Options)**
+- **Problem**: `xssFilter: true` and `noSniff: true` options don't exist in Helmet v8
+- **Root Cause**: These options were deprecated and removed by Helmet maintainers
+- **Resolution**: Removed these options from configuration. Helmet v8 provides:
+  - `X-Content-Type-Options: nosniff` automatically (no config needed)
+  - `X-XSS-Protection` deprecated by modern browsers (no longer needed)
+- **Learning**: Always verify Helmet changelog when updating major versions
 - **Files Modified**: `server/index.ts`
 
 **Issue 2: CSP Blocking Development Tools**
