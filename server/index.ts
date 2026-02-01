@@ -48,12 +48,10 @@ if (isDevelopment) {
 
 // In Replit development environment, allow additional origins for Replit plugins
 // These plugins inject runtime error overlays, cartographer, and dev banner
-// Also relax frameAncestors to allow embedding in Replit IDE's webview/iframe
 if (isDevelopment && isReplit) {
   cspDirectives.scriptSrc.push("https://*.replit.com", "https://*.replit.dev");
   cspDirectives.connectSrc.push("https://*.replit.com", "https://*.replit.dev", "wss://*.replit.com", "wss://*.replit.dev");
   cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
-  cspDirectives.frameAncestors.push("https://*.replit.com", "https://*.replit.dev");
 }
 
 app.use(helmet({

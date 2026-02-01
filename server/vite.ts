@@ -18,8 +18,32 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import rateLimit from "express-rate-limit";
 
 const viteLogger = createLogger();
+
+const viteDevLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Localhost is exempt from rate limiting for better DX
+  skip: (req) => {
+    const ip = req.ip;
+    const hostHeader = req.headers.host ?? "";
+    return (
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      hostHeader.startsWith("localhost") ||
+      hostHeader.startsWith("127.0.0.1")
+    );
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "Too many requests, please try again later.",
+    });
+  },
+});
 
 export async function setupVite(server: Server, app: Express) {
   const serverOptions = {
@@ -44,7 +68,7 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("/{*path}", async (req, res, next) => {
+  app.use("*", viteDevLimiter, async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
