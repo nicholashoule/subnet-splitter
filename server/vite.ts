@@ -76,7 +76,7 @@ export async function setupVite(server: Server, app: Express) {
     message: "Too many requests to the application. Please wait a moment and try again.",
   });
 
-  app.use("/{*path}", spaRateLimiter, async (req, res, next) => {
+  app.use("*", spaRateLimiter, async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
