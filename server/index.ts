@@ -27,6 +27,8 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
+      // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
+      // and for Tailwind CSS compiled styles that rely on inline style blocks.
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
