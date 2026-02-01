@@ -1320,12 +1320,13 @@ The Kubernetes Network Planning API generates enterprise-grade network configura
 
 ### Deployment Tiers
 
-| Tier | Nodes | Public Subnets | Private Subnets | Pod Space | Services | Use Case |
-|------|-------|---|---|---|---|---|
-| **Standard** | 1-3 | 1 | 1 | /16 | /16 | Development/Testing |
-| **Professional** | 3-10 | 2 | 2 | /16 | /16 | Small Production |
-| **Enterprise** | 10-50 | 3 | 3 | /16 | /16 | Large Production |
-| **Hyperscale** | 50+ | 4 | 4 | /15 | /16 | Global Scale |
+| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Pod Space | Services | Use Case |
+|------|-------|---|---|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /25 | /18 | /16 | POC/Development |
+| **Standard** | 1-3 | 1 | 1 | /24 | /16 | /16 | Development/Testing |
+| **Professional** | 3-10 | 2 | 2 | /23 | /16 | /16 | Small Production |
+| **Enterprise** | 10-50 | 3 | 3 | /23 | /16 | /16 | Large Production |
+| **Hyperscale** | 50-5000 | 8 | 8 | /20 | /13 | /16 | Global Scale/EKS/GKE Max |
 
 ### API Endpoints
 

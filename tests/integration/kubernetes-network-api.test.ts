@@ -127,9 +127,9 @@ describe("Kubernetes Network Planning API Integration", () => {
         deploymentName: "global-k8s-cluster"
       });
 
-      // Hyperscale should have maximum subnet allocation
-      expect(plan.subnets.public).toHaveLength(4);
-      expect(plan.subnets.private).toHaveLength(4);
+      // Hyperscale should have maximum subnet allocation (8 per tier)
+      expect(plan.subnets.public).toHaveLength(8);
+      expect(plan.subnets.private).toHaveLength(8);
     });
   });
 
@@ -183,7 +183,7 @@ describe("Kubernetes Network Planning API Integration", () => {
       expect(standard.publicSubnets).toBe(1);
       expect(professional.publicSubnets).toBe(2);
       expect(enterprise.publicSubnets).toBe(3);
-      expect(hyperscale.publicSubnets).toBe(4);
+      expect(hyperscale.publicSubnets).toBe(8);
 
       // Hyperscale gets more pod space
       expect(hyperscale.podsPrefix).toBeLessThan(standard.podsPrefix);

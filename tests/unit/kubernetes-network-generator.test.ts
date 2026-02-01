@@ -51,8 +51,8 @@ describe("Kubernetes Network Generator", () => {
         });
 
         expect(plan.deploymentSize).toBe("hyperscale");
-        expect(plan.subnets.public).toHaveLength(4);
-        expect(plan.subnets.private).toHaveLength(4);
+        expect(plan.subnets.public).toHaveLength(8);
+        expect(plan.subnets.private).toHaveLength(8);
       });
     });
 
@@ -118,7 +118,7 @@ describe("Kubernetes Network Generator", () => {
         expect(plans[0].subnets.public).toHaveLength(1);
         expect(plans[1].subnets.public).toHaveLength(2);
         expect(plans[2].subnets.public).toHaveLength(3);
-        expect(plans[3].subnets.public).toHaveLength(4);
+        expect(plans[3].subnets.public).toHaveLength(8);
       });
 
       it("should generate correct number of private subnets", async () => {
@@ -132,7 +132,7 @@ describe("Kubernetes Network Generator", () => {
         expect(plans[0].subnets.private).toHaveLength(1);
         expect(plans[1].subnets.private).toHaveLength(2);
         expect(plans[2].subnets.private).toHaveLength(3);
-        expect(plans[3].subnets.private).toHaveLength(4);
+        expect(plans[3].subnets.private).toHaveLength(8);
       });
 
       it("should name subnets correctly", async () => {

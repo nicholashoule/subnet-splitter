@@ -11,10 +11,11 @@ import { z } from "zod";
  * Deployment size tiers based on typical enterprise Kubernetes deployments
  */
 export const DeploymentSizeEnum = z.enum([
+  "micro",         // Single Node: 1 node (dev/poc)
   "standard",      // Dev/Test: 1-3 nodes
   "professional",  // Small Prod: 3-10 nodes
   "enterprise",    // Large Prod: 10-50 nodes
-  "hyperscale"     // Global Scale: 50+ nodes
+  "hyperscale"     // Global Scale: 50-5000 nodes
 ]);
 export type DeploymentSize = z.infer<typeof DeploymentSizeEnum>;
 
@@ -96,6 +97,14 @@ export interface DeploymentTierConfig {
 }
 
 export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfig> = {
+  micro: {
+    publicSubnets: 1,
+    privateSubnets: 1,
+    subnetSize: 25,      // /25 = 128 addresses per subnet
+    podsPrefix: 18,      // /18 for small clusters
+    servicesPrefix: 16,  // /16 for services
+    description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
+  },
   standard: {
     publicSubnets: 1,
     privateSubnets: 1,
@@ -121,11 +130,11 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     description: "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   hyperscale: {
-    publicSubnets: 4,
-    privateSubnets: 4,
-    subnetSize: 22,      // /22 = 1024 addresses per subnet (large workloads)
-    podsPrefix: 15,      // /15 for more pod IPs
+    publicSubnets: 8,
+    privateSubnets: 8,
+    subnetSize: 20,      // /20 = 4096 addresses per subnet (large workloads)
+    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes)
     servicesPrefix: 16,
-    description: "Global Scale: 50+ nodes, multi-region ready"
+    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
   }
 };
