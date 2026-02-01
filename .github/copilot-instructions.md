@@ -336,12 +336,12 @@ app.use(spaRateLimiter, (req, res) => {
 
 | Setting | Use Case | Security |
 |---------|----------|----------|
-| `TRUST_PROXY=false` (default production) | Direct internet or unknown proxies | ✅ Safe - uses direct socket IP, prevents spoofing |
-| `TRUST_PROXY=loopback` (default development) | Local development only | ✅ Safe - trusts only localhost (127.0.0.1, ::1) |
-| `TRUST_PROXY=1` | Single reverse proxy (e.g., Nginx) | ✅ Safe - trusts 1 hop |
-| `TRUST_PROXY="10.0.0.0/8,127.0.0.1"` | Specific proxy IPs/CIDRs | ✅ Safe - allowlist specific proxies |
+| `TRUST_PROXY=false` (default production) | Direct internet or unknown proxies |  Safe - uses direct socket IP, prevents spoofing |
+| `TRUST_PROXY=loopback` (default development) | Local development only |  Safe - trusts only localhost (127.0.0.1, ::1) |
+| `TRUST_PROXY=1` | Single reverse proxy (e.g., Nginx) |  Safe - trusts 1 hop |
+| `TRUST_PROXY="10.0.0.0/8,127.0.0.1"` | Specific proxy IPs/CIDRs |  Safe - allowlist specific proxies |
 
-**⚠️ CRITICAL SECURITY WARNING**: Never set `trust proxy = true` in production without understanding the risks. This allows attackers to spoof client IPs via `X-Forwarded-For` header, breaking per-IP rate limiting and enabling:
+**WARNING -  CRITICAL SECURITY WARNING**: Never set `trust proxy = true` in production without understanding the risks. This allows attackers to spoof client IPs via `X-Forwarded-For` header, breaking per-IP rate limiting and enabling:
 - Bypassing rate limits completely
 - Causing collateral damage (blocking legitimate users)
 - Exhausting server resources
@@ -1354,8 +1354,8 @@ Example (Hyperscale, GKE Standard with 110 pods/node):
   M = 31 - ⌈log₂(110)⌉ = 24
   HM = 8
   HD = 19
-  MN = 2^(19-8) = 2,048 nodes ✅
-  MP = 2,048 × 110 = 225,280 pods ✅ (exceeds GKE 200K pod limit)
+  MN = 2^(19-8) = 2,048 nodes 
+  MP = 2,048 × 110 = 225,280 pods  (exceeds GKE 200K pod limit)
 ```
 
 **Node Primary Subnet Formula:**
@@ -1368,20 +1368,20 @@ Where S = primary subnet prefix
 
 For 5,000 nodes:
   S = 32 - ⌈log₂(5004)⌉ = /19
-  N = 2^13 - 4 = 8,188 nodes ✅
+  N = 2^13 - 4 = 8,188 nodes 
 ```
 
 **GKE Compliance:**
 
 | Aspect | Requirement | Implementation | Status |
 |--------|------------|-----------------|--------|
-| **Cluster mode** | VPC-native | Yes, uses secondary ranges | ✅ |
-| **IP addressing** | RFC 1918 compliant | Yes, all tiers | ✅ |
-| **Max cluster size** | 5,000 nodes (Autopilot) | Hyperscale tier | ✅ |
-| **Pod limits** | 200,000 max | Supported per tier | ✅ |
-| **Service range** | /20 recommended | /16 provided (over-provisioned) | ✅ |
-| **Pod density** | Standard: 110 max, Autopilot: 32 default | Formula uses 110 assumption | ⚠️ |
-| **Multi-AZ** | Multiple subnets per tier | Yes, 2-8 subnets per type | ✅ |
+| **Cluster mode** | VPC-native | Yes, uses secondary ranges |  |
+| **IP addressing** | RFC 1918 compliant | Yes, all tiers |  |
+| **Max cluster size** | 5,000 nodes (Autopilot) | Hyperscale tier |  |
+| **Pod limits** | 200,000 max | Supported per tier |  |
+| **Service range** | /20 recommended | /16 provided (over-provisioned) |  |
+| **Pod density** | Standard: 110 max, Autopilot: 32 default | Formula uses 110 assumption | WARNING -  |
+| **Multi-AZ** | Multiple subnets per tier | Yes, 2-8 subnets per type |  |
 
 **Pod Density Variation:**
 
@@ -1394,11 +1394,11 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 
 ```bash
 # Enterprise tier (GKE Standard, 50 nodes, 10-50 node range)
-# Pod range: /16 → supports 256 nodes at 110 pods/node = 28K pods ✅
+# Pod range: /16 → supports 256 nodes at 110 pods/node = 28K pods 
 
 # Hyperscale tier (GKE Standard, 5,000 nodes max)
-# Pod range: /13 → supports 2,048 nodes at 110 pods/node = 225K pods ✅
-# Primary: /19 → supports 8,188 nodes ✅
+# Pod range: /13 → supports 2,048 nodes at 110 pods/node = 225K pods 
+# Primary: /19 → supports 8,188 nodes 
 ```
 
 **Best Practices:**
@@ -1451,11 +1451,11 @@ Our Hyperscale tier supports up to 5,000 nodes in standard configuration (8,188 
 
 | Tier | Primary | Pod CIDR | Node Capacity | Actual Nodes | Status |
 |---|---|---|---|---|---|
-| Micro | /25 | /18 | 124 | 1 | ✅ |
-| Standard | /24 | /16 | 252 | 1-3 | ✅ |
-| Professional | /23 | /16 | 508 | 3-10 | ✅ |
-| Enterprise | /23 | /16 | 508 | 10-50 | ✅ |
-| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** | ✅ |
+| Micro | /25 | /18 | 124 | 1 |  |
+| Standard | /24 | /16 | 252 | 1-3 |  |
+| Professional | /23 | /16 | 508 | 3-10 |  |
+| Enterprise | /23 | /16 | 508 | 10-50 |  |
+| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** |  |
 
 **IP Prefix Delegation Requirements:**
 - Requires AWS Nitro-based instance types (c5+, m5+, r5+, t3+, etc.)
@@ -1497,10 +1497,10 @@ Solutions:
 | **Support Threshold** | 1,000+ nodes | 5,000 node limit |
 
 **Our Implementation:**
-- ✅ Supports both EKS and GKE with single tier configuration
-- ✅ Default settings work for both (safe defaults)
-- ✅ Over-provisioned service CIDR works for both
-- ✅ Pod CIDR `/13` supports both EKS (5000 nodes at 250 pods/node) and GKE (2048 nodes at 110 pods/node)
+-  Supports both EKS and GKE with single tier configuration
+-  Default settings work for both (safe defaults)
+-  Over-provisioned service CIDR works for both
+-  Pod CIDR `/13` supports both EKS (5000 nodes at 250 pods/node) and GKE (2048 nodes at 110 pods/node)
 
 **For EKS Deployments:**
 - Use Nitro-based instances to maximize pod density
@@ -1508,6 +1508,104 @@ Solutions:
 - Monitor control plane metrics for scaling decisions
 - Use subnet CIDR reservations for 1000+ node clusters
 - Engage AWS support for 5000+ node configurations
+
+### AKS Compliance & IP Calculation Formulas
+
+Azure Kubernetes Service (AKS) uses Azure Virtual Network integration with Azure CNI for pod networking. Our implementation supports both managed VNets and custom VNets with identical tier configurations.
+
+**AKS Network Model:**
+- Nodes get IP addresses from primary VNet subnet
+- Pods get IPs from overlay CIDR (or VNet with direct CNI)
+- Azure CNI Overlay: `/28` blocks not needed; full overlay CIDR used
+- Token bucket throttling algorithm for API rate limiting
+- RFC 1918 private addressing required
+
+**Node Capacity Formula:**
+```
+Node_Capacity = 2^(32 - subnet_prefix) - 4
+Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+```
+
+**Pod CIDR Capacity (Overlay Model):**
+```
+Pod_Addresses = 2^(32 - pod_prefix)
+With Azure CNI Overlay:
+- /18 = 16,384 addresses
+- /16 = 65,536 addresses (safe for all clusters)
+- /13 = 524,288 addresses (supports 200K pod limit)
+Actual Limit: Minimum of calculated or 200,000 pods per cluster
+```
+
+**AKS Scalability Thresholds:**
+
+| Scale Level | Nodes | Pods | Recommendation |
+|---|---|---|---|
+| **Small** | <300 | <10K | Standard tier sufficient |
+| **Medium** | 300-1000 | 10K-50K | Monitor control plane |
+| **Large** | 1000-5000 | 50K-200K | Contact Azure support |
+| **At Limit** | 5000 | 200K (overlay) | Cannot upgrade (no surge capacity) |
+
+Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Overlay).
+
+**AKS Tier Compliance Matrix:**
+
+| Tier | Primary | Pod CIDR | Node Cap | Actual Nodes | Node Pools | Status |
+|---|---|---|---|---|---|---|
+| Micro | /25 | /18 | 124 | 1 | 1 |  |
+| Standard | /24 | /16 | 252 | 1-3 | 1 |  |
+| Professional | /23 | /16 | 508 | 3-10 | 1 |  |
+| Enterprise | /23 | /16 | 508 | 10-50 | 1-2 |  |
+| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** | **5-10** |  |
+
+**Multi-Node Pool Requirements:**
+- AKS limit: 1,000 nodes per node pool
+- For 5,000 nodes: Need minimum 5 node pools
+- Typical distribution: 5 pools × 1,000 nodes each
+- Plus 1-2 system pools for kube-system pods
+
+**Token Bucket Throttling (AKS API Rate Limiting):**
+```
+Algorithm: Fixed-size bucket that refills over time
+
+PUT ManagedCluster: 20 burst requests, 1 request/minute sustained
+PUT AgentPool:      20 burst requests, 1 request/minute sustained
+LIST ManagedClusters: 60 burst (ResourceGroup scope), 1 request/second
+GET ManagedCluster: 60 burst requests, 1 request/second sustained
+All Other APIs:     60 burst requests, 1 request/second sustained
+
+Error: HTTP 429 (Too Many Requests)
+Header: Retry-After: <delay-seconds>
+```
+
+**Scaling Best Practices:**
+1. Scale in batches of 500-700 nodes
+2. Wait 2-5 minutes between scale operations
+3. Prevents Azure API throttling
+4. Monitors control plane stability
+
+**Cluster Upgrade Limitation:**
+- **Critical**: Cannot upgrade when cluster is at 5,000 nodes
+- **Reason**: No surge capacity for rolling updates
+- **Solution**: Scale down to <3,000 nodes before upgrade
+- **Planning**: Factor upgrade maintenance into cluster planning
+
+**Azure CNI Overlay vs Direct CNI:**
+
+| Aspect | Overlay | Direct |
+|---|---|---|
+| **Pod CIDR** | Separate overlay range | Uses VNet subnet IPs |
+| **Max Pods** | 200,000 per cluster | 50,000 per cluster |
+| **VNet IPs** | No consumption | Full consumption |
+| **Recommended** | Production/Hyperscale | Legacy/small clusters |
+
+**For AKS Deployments:**
+- Use Standard or Premium control plane tier (Free not for production)
+- Enable Azure CNI Overlay for clusters >1000 nodes
+- Plan multiple node pools for 5000-node clusters
+- Use Managed VNet unless specific custom networking needed
+- Monitor Azure throttling with API client logging
+- Scale in batches to prevent throttling errors
+- Use Cilium or segmentation instead of Azure NPM for >250 nodes
 
 ---
 
