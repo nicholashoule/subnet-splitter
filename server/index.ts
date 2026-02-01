@@ -21,9 +21,43 @@ import { createServer } from "http";
 
 const app = express();
 
-// Security headers
+// Security headers with environment-aware CSP configuration
+// Development mode needs relaxed CSP for Vite HMR and Replit plugins
+// Production mode uses strict CSP for maximum security
+const isDevelopment = process.env.NODE_ENV !== "production";
+const isReplit = process.env.REPL_ID !== undefined;
+
+const cspDirectives: Record<string, string[]> = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
+  // and for Tailwind CSS compiled styles that rely on inline style blocks.
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  imgSrc: ["'self'", "data:"],
+  connectSrc: ["'self'"],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  frameAncestors: ["'self'"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
+};
+
+// In development, allow WebSocket connections for Vite HMR
+if (isDevelopment) {
+  cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
+}
+
+// In Replit development environment, allow additional origins for Replit plugins
+// These plugins inject runtime error overlays, cartographer, and dev banner
+if (isDevelopment && isReplit) {
+  cspDirectives.scriptSrc.push("https://*.replit.com", "https://*.replit.dev");
+  cspDirectives.connectSrc.push("https://*.replit.com", "https://*.replit.dev", "wss://*.replit.com", "wss://*.replit.dev");
+  cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
+}
+
 app.use(helmet({
-  contentSecurityPolicy: false, // Disabled for SPA compatibility
+  contentSecurityPolicy: {
+    directives: cspDirectives,
+  },
   crossOriginEmbedderPolicy: false,
 }));
 const httpServer = createServer(app);
