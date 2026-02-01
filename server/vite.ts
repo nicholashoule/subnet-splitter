@@ -53,8 +53,9 @@ export async function setupVite(server: Server, app: Express) {
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req): boolean => {
-      // Skip rate limiting for certain development paths
-      // Only apply to actual SPA fallback requests (routes without file extensions)
+      // Skip rate limiting for requests with file extensions
+      // NOTE: This only skips rate limiting; the SPA fallback handler has its own
+      // file-extension guard to prevent serving index.html for file requests
       const urlPath = req.path;
       const ext = path.extname(urlPath);
       return !!(ext && ext !== '.html'); // Only rate limit HTML/route requests
@@ -62,12 +63,22 @@ export async function setupVite(server: Server, app: Express) {
   });
 
   // SPA fallback for client-side routing with selective rate limiting:
-  // - GET/HEAD requests (expensive file I/O) are rate-limited
+  // - GET/HEAD requests to routes (no file extension) are rate-limited and served index.html
+  // - GET/HEAD requests to files (with extension) fall through to 404
   // - POST/PUT/DELETE/etc bypass rate limiting and fall through to 404
   // Runs AFTER Vite middleware so actual assets are served by Vite first
   app.use(async (req, res, next) => {
     // Only serve SPA fallback for GET and HEAD requests
     if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+
+    // Only serve SPA fallback for route-like requests (no file extension)
+    // This prevents accidentally serving index.html for missed assets/modules
+    const urlPath = req.path;
+    const ext = path.extname(urlPath);
+    if (ext && ext !== '.html') {
+      // Request has a file extension (other than .html), let it fall through to 404
       return next();
     }
 
