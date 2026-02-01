@@ -18,6 +18,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import rateLimit from "express-rate-limit";
 
 const viteLogger = createLogger();
 
@@ -44,20 +45,25 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
+  // Rate limiter for SPA fallback (development or production)
+  // Even in development, protect file system operations from resource exhaustion
+  const spaRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // More generous limit for development (100 vs production 30)
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req): boolean => {
+      // Skip rate limiting for certain development paths
+      // Only apply to actual SPA fallback requests (routes without file extensions)
+      const urlPath = req.path;
+      const ext = path.extname(urlPath);
+      return !!(ext && ext !== '.html'); // Only rate limit HTML/route requests
+    },
+  });
+
   // SPA fallback: serve index.html for client-side routes
   // This runs AFTER Vite middleware, so Vite handles actual assets first
-  app.use(async (req, res, next) => {
-    // Use req.path to exclude query strings (req.originalUrl includes ?params)
-    const urlPath = req.path;
-    
-    // Skip fallback for file requests (has extension but not .html)
-    // Use path.extname() for proper extension detection instead of string matching
-    // This prevents issues like /foo?ref=a.b from being incorrectly treated as files
-    const ext = path.extname(urlPath);
-    if (ext && ext !== '.html') {
-      return next();
-    }
-
+  app.use(spaRateLimiter, async (req, res, next) => {
     try {
       const clientTemplate = path.resolve(
         import.meta.dirname,
