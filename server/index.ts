@@ -58,14 +58,14 @@ if (isDevelopment && isReplit) {
 
 // Security middleware with strict CSP configuration
 // crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
+// Note: xssFilter and noSniff were removed - they are deprecated and not supported in Helmet v8
+// X-XSS-Protection header is deprecated by browsers and should not be enabled
+// X-Content-Type-Options: nosniff is set by default in Helmet v8
 app.use(helmet({
   contentSecurityPolicy: {
     directives: cspDirectives,
   },
   crossOriginEmbedderPolicy: false,
-  // Ensure other security features are explicitly enabled
-  xssFilter: true,
-  noSniff: true,
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 const httpServer = createServer(app);
