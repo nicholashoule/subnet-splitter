@@ -1409,6 +1409,106 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 4. Use multi-AZ deployments in production (Professional+)
 5. Plan for IP exhaustion - expanding ranges requires cluster recreation
 
+### EKS Compliance & IP Calculation Formulas
+
+AWS EKS uses a different IP allocation model than GKE, based on EC2 ENI (Elastic Network Interface) and secondary IP addresses. Our implementation supports both platforms with identical tier configurations.
+
+**EKS Network Model:**
+- Nodes get IP addresses from primary VPC subnet
+- Pods get IPs from secondary ranges using AWS VPC CNI plugin
+- IP prefix delegation (Nitro-based instances): `/28` CIDR blocks per pod batch
+- Traditional method: Individual secondary IPs per pod (limited to ~50/node)
+
+**Pod CIDR Calculation Formula:**
+```
+With IP prefix delegation (Nitro instances):
+Pod_Capacity_Per_Node = (ENIs_Per_Instance × Prefixes_Per_ENI × 16_IPs_Per_Prefix)
+Maximum pods per node: 250 (enforced by EKS)
+
+Without prefix delegation:
+Pod_Capacity_Per_Node = Secondary_IPs_Available
+Maximum pods per node: 50-110 (instance type dependent)
+```
+
+**Node Primary Subnet Formula:**
+```
+Node_Capacity = 2^(32 - subnet_prefix) - 4
+Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+```
+
+**EKS Scalability Thresholds:**
+
+| Scale Level | Nodes | Pods | Recommendation |
+|---|---|---|---|
+| **Small** | <300 | <10K | Standard operations |
+| **Medium** | 300-1000 | 10K-50K | Monitor control plane |
+| **Large** | 1000-5000 | 50K-200K | Contact AWS support |
+| **Extreme** | 5000-100K | 200K+ | AWS onboarding required |
+
+Our Hyperscale tier supports up to 5,000 nodes in standard configuration (8,188 with optimized /19 primary subnet).
+
+**EKS Tier Compliance Matrix:**
+
+| Tier | Primary | Pod CIDR | Node Capacity | Actual Nodes | Status |
+|---|---|---|---|---|---|
+| Micro | /25 | /18 | 124 | 1 | ✅ |
+| Standard | /24 | /16 | 252 | 1-3 | ✅ |
+| Professional | /23 | /16 | 508 | 3-10 | ✅ |
+| Enterprise | /23 | /16 | 508 | 10-50 | ✅ |
+| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** | ✅ |
+
+**IP Prefix Delegation Requirements:**
+- Requires AWS Nitro-based instance types (c5+, m5+, r5+, t3+, etc.)
+- Enable via: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
+- Subnets must have contiguous `/28` blocks available
+- Use AWS subnet CIDR reservations to prevent fragmentation
+
+**Fragmentation Risk & Mitigation:**
+```
+Problem: When subnets have scattered secondary IPs, prefix allocation fails
+Error: "InsufficientCidrBlocks: The specified subnet does not have enough free cidr blocks"
+
+Solutions:
+1. Use new subnets (no fragmentation)
+2. Create AWS subnet CIDR reservations
+3. Enable WARM_PREFIX_TARGET for proactive scaling:
+   kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
+```
+
+**EKS Best Practices:**
+1. Use Nitro instance types for prefix delegation (better pod density)
+2. Reserve subnet CIDR space for prefixes in large clusters (1000+ nodes)
+3. Monitor API latency at 1000+ nodes (control plane scaling indicator)
+4. Scale cluster services (coredns, kube-proxy) with node count
+5. Use namespace quotas to prevent pod exhaustion
+6. Enable multi-AZ for production (Professional tier minimum)
+7. Plan for IP exhaustion - don't wait until subnets are full
+
+**Comparison: EKS vs GKE Pod Allocation**
+
+| Aspect | EKS | GKE |
+|---|---|---|
+| **Model** | EC2 ENI + secondary IPs | Alias IP ranges (automatic) |
+| **Configuration** | Manual prefix delegation | Auto-managed by Google |
+| **Pod Density** | 250 max (with prefix) | 110 default (Standard), 32 (Autopilot) |
+| **Fragmentation Risk** | Yes (prefix allocation) | No (Google handles) |
+| **Optimization** | WARM_PREFIX_TARGET tuning | None needed |
+| **Max Nodes** | 100,000 (with support) | 5,000 (Autopilot) |
+| **Support Threshold** | 1,000+ nodes | 5,000 node limit |
+
+**Our Implementation:**
+- ✅ Supports both EKS and GKE with single tier configuration
+- ✅ Default settings work for both (safe defaults)
+- ✅ Over-provisioned service CIDR works for both
+- ✅ Pod CIDR `/13` supports both EKS (5000 nodes at 250 pods/node) and GKE (2048 nodes at 110 pods/node)
+
+**For EKS Deployments:**
+- Use Nitro-based instances to maximize pod density
+- Enable prefix delegation for large clusters (300+ nodes)
+- Monitor control plane metrics for scaling decisions
+- Use subnet CIDR reservations for 1000+ node clusters
+- Engage AWS support for 5000+ node configurations
+
 ---
 
 #### POST `/api/kubernetes/network-plan`
