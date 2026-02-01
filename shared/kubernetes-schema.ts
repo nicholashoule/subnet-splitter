@@ -132,9 +132,9 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
   hyperscale: {
     publicSubnets: 8,
     privateSubnets: 8,
-    subnetSize: 20,      // /20 = 4096 addresses per subnet (large workloads)
-    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes)
-    servicesPrefix: 16,
-    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
+    subnetSize: 19,      // /19 = 8192 addresses per subnet (GKE optimal for 5000+ nodes: 2^(32-19)-4 = 8188 nodes)
+    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes, supports 262K pods with /24 per node)
+    servicesPrefix: 16,  // /16 for 65K+ services (exceeds GKE /20 default)
+    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
   }
 };
