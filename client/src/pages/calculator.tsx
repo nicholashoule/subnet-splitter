@@ -516,10 +516,10 @@ export default function Calculator() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-6 py-8 max-w-[1600px]">
-        <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-6 mb-10 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
-            <Network className="h-8 w-8 text-primary" />
-          </div>
+        <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
+          <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
+            <img src="/github-nicholashoule.png" alt="GitHub QR Code" className="w-16 h-16 rounded-lg hover:opacity-80 transition-opacity mb-2" />
+          </a>
           <h1 className="text-4xl font-bold tracking-tight mb-3" data-testid="text-title">
             CIDR Subnet Calculator
           </h1>

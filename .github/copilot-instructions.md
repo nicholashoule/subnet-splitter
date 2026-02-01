@@ -1,12 +1,12 @@
 # GitHub Copilot Instructions - CIDR Subnet Calculator
 
-⚠️ **CRITICAL SECURITY REQUIREMENT** ⚠️
+**CRITICAL SECURITY REQUIREMENT**
 
 **ALL AI agents must perform security audit BEFORE any code execution:**
 1. Run `npm audit` to check for vulnerabilities
 2. Run `npm audit fix --force` to resolve any issues
 3. Run `npm audit` again to verify clean state (0 vulnerabilities)
-4. See [Security & Dependency Audit Requirements](#security--dependency-audit-requirements) section below for full protocol
+4. See the **Security & Dependency Audit Requirements** section below for full protocol
 
 **Failure to perform security audit before code execution is a breach of security protocol.**
 
@@ -198,7 +198,7 @@ npm audit
 
 ### Known Vulnerabilities & Resolutions
 
-**Current Status**: ✅ **0 vulnerabilities**
+**Current Status**:  **0 vulnerabilities**
 
 **Historical Issues** (all resolved):
 - **Vitest 2.1.8**: Had 5 moderate vulnerabilities related to esbuild/vite
@@ -432,6 +432,64 @@ npm run build              # Verify production build succeeds
 - Example: `.elegant-scrollbar` for styled scrollbars
 - Support both light and dark modes using Tailwind classes
 
+### Tailwind CSS Troubleshooting Guide
+
+**Problem: Styling Not Loading / CSS Missing**
+
+**Root Causes and Solutions:**
+
+1. **Tailwind Content Configuration Misconfigured**
+   - **Issue**: Modifying `tailwind.config.ts` content paths with experimental patterns breaks CSS generation
+   - **Solution**: Always use simple, standard glob patterns:
+     ```typescript
+     content: ["./client/**/*.{js,jsx,ts,tsx}"]
+     ```
+   - **What NOT to do**: Don't use absolute paths with `import.meta.url` or complex nested patterns unless Tailwind docs explicitly support it
+   - **Why**: Tailwind's glob engine scans files at config load time; complex patterns may not match files correctly
+
+2. **PostCSS Plugin Warnings**
+   - **Issue**: Warnings like "PostCSS plugin did not pass the `from` option" add noise but don't break CSS
+   - **Solution**: Keep `postcss.config.js` simple:
+     ```javascript
+     export default {
+       plugins: {
+         tailwindcss: {},
+         autoprefixer: {},
+       },
+     }
+     ```
+   - **What NOT to do**: Don't add experimental options like `from: undefined` unless debugging a specific error
+
+3. **VS Code Simple Browser Limitations**
+   - **Issue**: CSS doesn't load properly in VS Code's Simple Browser
+   - **Solution**: Use a real browser (Chrome, Edge, Firefox) for development
+   - **Why**: Simple Browser has issues with Vite's WebSocket HMR (Hot Module Replacement)
+   - **Command**: Open `http://127.0.0.1:5000` or `http://localhost:5000` in your regular browser
+
+4. **Browser Cache**
+   - **Issue**: CSS changes don't appear after dev server restart
+   - **Solution**: Hard refresh browser cache:
+     - Windows/Linux: `Ctrl+Shift+R`
+     - Mac: `Cmd+Shift+R`
+   - **Why**: Browser caches CSS files; hard refresh forces reload
+
+**Debugging Checklist:**
+
+- [ ] Run `npm run test -- --run` - verify core tests pass (if they do, CSS is just a display issue)
+- [ ] Check `tailwind.config.ts` uses standard glob pattern: `"./client/**/*.{js,jsx,ts,tsx}"`
+- [ ] Verify `postcss.config.js` only has `tailwindcss: {}` and `autoprefixer: {}`
+- [ ] Use real browser (Chrome/Edge/Firefox), not VS Code Simple Browser
+- [ ] Hard refresh browser: `Ctrl+Shift+R` (Windows) or `Cmd+Shift+R` (Mac)
+- [ ] Restart dev server: `Stop-Process -Name node -Force; npm run dev`
+
+**When Nothing Else Works:**
+
+1. Verify tests pass: `npm run test -- --run` (confirms logic is fine)
+2. Revert config files to git: `git checkout tailwind.config.ts postcss.config.js`
+3. Clean restart: Kill Node process, clear browser cache, restart dev server
+4. Check open terminal for CSS errors from Tailwind or Vite
+5. If still broken, check git log for recent config changes: `git log --oneline tailwind.config.ts postcss.config.js`
+
 ### Icons & User-Facing Text
 - **Use Lucide React icons only** - do not use unicode icons or special characters
 - All icons must come from the lucide-react package
@@ -442,14 +500,14 @@ npm run build              # Verify production build succeeds
 
 ### Header Styling
 
-The webapp header provides a professional introduction to the application with consistent visual hierarchy.
+The webapp header provides a professional introduction to the application with consistent visual hierarchy and GitHub profile branding.
 
 **Current Implementation:**
 ```tsx
-<header className="border-b border-border bg-muted/20 -mx-6 px-6 py-6 mb-10 text-center">
-  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
-    <Network className="h-8 w-8 text-primary" />
-  </div>
+<header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
+  <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
+    <img src="/github-nicholashoule.png" alt="GitHub QR Code" className="w-16 h-16 rounded-lg hover:opacity-80 transition-opacity mb-2" />
+  </a>
   <h1 className="text-4xl font-bold tracking-tight mb-3">CIDR Subnet Calculator</h1>
   <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
     Calculate subnet details and recursively split networks into smaller subnets...
@@ -461,13 +519,19 @@ The webapp header provides a professional introduction to the application with c
 - **Border:** Subtle bottom border (`border-b border-border`) separates header from content
 - **Background:** Muted background (`bg-muted/20`) creates visual distinction without overwhelming
 - **Full-width effect:** Uses `-mx-6 px-6` to extend background to page edges while maintaining container alignment
-- **Padding:** `py-6` (24px vertical) for breathable spacing without excess whitespace
+- **Padding:** `py-4` (16px vertical) for compact spacing without excess whitespace
+- **QR Code Image:**
+  - Size: 64px (w-16 h-16)
+  - Styling: `rounded-lg` for subtle corner rounding, `hover:opacity-80` for interaction feedback
+  - Functionality: Clickable link to GitHub profile (`target="_blank" rel="noopener noreferrer"`)
+  - Location: `client/public/github-nicholashoule.png` (6.6 KB)
+  - URL Reference: `/github-nicholashoule.png` (served from public directory)
 - **Typography:**
-  - Icon: Primary color with 1rem size (h-8 w-8)
+  - QR Code: Personal branding element with hover effect
   - Title: Large (text-4xl), bold, tracking-tight for visual impact
   - Description: Muted color, leading-relaxed for readability
 - **Responsive:** Maintains alignment with container's max-w-[1600px]
-- **Spacing between elements:** Icon to title = `mb-4`, Title to description = `mb-3`
+- **Spacing between elements:** QR code to title = `mb-2`, Title to description = `mb-3`
 
 ### Footer Styling
 
@@ -938,7 +1002,7 @@ Currently all subnet calculations happen client-side. The following REST API end
 
 **As of January 31, 2026 (Final):**
 
-✅ **Complete Project State**:
+ **Complete Project State**:
 - Development environment fully configured (Windows compatible)
 - All TypeScript type definitions installed and working
 - Core CIDR calculation functionality complete and thoroughly tested
@@ -948,21 +1012,21 @@ Currently all subnet calculations happen client-side. The following REST API end
 - Robustness improvements complete (validation, error boundaries, state validation)
 - Documentation comprehensive and current across all files
 
-✅ **Test Suite Status**:
+ **Test Suite Status**:
 - **Unit Tests**: 53 tests covering all calculation logic (100% code coverage)
 - **Integration Tests**: 27 tests validating design system and WCAG accessibility
 - **Total Tests**: 80/80 passing
 - **Execution Time**: ~1.3 seconds
 - **WCAG Compliance**: AAA for primary text (7.2:1), AA+ for all other elements
 
-✅ **Security & Quality**:
+ **Security & Quality**:
 - npm audit: 0 vulnerabilities
 - TypeScript: Strict mode enforced, no `any` types
 - Production build: Successfully builds and runs
 - Code style: Consistent across all files
 - No console errors in dev or production environments
 
-✅ **Documentation**:
+ **Documentation**:
 - `.github/copilot-instructions.md`: Comprehensive guidelines (updated with full test coverage info)
 - `.github/agent-reasoning.md`: Complete development history
 - `tests/README.md`: Testing framework documentation

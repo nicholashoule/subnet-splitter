@@ -981,3 +981,147 @@ Implemented 5 major robustness improvements:
 3. Implement REST API layer (documented in copilot-instructions)
 4. Add GitHub Actions workflow for automated testing
 5. Consider test coverage reporting (coveralls.io)
+
+---
+
+### 22. Tailwind CSS Configuration Crisis & Recovery
+
+**Session**: January 31, 2026 (Evening - Final)  
+**Context**: CSS styling completely broke while attempting to fix development environment issues
+
+#### What Happened
+
+During troubleshooting of the Vite development server and CSS generation, I made several changes to `tailwind.config.ts`:
+
+1. **First attempt**: Changed content paths from glob patterns to absolute paths with `import.meta.url` and `fileURLToPath`
+   - Problem: Tailwind still reported "content missing or empty"
+   - Root cause: Path resolution was correct but Tailwind CLI was still not finding files
+
+2. **Second attempt**: Tried multiple different content glob patterns:
+   - `./client/**/*.{html,js,jsx,ts,tsx}` 
+   - `"client/**/*.{html,js,jsx,ts,tsx}"`
+   - Specific file listings: `./client/src/pages/*.tsx`, `./client/src/components/**/*.tsx`
+   - Problem: None of these worked - Tailwind remained unable to scan
+
+3. **Also changed postcss.config.js**: Added `from: undefined` to tailwindcss plugin
+   - Problem: This created PostCSS parsing warnings
+   - Impact: Made debugging harder, created false impression of configuration issues
+
+#### Root Cause Analysis
+
+The real issue was **not** the content configuration glob patterns - the site was working with the standard original config `"./client/**/*.{js,jsx,ts,tsx}"`. The problem was my attempts to "fix" something that wasn't broken were introducing new issues that distracted from the actual problem (which was the Simple Browser not loading CSS properly due to WebSocket/HMR limitations).
+
+#### Resolution
+
+1. **Reverted tailwind.config.ts** to original: `"./client/**/*.{js,jsx,ts,tsx}"`
+2. **Reverted postcss.config.js** to original: removed `from: undefined`
+3. **Clean restart** with both files back to working state
+4. **Verified** all 80 tests still passed (core logic was never broken)
+5. **Confirmed** styling fully restored when opened in Chrome (not Simple Browser)
+
+#### Key Lessons
+
+1. **Don't change working configs**: The original Tailwind config was correct
+2. **Debugging paradox**: When trying to fix CSS generation, adding more specific paths actually breaks Tailwind's file scanning (Tailwind's glob engine works best with simple, broad patterns)
+3. **Separate concerns**: The CSS styling issue was a browser/development environment issue (Simple Browser limitations), not a Tailwind configuration issue
+4. **Always verify before changing**: Running tests first would have shown the core logic wasn't broken
+5. **Revert first, investigate later**: When multiple changes are made, revert to last known good state before trying new fixes
+
+#### What NOT To Do
+
+❌ Don't change `tailwind.config.ts` content paths unless specifically advised by Tailwind documentation  
+❌ Don't add experimental path resolution (like `import.meta.url`) without documented reason  
+❌ Don't modify `postcss.config.js` plugin options unless there's a specific error message  
+❌ Don't use Simple Browser in VS Code for Vite dev servers (use real browser: Chrome, Edge, Firefox)  
+
+#### What TO Do
+
+✅ Always run tests before and after configuration changes  
+✅ Keep configuration as simple and standard as possible  
+✅ Use real browser for development (not VS Code Simple Browser)  
+✅ Revert config to last known good state before making new changes  
+✅ Clear browser cache (Ctrl+Shift+R) when CSS doesn't update  
+
+#### Recovery Command Sequence
+
+```bash
+# Kill any running processes
+Stop-Process -Name node -Force -ErrorAction SilentlyContinue
+
+# Revert configs to original
+git checkout tailwind.config.ts postcss.config.js
+
+# Verify tests still pass
+npm run test -- --run
+
+# Clean restart dev server
+npm run dev
+
+# Access in real browser, hard refresh
+# Chrome: http://127.0.0.1:5000 (Ctrl+Shift+R)
+```
+
+#### Impact
+
+- ✅ No code changes needed
+- ✅ No new features broken
+- ✅ All 80 tests passing
+- ✅ Full styling restored
+- ✅ Development environment now stable
+
+#### Prevention
+
+Added to `.github/copilot-instructions.md`:
+- Tailwind CSS troubleshooting guide
+- List of common config pitfalls
+- Recommended workflow for CSS debugging
+- Browser compatibility notes for dev servers
+
+---
+
+### 23. Header Branding Update - QR Code Display
+
+**Session**: January 31, 2026 (Evening - Final)  
+**Context**: Updated header to display GitHub profile QR code instead of generic Network icon
+
+**Changes Made:**
+
+1. **Created QR Code Image Asset**
+   - Generated QR code linking to `https://github.com/nicholashoule`
+   - File: `client/public/github-nicholashoule.png` (6.6 KB)
+   - Located in standard image assets directory
+
+2. **Updated Header Component** (`client/src/pages/calculator.tsx`)
+   - Replaced Network icon with QR code image
+   - Made image clickable link to GitHub profile
+   - Opens in new tab (`target="_blank" rel="noopener noreferrer"`)
+   - Added hover effect (`opacity-80` on hover)
+   - Adjusted spacing for compact layout:
+     - Header padding: `py-6` → `py-4`
+     - Image margin-bottom: `mb-4` → `mb-2`
+     - Header margin-bottom: `mb-10` → `mb-6`
+
+3. **Benefits**
+   - Personal branding via QR code
+   - Direct GitHub profile access
+   - Professional, interactive element
+   - Compact visual presence
+   - Maintains alignment with design system
+
+**Code Example:**
+```tsx
+<header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
+  <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
+    <img src="/github-nicholashoule.png" alt="GitHub QR Code" className="w-16 h-16 rounded-lg hover:opacity-80 transition-opacity mb-2" />
+  </a>
+  <h1 className="text-4xl font-bold tracking-tight mb-3">CIDR Subnet Calculator</h1>
+  {/* ... */}
+</header>
+```
+
+**File Structure:**
+- **Image Location**: `client/public/github-nicholashoule.png`
+- **URL Reference**: `/github-nicholashoule.png` (served from public directory)
+- **Component File**: `client/src/pages/calculator.tsx` (lines 519-528)
+
+---
