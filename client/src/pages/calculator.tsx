@@ -15,10 +15,10 @@
  * - Recursion depth limiting and memory protection
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download } from "lucide-react";
+import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -262,10 +262,37 @@ function SubnetDetails({ subnet }: { subnet: SubnetInfo }) {
 }
 
 export default function Calculator() {
+  const [isDark, setIsDark] = useState(false);
   const [rootSubnet, setRootSubnet] = useState<SubnetInfo | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Initialize theme from localStorage, default to light mode
+  useEffect(() => {
+    const isDarkMode = localStorage.getItem('theme') === 'dark' && 
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setIsDark(isDarkMode);
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(prev => {
+      const newState = !prev;
+      if (newState) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+      }
+      return newState;
+    });
+  }, []);
 
   const form = useForm<CidrInput>({
     resolver: zodResolver(cidrInputSchema),
@@ -515,7 +542,29 @@ export default function Calculator() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-6 py-8 max-w-[1600px]">
+      <div className="flex justify-end px-6 py-2 border-b border-border bg-muted/20">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="rounded-lg hover:bg-muted transition-colors"
+              aria-label="Toggle dark mode"
+            >
+              {isDark ? (
+                <Sun className="h-5 w-5 text-muted-foreground" />
+              ) : (
+                <Moon className="h-5 w-5 text-muted-foreground" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isDark ? 'Light mode' : 'Dark mode'}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <div className="container mx-auto px-6 pb-8 max-w-[1600px]">
         <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
           <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
             <img src="/github-nicholashoule.png" alt="GitHub QR Code" className="w-16 h-16 rounded-lg hover:opacity-80 transition-opacity mb-2" />
@@ -678,16 +727,16 @@ export default function Calculator() {
             </CardContent>
           </Card>
         )}
-
-        <footer className="mt-8 border-t border-border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground space-y-3">
-          <p className="max-w-2xl mx-auto leading-relaxed">
-            CIDR (Classless Inter-Domain Routing) allows flexible IP allocation. Split subnets to create smaller network segments for better organization, efficient management, and improved security through network isolation.
-          </p>
-          <p className="text-xs">
-            Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium" data-testid="link-github">nicholashoule</a>
-          </p>
-        </footer>
       </div>
+
+      <footer className="border-t border-border bg-muted/30 -mx-6 px-6 py-8 text-center text-sm text-muted-foreground space-y-3">
+        <p className="max-w-2xl mx-auto leading-relaxed">
+          CIDR (Classless Inter-Domain Routing) allows flexible IP allocation. Split subnets to create smaller network segments for better organization, efficient management, and improved security through network isolation.
+        </p>
+        <p className="text-xs">
+          Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium" data-testid="link-github">nicholashoule</a>
+        </p>
+      </footer>
     </div>
   );
 }
