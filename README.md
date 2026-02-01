@@ -42,7 +42,7 @@ This application follows a **security by design** approach with multiple layers 
 - Environment-aware configuration for dev vs production
 - File extension checks prevent serving source files as HTML
 - Middleware ordering protects asset serving from SPA fallback interference
-- All security settings documented and tested
+- All security settings documented; core protections covered by automated tests
 
 ## Tech Stack
 
