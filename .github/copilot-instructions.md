@@ -322,13 +322,13 @@ app.use(spaRateLimiter, (req, res) => {
 ```
 
 **Development Setup** (`server/vite.ts`):
-- No rate limiting on Vite middleware (localhost is trusted)
-- Vite handles HMR and asset serving efficiently
-- SPA fallback only serves index.html for client-side routes
+- Vite middleware is used for HMR and asset serving during development
+- SPA fallback is also protected by a `spaRateLimiter` in dev, but with a higher limit (e.g., `max: 100`) tuned for local usage
+- The dev `spaRateLimiter` applies to GET/HEAD SPA fallback requests even on localhost
 
 **Rate Limiting Best Practices**:
-1. **File system operations** are expensive - always rate limit in production
-2. **Localhost is exempt** - development experience shouldn't be throttled
+1. **File system operations** are expensive - always rate limit SPA fallback in production
+2. **Development should also use rate limiting**, but with more permissive limits (higher `max`) to avoid impacting normal local workflows
 3. **Per-IP tracking** - Express configured with `app.set('trust proxy', true)` to properly parse `X-Forwarded-For` headers for accurate client IP detection even behind reverse proxies
 4. **Graceful degradation** - returns 429 status with error message
 
