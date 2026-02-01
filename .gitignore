@@ -1,33 +1,167 @@
-# Default ignores
+# Environment variables
 .env
 .env.local
 .env.*.local
+.env.production.local
 
-# macOS system files
+# ============================================================================
+# OS-Specific Files
+# ============================================================================
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+*~
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+.AppleDesktop
+Network Trash Folder
+Temporary Items
 
-# Windows system files
+# Windows
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.lnk
 
-# Archive files
-*.zip
-*.tar
-*.tar.gz
+# Linux
+.directory
+.Trash-*
 
-# Node.js dependencies
-node_modules
-dist
-server/public
-vite.config.ts.*
+# ============================================================================
+# IDE & Editor Files
+# ============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+.vscode-server/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+.#*
+
+# Nano
+.nano_history
+
+# ============================================================================
+# Node.js / npm / yarn / pnpm
+# ============================================================================
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Production build outputs
+dist/
+build/
+.next/
+out/
+coverage/
+
+# Logging
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-.pnp.*
+lerna-debug.log*
+.pnp
+.pnp.js
+
+# Cache
 .cache/
-.next/
-out/
-build/
-coverage/
-.idea/
+.eslintcache
+.parcel-cache
+.next
+out
+
+# Misc
+.turbo/
+dist-ssr/
+
+# ============================================================================
+# Development & Testing
+# ============================================================================
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Test coverage
+.nyc_output
+.coverage
+htmlcov/
+
+# Vite
+.vite/
+
+# TypeScript
+*.tsbuildinfo
+
+# ============================================================================
+# Server & Static Files
+# ============================================================================
+
+server/public
+*.pid
+
+# ============================================================================
+# Archive & Compression
+# ============================================================================
+
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gzip
+
+# ============================================================================
+# Database
+# ============================================================================
+
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ============================================================================
+# OS-Specific Backup Files
+# ============================================================================
+
+*.bak
+*.swp
+*.swo
+*~
+*.backup

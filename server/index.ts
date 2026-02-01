@@ -1,3 +1,18 @@
+/**
+ * server/index.ts
+ * 
+ * Main Express server entry point. Handles:
+ * - HTTP server creation with security middleware (helmet)
+ * - JSON/URL-encoded request parsing
+ * - API route registration
+ * - Vite development server integration
+ * - Static file serving in production
+ * - Request/response logging
+ * - Error handling
+ * 
+ * Serves on PORT env variable (default 5000) for both API and client
+ */
+
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
@@ -13,19 +28,7 @@ app.use(helmet({
 }));
 const httpServer = createServer(app);
 
-declare module "http" {
-  interface IncomingMessage {
-    rawBody: unknown;
-  }
-}
-
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
+app.use(express.json());
 
 app.use(express.urlencoded({ extended: false }));
 

@@ -1,6 +1,19 @@
+/**
+ * tsconfig.json
+ * 
+ * TypeScript compiler configuration.
+ * 
+ * Key settings:
+ * - Module resolution: ESNext with bundler strategy for Vite
+ * - Strict mode enabled for type safety
+ * - Path aliases for imports (@, @shared)
+ * - Includes client, server, and shared type definitions
+ * - Incremental builds for faster compilation
+ */
+
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "build", "dist"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",

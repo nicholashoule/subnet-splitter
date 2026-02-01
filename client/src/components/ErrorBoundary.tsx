@@ -1,3 +1,10 @@
+/**
+ * client/src/components/ErrorBoundary.tsx
+ * 
+ * React Error Boundary component for catching and displaying errors gracefully.
+ * Displays error message with a recovery button to reset error state.
+ */
+
 import { Component, ReactNode } from "react";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";

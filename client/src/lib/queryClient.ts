@@ -1,3 +1,14 @@
+/**
+ * client/src/lib/queryClient.ts
+ * 
+ * React Query configuration and API request utilities.
+ * 
+ * Provides:
+ * - apiRequest: Fetch wrapper with error handling
+ * - getQueryFn: Query function factory with 401 handling
+ * - queryClient: React Query client configured for the application
+ */
+
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {

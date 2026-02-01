@@ -1,3 +1,17 @@
+/**
+ * vite.config.ts
+ * 
+ * Vite build and development server configuration.
+ * 
+ * Features:
+ * - React plugin integration
+ * - Path aliases (@, @shared, @assets)
+ * - Replit integration (dev banner, error modal, cartographer)
+ * - Strict FS access control
+ * - Client root at ./client directory
+ * - Build output to dist/public
+ */
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";

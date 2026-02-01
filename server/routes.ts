@@ -1,6 +1,17 @@
+/**
+ * server/routes.ts
+ * 
+ * API route registration. Centralized location for all Express route definitions.
+ * 
+ * All routes should:
+ * - Be prefixed with /api
+ * - Use the storage instance for data operations
+ * - Return appropriate HTTP status codes and error responses
+ * - Include input validation using Zod schemas from shared/schema.ts
+ */
+
 import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import type { Server } from "http";
 
 export async function registerRoutes(
   httpServer: Server,

@@ -1,3 +1,17 @@
+/**
+ * tailwind.config.ts
+ * 
+ * Tailwind CSS configuration for the CIDR Subnet Calculator.
+ * 
+ * Includes:
+ * - Dark mode support (class-based)
+ * - Custom color palette for UI components
+ * - Radix UI component styling
+ * - Custom border radius values
+ * - Animation extensions
+ * - Custom scrollbar styling
+ */
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -35,6 +49,11 @@ export default {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
           border: "var(--secondary-border)",
+        },
+        "secondary-accent": {
+          DEFAULT: "hsl(var(--secondary-accent) / <alpha-value>)",
+          foreground: "hsl(var(--secondary-accent-foreground) / <alpha-value>)",
+          border: "var(--secondary-accent-border)",
         },
         muted: {
           DEFAULT: "hsl(var(--muted) / <alpha-value>)",

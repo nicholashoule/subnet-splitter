@@ -1,3 +1,20 @@
+/**
+ * client/src/pages/calculator.tsx
+ * 
+ * Main calculator page component. Provides an interactive interface for:
+ * - Calculating subnet information from CIDR notation
+ * - Splitting subnets into smaller networks
+ * - Viewing and exporting subnet hierarchy
+ * - Selecting and managing multiple subnets
+ * 
+ * Features:
+ * - Real-time form validation with react-hook-form + Zod
+ * - Interactive tree view for subnet hierarchy
+ * - Copy-to-clipboard functionality for subnet details
+ * - CSV export of selected subnets
+ * - Recursion depth limiting and memory protection
+ */
+
 import { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -136,7 +153,7 @@ function SubnetRow({
               {subnet.cidr}
             </Badge>
             <Badge variant="secondary" className="text-[10px]">
-              Class {getSubnetClass(subnet.prefix)}
+              Class {getSubnetClass(subnet)}
             </Badge>
           </div>
         </TableCell>
@@ -347,7 +364,7 @@ export default function Calculator() {
         });
       });
 
-      setStatusMessage("Subnet split into two smaller subnets");
+      setStatusMessage(`✓ Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
       setTimeout(() => setStatusMessage(null), 2500);
     } catch (error) {
       const message = error instanceof SubnetCalculationError 
@@ -399,7 +416,7 @@ export default function Calculator() {
       return deleteFromChildren(prev);
     });
 
-    setStatusMessage("Subnet split has been removed");
+    setStatusMessage("✓ Subnet split removed - parent restored");
     setTimeout(() => setStatusMessage(null), 2500);
   }, [rootSubnet]);
 
@@ -499,14 +516,14 @@ export default function Calculator() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-6 py-8 max-w-[1600px]">
-        <header className="text-center mb-10">
+        <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-6 mb-10 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
             <Network className="h-8 w-8 text-primary" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight mb-2" data-testid="text-title">
+          <h1 className="text-4xl font-bold tracking-tight mb-3" data-testid="text-title">
             CIDR Subnet Calculator
           </h1>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+          <p className="text-muted-foreground text-lg max-w-2xl mx-auto leading-relaxed">
             Calculate subnet details and recursively split networks into smaller subnets. 
             Perfect for network planning and IP address management.
           </p>
@@ -516,7 +533,7 @@ export default function Calculator() {
           <CardHeader>
             <CardTitle>Enter CIDR Range</CardTitle>
             <CardDescription>
-              Input a CIDR notation like 192.168.1.0/24 or 10.0.0.0/8
+              Enter a CIDR notation to analyze your network and plan subnets (e.g., 10.0.0.0/8 for Class A, 172.16.0.0/12 for Class B, or 192.168.0.0/16 for Class C)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -561,7 +578,7 @@ export default function Calculator() {
 
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="text-sm text-muted-foreground">Try examples:</span>
-              {["192.168.1.0/24", "10.0.0.0/16", "172.16.0.0/12", "192.168.0.0/22"].map((example) => (
+              {["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "192.168.1.0/24"].map((example) => (
                 <Button
                   key={example}
                   variant="secondary"
@@ -602,10 +619,10 @@ export default function Calculator() {
                 </CardTitle>
                 <div className="flex items-center justify-between">
                   <CardDescription>
-                    View and split subnets recursively. Each split divides the network into two equal parts.
+                    Manage your subnet hierarchy by expanding rows to view details or splitting any subnet into smaller networks.
                   </CardDescription>
                   {statusMessage && (
-                    <span className="text-xs text-muted-foreground animate-in fade-in duration-300" data-testid="text-status-message">
+                    <span className="text-xs font-semibold text-green-600 dark:text-green-400 animate-in fade-in duration-300" data-testid="text-status-message">
                       {statusMessage}
                     </span>
                   )}
@@ -662,13 +679,12 @@ export default function Calculator() {
           </Card>
         )}
 
-        <footer className="mt-6 text-center text-sm text-muted-foreground space-y-2">
-          <p>
-            CIDR (Classless Inter-Domain Routing) allows for more flexible allocation of IP addresses. 
-            Split subnets to create smaller network segments for better organization and security.
+        <footer className="mt-8 border-t border-border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground space-y-3">
+          <p className="max-w-2xl mx-auto leading-relaxed">
+            CIDR (Classless Inter-Domain Routing) allows flexible IP allocation. Split subnets to create smaller network segments for better organization, efficient management, and improved security through network isolation.
           </p>
-          <p>
-            Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" data-testid="link-github">nicholashoule</a>
+          <p className="text-xs">
+            Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium" data-testid="link-github">nicholashoule</a>
           </p>
         </footer>
       </div>

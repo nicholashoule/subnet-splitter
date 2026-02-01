@@ -1,3 +1,17 @@
+/**
+ * script/build.ts
+ * 
+ * Production build script that:
+ * 1. Cleans the dist directory
+ * 2. Builds the client with Vite (outputs to dist/public)
+ * 3. Bundles the server with esbuild (outputs to dist/index.cjs)
+ * 
+ * Uses an allowlist of dependencies to bundle with the server to optimize
+ * cold start times by reducing openat(2) syscalls.
+ * 
+ * Run with: npm run build
+ */
+
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";

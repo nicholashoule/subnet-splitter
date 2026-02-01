@@ -1,3 +1,16 @@
+/**
+ * server/vite.ts
+ * 
+ * Vite development server integration. Sets up Vite's middleware mode for
+ * development to provide HMR (Hot Module Replacement) and on-the-fly compilation.
+ * 
+ * Used only in development mode. Handles:
+ * - Template transformation and injection
+ * - Vite middleware integration with Express
+ * - HMR configuration
+ * - Module resolution and bundling
+ */
+
 import { type Express } from "express";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";

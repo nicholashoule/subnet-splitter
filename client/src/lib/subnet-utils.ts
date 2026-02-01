@@ -1,3 +1,21 @@
+/**
+ * client/src/lib/subnet-utils.ts
+ * 
+ * Core subnet calculation utilities. All calculations are pure functions
+ * operating on IP addresses and CIDR notation.
+ * 
+ * Core functions:
+ * - calculateSubnet: Parse CIDR and compute subnet details
+ * - splitSubnet: Split a subnet into two smaller subnets
+ * - ipToNumber / numberToIp: IP address conversion
+ * - prefixToMask / maskToPrefix: Prefix/mask conversion
+ * 
+ * Validation:
+ * - Memory limits to prevent tree explosion
+ * - Strict CIDR format validation
+ * - Error handling with SubnetCalculationError
+ */
+
 import type { SubnetInfo } from "@shared/schema";
 import { SUBNET_CALCULATOR_LIMITS } from "@shared/schema";
 
@@ -152,9 +170,26 @@ export function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
-export function getSubnetClass(prefix: number): string {
-  if (prefix >= 24) return 'C';
-  if (prefix >= 16) return 'B';
-  if (prefix >= 8) return 'A';
-  return 'Supernet';
+export function getSubnetClass(cidr: string | SubnetInfo): string {
+  // Extract the first octet from CIDR or SubnetInfo
+  let firstOctet: number;
+  
+  if (typeof cidr === 'string') {
+    const ipPart = cidr.split('/')[0];
+    firstOctet = parseInt(ipPart.split('.')[0], 10);
+  } else if (cidr && cidr.networkAddress) {
+    // It's a SubnetInfo object with networkAddress
+    const ipPart = cidr.networkAddress;
+    firstOctet = parseInt(ipPart.split('.')[0], 10);
+  } else {
+    // Fallback for invalid input
+    return 'Unknown';
+  }
+  
+  if (firstOctet >= 1 && firstOctet <= 126) return 'A';
+  if (firstOctet >= 128 && firstOctet <= 191) return 'B';
+  if (firstOctet >= 192 && firstOctet <= 223) return 'C';
+  if (firstOctet >= 224 && firstOctet <= 239) return 'D (Multicast)';
+  if (firstOctet >= 240 && firstOctet <= 255) return 'E (Reserved)';
+  return 'Unknown';
 }

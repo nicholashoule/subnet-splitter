@@ -56,6 +56,10 @@
 
   --secondary-foreground: 222 47% 11%;
 
+  --secondary-accent: 160 60% 45%;
+
+  --secondary-accent-foreground: 0 0% 100%;
+
   --muted: 210 20% 96%;
 
   --muted-foreground: 215 16% 47%;
@@ -108,6 +112,10 @@
   /* Fallback for older browsers */
   --secondary-border: hsl(var(--secondary));
   --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --secondary-accent-border: hsl(var(--secondary-accent));
+  --secondary-accent-border: hsl(from hsl(var(--secondary-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 
   /* Fallback for older browsers */
   --muted-border: hsl(var(--muted));
@@ -173,6 +181,10 @@
   --secondary: 217 33% 17%;
 
   --secondary-foreground: 210 20% 98%;
+
+  --secondary-accent: 160 70% 50%;
+
+  --secondary-accent-foreground: 0 0% 100%;
 
   --muted: 217 33% 17%;
 

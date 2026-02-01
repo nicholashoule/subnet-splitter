@@ -1,3 +1,12 @@
+// shared/schema.ts
+//
+// Documentation:
+// This file contains both the subnet calculator types and (unused) Drizzle ORM schema code.
+//
+// Note: Drizzle ORM and related code are not implemented in this project.
+// Reason: The subnet calculator uses in-memory storage only; no persistent database is required.
+// If database support is added in the future, the Drizzle ORM code can be enabled.
+//
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";

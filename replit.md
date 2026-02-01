@@ -37,10 +37,12 @@ Preferred communication style: Simple, everyday language.
 - **Development**: Vite dev server middleware for HMR support
 
 ### Data Layer
-- **Storage**: All subnet calculations are performed client-side (no database required for core features)
-- **Schema Location**: `shared/schema.ts` - TypeScript types and Zod schemas shared between frontend and backend
-- **Validation**: Zod schemas for input validation (CIDR format)
-- **State Management**: React useState/useCallback hooks for local state (rootSubnet tree, selectedIds, statusMessage)
+- **Architecture**: All subnet calculations performed client-side (no database required)
+- **Storage**: React state management using useState/useCallback hooks
+- **Schema**: `shared/schema.ts` - TypeScript types and Zod schemas for validation
+- **Validation**: Zod schemas validate CIDR notation format and network address correctness
+- **State**: rootSubnet (subnet tree), selectedIds (CSV export), statusMessage (operation feedback)
+- **Benefits**: Instant calculations, offline support, no server load, enhanced privacy
 
 ### Project Structure
 ```
@@ -58,14 +60,32 @@ Preferred communication style: Simple, everyday language.
 │   └── vite.ts             # Vite dev server setup
 ├── shared/                 # Shared code between frontend/backend
 │   └── schema.ts           # TypeScript types + Zod schemas
+├── tests/                  # Comprehensive test suite
+│   ├── unit/               # Unit tests
+│   │   └── subnet-utils.test.ts  # Subnet calculation tests (38 tests)
+│   ├── integration/        # Integration tests (placeholder)
+│   └── README.md           # Testing documentation
+├── .github/                # GitHub and development documentation
+│   ├── .copilot-instructions.md # Developer guidelines and conventions
+│   └── agent-reasoning.md       # Development history and decisions
 ├── README.md               # Project documentation
-└── agent-reasoning.md      # Development prompts and reasoning
+└── package.json            # Dependencies and scripts
 ```
 
 ### Build Configuration
-- **Development**: `npm run dev` - runs tsx with Vite middleware
-- **Production Build**: `npm run build` - Vite builds client, esbuild bundles server
-- **Database Sync**: `npm run db:push` - Drizzle Kit schema push
+- **Development**: `npm run dev` - Runs Express server with Vite middleware for hot reload
+- **Production Build**: `npm run build` - Vite builds client, tsx bundles server with esbuild
+- **Type Checking**: `npm run check` - Verify TypeScript compilation
+- **Cross-Platform**: `npm.cmd` on Windows (see Windows Compatibility section)
+
+### Robustness & Hardening
+- **Input Validation**: Validates CIDR notation format and ensures IP matches network address
+- **Error Boundaries**: React error boundary component for graceful error recovery
+- **State Validation**: Validates subnet operations (split, delete) before state changes
+- **Tree Size Limits**: MAX_TREE_NODES (10,000) prevents memory exhaustion
+- **Number Overflow Protection**: Explicit validation in bitwise operations
+- **Error Handling**: Custom `SubnetCalculationError` for specific, actionable error messages
+- **Windows Compatibility**: Server binding fallback from 0.0.0.0 → 127.0.0.1 → localhost
 
 ### Type Safety
 - Path aliases configured: `@/*` for client, `@shared/*` for shared code
@@ -75,8 +95,7 @@ Preferred communication style: Simple, everyday language.
 ## External Dependencies
 
 ### Core Libraries
-- **subnet-utils.ts**: Custom library for CIDR calculations (calculateSubnet, splitSubnet, formatNumber, getSubnetClass)
-
+- **subnet-utils.ts**: Custom library for CIDR calculations (calculateSubnet, splitSubnet, formatNumber, getSubnetClass)- **Zod**: Runtime type validation and schema definition
 ### UI Libraries
 - **Radix UI**: Full suite of accessible UI primitives
 - **Lucide React**: Icon library
@@ -91,10 +110,23 @@ Preferred communication style: Simple, everyday language.
 
 ### Security
 - **helmet**: Security headers middleware (XSS protection, clickjacking prevention, MIME sniffing protection)
-- **Security by design**: No database, no sensitive API endpoints, all calculations client-side
+- **Security by design**: 
+  - No database = no user data to protect
+  - No API endpoints = minimal attack surface
+  - Client-side calculations = no server-side vulnerabilities
+  - Static assets only = reduced exposure
 - **Static isolation**: Production only serves compiled assets from `dist/public`
-- **Replit platform**: DDoS protection and network-level firewall
+- **Replit platform**: Additional DDoS protection and network-level firewall
+
+### Development & Documentation
+- **Commit Conventions**: Follows Conventional Commits (feat, fix, docs, chore, etc.)
+- **Documentation**: 
+  - `README.md` - Project overview and usage
+  - `.github/.copilot-instructions.md` - Developer guidelines and conventions
+  - `.github/agent-reasoning.md` - Development history and decisions
+- **Line Endings**: `.gitattributes` normalizes to LF across platforms
+- **Git Ignore**: Comprehensive `.gitignore` for Windows, macOS, and Linux
 
 ### Session Management
-- **connect-pg-simple**: PostgreSQL session store (available but not currently active)
-- **memorystore**: In-memory session alternative
+- **Not implemented**: No user sessions needed (stateless calculations)
+- **Not active**: Database dependencies (connect-pg-simple, drizzle-orm) present but unused
