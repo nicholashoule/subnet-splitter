@@ -283,12 +283,13 @@ if (isDevelopment) {
 }
 ```
 
-**Security Features Enabled**:
-- `xssFilter: true` - Protects against XSS attacks
-- `noSniff: true` - Prevents MIME sniffing
-- `referrerPolicy: strict-origin-when-cross-origin` - Controls referrer leaking
-- `crossOriginEmbedderPolicy: false` - Allows SPA embedding needs
+**Security Features Enabled with Helmet v8**:
+- `contentSecurityPolicy` - Enforces the CSP directives configured above
+- `xContentTypeOptions` - Sends `X-Content-Type-Options: nosniff` to prevent MIME sniffing
+- `referrerPolicy: { policy: "strict-origin-when-cross-origin" }` - Controls referrer leaking
+- `crossOriginEmbedderPolicy` - Enabled by default; only relax for specific local tooling needs
 
+> Note: Helmet's legacy `xssFilter` option (and the `X-XSS-Protection` header) are deprecated in modern browsers and are not used with Helmet v8.
 **When Modifying CSP**:
 1. **Test in both light and dark modes** - Ensure styles load
 2. **Test Vite HMR** - Dev server must stay responsive
