@@ -4,8 +4,8 @@
  * Rate limiting security control integration tests.
  * 
  * End-to-end tests verifying that the SPA fallback middleware enforces rate
- * limiting to protect against denial-of-service attacks on expensive file
- * system operations (sendFile).
+ * limiting to protect against denial-of-service attacks on expensive
+ * operations (file I/O and HTML transformation).
  * 
  * Security Behaviors Tested:
  * - 30 requests per 15-minute window per IP (production configuration)
@@ -19,14 +19,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import express, { type Express } from "express";
 import request from "supertest";
-import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
+import { serveStatic } from "../../server/static";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, "../../");
 
 describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
   let app: Express;
@@ -47,30 +46,9 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
       "<html><body>SPA</body></html>"
     );
 
-    // Setup rate limiter matching production configuration from server/static.ts
-    const spaRateLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 30, // limit each IP to 30 requests per windowMs (production)
-      standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-      legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-      message: "Too many requests to the application. Please wait a moment and try again.",
-    });
-
-    // Apply SPA fallback middleware with selective rate limiting
-    // Rate limiter only applies to GET/HEAD requests (the expensive SPA fallback path)
-    // POST/PUT/DELETE/etc bypass rate limiting since they don't serve SPA content
-    app.use((req, res, next) => {
-      // Only serve SPA fallback for GET and HEAD requests
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        return next();
-      }
-      // Apply rate limiter only for GET/HEAD (expensive SPA fallback)
-      spaRateLimiter(req, res, () => {
-        res.setHeader("Content-Type", "text/html");
-        res.end("<html><body>SPA</body></html>");
-      });
-    });
-
+    // Use actual production middleware from server/static.ts
+    // This ensures tests verify the real configuration and behavior
+    serveStatic(app, mockDistPath);
   });
 
   afterEach(async () => {
@@ -174,19 +152,19 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
   });
 
   describe("Per-IP Rate Limiting", () => {
-    it("should apply rate limit per IP address (using supertest agent IPs)", async () => {
-      // Note: With supertest, multiple request() calls use different virtual IPs,
-      // but request.agent() maintains a single IP for all requests through that agent
-      // So we test that a single IP (one agent) gets rate limited, not that
-      // multiple IPs get separate limits (which is harder to test in this context)
+    it("should enforce rate limits per client IP", async () => {
+      // Note: supertest doesn't provide a way to simulate multiple distinct client IPs.
+      // This test verifies that the rate limiter is configured with default key generation
+      // (which uses req.ip), ensuring the foundation for per-IP limiting is in place.
+      // Actual per-IP behavior in production depends on proper trust proxy configuration.
 
-      // Make 30 requests with one agent
+      // Exhaust rate limit for the test client IP
       for (let i = 0; i < 30; i++) {
         const response = await request(app).get("/route-" + i);
         expect(response.status).toBe(200);
       }
 
-      // 31st request from any source should be rejected (because it's from same/similar IP)
+      // Verify this IP is now rate limited
       const rejectedResponse = await request(app).get("/over-limit");
       expect(rejectedResponse.status).toBe(429);
     });
@@ -213,22 +191,22 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
       expect(rejectedCount).toBe(20);
     });
 
-    it("should protect expensive file system operations (sendFile)", async () => {
-      // Each successful request triggers sendFile (expensive operation)
-      // Rate limiting prevents exhaustion from too many concurrent file operations
+    it("should protect expensive SPA response operations", async () => {
+      // Each successful request triggers HTML response generation (expensive operation)
+      // Rate limiting prevents resource exhaustion from too many concurrent requests
 
-      const fileOperationCounts: number[] = [];
+      const successfulRequests: number[] = [];
 
-      // Track successful file operations (200 responses)
+      // Track successful responses (200 status)
       for (let i = 0; i < 40; i++) {
         const response = await request(app).get("/route-" + i);
         if (response.status === 200) {
-          fileOperationCounts.push(i);
+          successfulRequests.push(i);
         }
       }
 
-      // Only 30 file operations should succeed
-      expect(fileOperationCounts.length).toBe(30);
+      // Only 30 requests should succeed
+      expect(successfulRequests.length).toBe(30);
     });
   });
 

@@ -92,6 +92,12 @@ export async function setupVite(server: Server, app: Express) {
           "index.html",
         );
 
+        // For HEAD requests, skip transformation and just send headers
+        if (req.method === 'HEAD') {
+          res.status(200).set({ "Content-Type": "text/html" }).end();
+          return;
+        }
+
         // always reload the index.html file from disk incase it changes
         let template = await fs.promises.readFile(clientTemplate, "utf-8");
         template = template.replace(
