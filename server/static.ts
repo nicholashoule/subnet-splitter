@@ -13,8 +13,8 @@ import fs from "fs";
 import path from "path";
 import rateLimit from "express-rate-limit";
 
-export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "public");
+export function serveStatic(app: Express, customDistPath?: string) {
+  const distPath = customDistPath || path.resolve(__dirname, "public");
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`,
