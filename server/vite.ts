@@ -27,7 +27,7 @@ const viteDevLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  // Dev-only: avoid rate limiting localhost to keep DX smooth
+  // Localhost is exempt from rate limiting for better DX
   skip: (req) => {
     const ip = req.ip;
     const hostHeader = req.headers.host ?? "";
