@@ -34,7 +34,7 @@ const cspDirectives: Record<string, string[]> = {
   // and for Tailwind CSS compiled styles that rely on inline style blocks.
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'"],
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
