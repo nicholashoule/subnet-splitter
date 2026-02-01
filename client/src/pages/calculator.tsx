@@ -564,7 +564,7 @@ export default function Calculator() {
           </TooltipContent>
         </Tooltip>
       </div>
-      <div className="container mx-auto px-6 py-8 max-w-[1600px]">
+      <div className="container mx-auto px-6 pb-8 max-w-[1600px]">
         <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
           <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
             <img src="/github-nicholashoule.png" alt="GitHub QR Code" className="w-16 h-16 rounded-lg hover:opacity-80 transition-opacity mb-2" />

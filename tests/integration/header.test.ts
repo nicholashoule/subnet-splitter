@@ -173,11 +173,20 @@ describe("Header Section", () => {
       expect(buttonClasses).toContain("transition-colors");
     });
 
-    it("should have proper spacing classes", () => {
-      const spacingClasses = "py-2 px-6 mb-6";
-      expect(spacingClasses).toContain("py-2");
+    it("should have no top padding on main container", () => {
+      // Container uses pb-8 (bottom padding only) not py-8 (top and bottom)
+      const containerClass = "pb-8";
+      expect(containerClass).toBe("pb-8");
+      expect(containerClass).not.toContain("py-8");
+      expect(containerClass).not.toContain("pt-");
+    });
+
+    it("should have proper spacing classes with no top padding", () => {
+      const spacingClasses = "pb-8 px-6 mb-6";
+      expect(spacingClasses).toContain("pb-8");
       expect(spacingClasses).toContain("px-6");
       expect(spacingClasses).toContain("mb-6");
+      expect(spacingClasses).not.toContain("py-8");
     });
   });
 
