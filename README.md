@@ -74,7 +74,7 @@ This application follows a **security by design** approach with multiple layers 
 │   ├── routes.ts           # API route definitions
 │   ├── vite.ts             # Vite dev server setup
 │   └── static.ts           # Static file serving with rate limiting
-├── tests/                  # Comprehensive test suite (144 tests)
+├── tests/                  # Comprehensive unit and integration test suite
 │   ├── unit/               # Unit tests (subnet-utils.test.ts)
 │   ├── integration/        # Integration tests (styles, config, etc.)
 │   └── README.md           # Testing documentation
