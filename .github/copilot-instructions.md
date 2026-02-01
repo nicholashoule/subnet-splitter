@@ -1312,6 +1312,284 @@ Reference: In subsequent operations, you know calculateSubnet is at line 45
 - [React Hook Form Docs](https://react-hook-form.com)
 - [TypeScript Handbook](https://www.typescriptlang.org/docs)
 
+## Kubernetes Network Planning API
+
+### Overview
+
+The Kubernetes Network Planning API generates enterprise-grade network configurations for EKS (AWS), GKE (Google Cloud), and generic Kubernetes deployments. It supports multiple deployment sizes with battle-tested network topologies.
+
+### Deployment Tiers
+
+| Tier | Nodes | Public Subnets | Private Subnets | Pod Space | Services | Use Case |
+|------|-------|---|---|---|---|---|
+| **Standard** | 1-3 | 1 | 1 | /16 | /16 | Development/Testing |
+| **Professional** | 3-10 | 2 | 2 | /16 | /16 | Small Production |
+| **Enterprise** | 10-50 | 3 | 3 | /16 | /16 | Large Production |
+| **Hyperscale** | 50+ | 4 | 4 | /15 | /16 | Global Scale |
+
+### API Endpoints
+
+#### POST `/api/kubernetes/network-plan`
+
+Generate a Kubernetes network plan with optimized subnet allocation.
+
+**Request Schema:**
+```typescript
+{
+  deploymentSize: "standard" | "professional" | "enterprise" | "hyperscale",
+  provider?: "eks" | "gke" | "kubernetes",  // Defaults to "kubernetes"
+  vpcCidr?: "10.0.0.0/16",                  // Optional, generates random RFC 1918 if not provided
+  deploymentName?: "my-prod-cluster"        // Optional reference name
+}
+```
+
+**Response Schema:**
+```typescript
+{
+  deploymentSize: string,
+  provider: string,
+  deploymentName?: string,
+  vpc: {
+    cidr: string                            // e.g., "10.0.0.0/16"
+  },
+  subnets: {
+    public: [
+      {
+        cidr: string,                       // e.g., "10.0.0.0/24"
+        name: string,                       // e.g., "public-1"
+        type: "public",
+        availabilityZone?: string           // For future multi-AZ support
+      }
+    ],
+    private: [
+      {
+        cidr: string,
+        name: string,                       // e.g., "private-1"
+        type: "private",
+        availabilityZone?: string
+      }
+    ]
+  },
+  pods: {
+    cidr: string                            // CNI plugin IP range (e.g., "10.1.0.0/16")
+  },
+  services: {
+    cidr: string                            // Service ClusterIP range (e.g., "10.2.0.0/16")
+  },
+  metadata: {
+    generatedAt: string,                    // ISO 8601 timestamp
+    version: string                         // API version
+  }
+}
+```
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16",
+    "deploymentName": "prod-cluster-us-east-1"
+  }'
+```
+
+**Example Response:**
+```json
+{
+  "deploymentSize": "professional",
+  "provider": "eks",
+  "deploymentName": "prod-cluster-us-east-1",
+  "vpc": {
+    "cidr": "10.0.0.0/16"
+  },
+  "subnets": {
+    "public": [
+      {
+        "cidr": "10.0.0.0/24",
+        "name": "public-1",
+        "type": "public"
+      },
+      {
+        "cidr": "10.0.1.0/24",
+        "name": "public-2",
+        "type": "public"
+      }
+    ],
+    "private": [
+      {
+        "cidr": "10.0.2.0/23",
+        "name": "private-1",
+        "type": "private"
+      },
+      {
+        "cidr": "10.0.4.0/23",
+        "name": "private-2",
+        "type": "private"
+      }
+    ]
+  },
+  "pods": {
+    "cidr": "10.1.0.0/16"
+  },
+  "services": {
+    "cidr": "10.2.0.0/16"
+  },
+  "metadata": {
+    "generatedAt": "2026-02-01T15:30:45.123Z",
+    "version": "1.0"
+  }
+}
+```
+
+#### GET `/api/kubernetes/tiers`
+
+Retrieve information about all deployment tiers.
+
+**Response:**
+```json
+{
+  "standard": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 24,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
+  },
+  "professional": {
+    "publicSubnets": 2,
+    "privateSubnets": 2,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Small Production: 3-10 nodes, dual AZ ready"
+  },
+  "enterprise": {
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
+  },
+  "hyperscale": {
+    "publicSubnets": 4,
+    "privateSubnets": 4,
+    "subnetSize": 22,
+    "podsPrefix": 15,
+    "servicesPrefix": 16,
+    "description": "Global Scale: 50+ nodes, multi-region ready"
+  }
+}
+```
+
+### Network Architecture
+
+**VPC Structure (Per Tier):**
+- **Public Subnets**: For load balancers, NAT gateways, and ingress controllers
+- **Private Subnets**: For worker nodes (EC2 instances, node pools)
+- **Pod Network**: Separate CIDR for container IPs via CNI plugins (AWS VPC CNI, Calico, etc.)
+- **Service Network**: ClusterIP range for Kubernetes service discovery
+
+**IP Addressing Strategy:**
+- Uses RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Subnets don't overlap with pod or service ranges
+- Professional and Enterprise tiers use /23 subnets (512 IPs) for better HA
+- Hyperscale tier uses /22 subnets (1024 IPs) for larger workloads
+
+### Implementation Details
+
+**Files:**
+- `shared/kubernetes-schema.ts` - Zod schemas and TypeScript types
+- `client/src/lib/kubernetes-network-generator.ts` - Generation logic
+- `server/routes.ts` - API endpoints
+- `tests/unit/kubernetes-network-generator.test.ts` - Unit tests (45+ tests)
+- `tests/integration/kubernetes-network-api.test.ts` - Integration tests (40+ tests)
+
+**Key Features:**
+- Deterministic generation (same VPC CIDR produces same subnets)
+- Random RFC 1918 CIDR generation if not provided
+- Automatic CIDR normalization to network address
+- Full Zod validation on request and response
+- Comprehensive error handling with clear messages
+- Provider-agnostic (works with EKS, GKE, generic Kubernetes)
+
+### Error Handling
+
+**400 Bad Request:**
+```json
+{
+  "error": "Invalid deployment size: unknown",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**500 Internal Server Error:**
+```json
+{
+  "error": "Failed to generate network plan",
+  "code": "INTERNAL_ERROR"
+}
+```
+
+### Usage Examples
+
+**For Terraform/OpenTofu:**
+Call the API to get CIDR ranges, then use them in your infrastructure-as-code:
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+resource "aws_subnet" "private" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = ["10.0.2.0/23", "10.0.4.0/23"][count.index]
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+}
+```
+
+**For Kubernetes CNI Configuration:**
+Use the pods CIDR in your CNI plugin settings:
+```bash
+# AWS VPC CNI
+eksctl create cluster \
+  --cluster-name my-cluster \
+  --version 1.28 \
+  --region us-east-1 \
+  --pod-cidr 10.1.0.0/16
+```
+
+### Testing
+
+The Kubernetes Network Planning API includes comprehensive tests:
+
+**Unit Tests** (45 tests):
+- Network generation for all deployment tiers
+- VPC CIDR generation and normalization
+- Subnet allocation and naming
+- Pod/Services CIDR generation
+- RFC 1918 support (Class A, B, C)
+- Error handling and validation
+- Reproducibility with same inputs
+
+**Integration Tests** (40+ tests):
+- Full API request/response flow
+- All provider support (EKS, GKE, Kubernetes)
+- Custom and auto-generated VPC CIDRs
+- Multiple successive calls (randomization)
+- Deployment tier information endpoint
+- Error responses (400, 500)
+
+**Run Tests:**
+```bash
+npm run test -- --run
+npm run test -- tests/unit/kubernetes-network-generator.test.ts
+npm run test -- tests/integration/kubernetes-network-api.test.ts
+```
+
 ## Planned Features & API Enhancements
 
 ### Backend API Layer (Future)

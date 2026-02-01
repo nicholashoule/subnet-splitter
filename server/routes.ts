@@ -12,16 +12,51 @@
 
 import type { Express } from "express";
 import type { Server } from "http";
+import { generateKubernetesNetworkPlan, getDeploymentTierInfo, KubernetesNetworkGenerationError } from "../client/src/lib/kubernetes-network-generator";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // Kubernetes Network Planning API
+  app.post("/api/kubernetes/network-plan", async (req, res) => {
+    try {
+      const plan = await generateKubernetesNetworkPlan(req.body);
+      res.json(plan);
+    } catch (error) {
+      if (error instanceof KubernetesNetworkGenerationError) {
+        return res.status(400).json({
+          error: error.message,
+          code: "NETWORK_GENERATION_ERROR"
+        });
+      }
+      if (error instanceof SyntaxError || (error as any).code === "INVALID_REQUEST") {
+        return res.status(400).json({
+          error: error instanceof Error ? error.message : "Invalid request",
+          code: "INVALID_REQUEST"
+        });
+      }
+      console.error("Kubernetes network plan error:", error);
+      return res.status(500).json({
+        error: "Failed to generate network plan",
+        code: "INTERNAL_ERROR"
+      });
+    }
+  });
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  // Get deployment tier information
+  app.get("/api/kubernetes/tiers", (req, res) => {
+    try {
+      const tierInfo = getDeploymentTierInfo();
+      res.json(tierInfo);
+    } catch (error) {
+      console.error("Error fetching tier info:", error);
+      res.status(500).json({
+        error: "Failed to fetch tier information",
+        code: "INTERNAL_ERROR"
+      });
+    }
+  });
 
   return httpServer;
 }
