@@ -47,11 +47,14 @@ export async function setupVite(server: Server, app: Express) {
   // SPA fallback: serve index.html for client-side routes
   // This runs AFTER Vite middleware, so Vite handles actual assets first
   app.use(async (req, res, next) => {
-    const url = req.originalUrl;
+    // Use req.path to exclude query strings (req.originalUrl includes ?params)
+    const urlPath = req.path;
     
     // Skip fallback for file requests (has extension but not .html)
-    // Vite should have already handled these
-    if (url.includes('.') && !url.endsWith('.html')) {
+    // Use path.extname() for proper extension detection instead of string matching
+    // This prevents issues like /foo?ref=a.b from being incorrectly treated as files
+    const ext = path.extname(urlPath);
+    if (ext && ext !== '.html') {
       return next();
     }
 
@@ -69,7 +72,7 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
-      const page = await vite.transformIndexHtml(url, template);
+      const page = await vite.transformIndexHtml(req.originalUrl, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
