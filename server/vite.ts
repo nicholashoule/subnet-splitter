@@ -27,6 +27,22 @@ const viteDevLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  // Dev-only: avoid rate limiting localhost to keep DX smooth
+  skip: (req) => {
+    const ip = req.ip;
+    const hostHeader = req.headers.host ?? "";
+    return (
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      hostHeader.startsWith("localhost") ||
+      hostHeader.startsWith("127.0.0.1")
+    );
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "Too many requests, please try again later.",
+    });
+  },
 });
 
 export async function setupVite(server: Server, app: Express) {
