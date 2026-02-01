@@ -72,9 +72,16 @@ const httpServer = createServer(app);
 
 // Trust proxy headers for accurate client IP detection
 // Required for rate limiting to work correctly behind reverse proxies
-// Setting to true trusts X-Forwarded-For header (use with care in untrusted networks)
-// In production, restrict this to known proxy IPs: app.set('trust proxy', ['10.0.0.0/8', '127.0.0.1'])
-app.set('trust proxy', true);
+// In development, trust only localhost IPs (safe for local development)
+// In production, restrict to known proxy IPs based on your deployment architecture
+if (isDevelopment) {
+  // Development: trust only IPv4 and IPv6 loopback addresses (safe for local development)
+  app.set('trust proxy', ['127.0.0.1', '::1']);
+} else {
+  // Production: restrict to known proxy IPs, e.g., ['10.0.0.0/8', '172.16.0.0/12', '127.0.0.1']
+  // For now, use a safe default (would need to be configured for your specific deployment)
+  app.set('trust proxy', ['127.0.0.1', '::1']);
+}
 
 app.use(express.json());
 
