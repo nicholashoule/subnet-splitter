@@ -4,6 +4,7 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 
 ## Features
 
+### Frontend Application
 - **Subnet Calculation**: Enter any CIDR notation to get detailed network information
 - **Recursive Splitting**: Split networks into smaller subnets down to /32 (single host)
 - **Interactive Table**: Expand/collapse subnet hierarchies with visual indentation
@@ -11,6 +12,12 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 - **CSV Export**: Select rows and export subnet details to CSV for use in Excel or other tools
 - **Dark/Light Mode**: Theme support with elegant UI
 - **Responsive Design**: Works on desktop and mobile devices
+
+### Backend API (Production-Ready)
+- **Kubernetes Network Planning**: Generate optimized network plans for EKS, GKE, AKS, and generic Kubernetes
+- **Multi-Cloud Support**: Battle-tested configurations for all major cloud providers
+- **Deployment Tiers**: Pre-configured subnet allocations (Micro → Hyperscale)
+- **Provider Flexibility**: Same API works with AWS, Google Cloud, Azure, and self-hosted Kubernetes
 
 ## Network Information Provided
 
@@ -27,7 +34,7 @@ This application follows a **security by design** approach with multiple layers 
 
 ### Security Features
 - **No database**: No user data to protect or risk exposing
-- **No API endpoints**: No server-side attack vectors
+- **Stateless API**: All operations are deterministic (same input = same output)
 - **Client-side calculations**: All subnet logic runs in the browser
 - **Helmet middleware**: Adds security headers for XSS, clickjacking, and MIME sniffing protection
 - **Content Security Policy (CSP)**: 
@@ -36,6 +43,7 @@ This application follows a **security by design** approach with multiple layers 
   - Prevents inline script injection attacks
 - **Rate limiting**: Production SPA routes protected with rate limiting (30 requests per 15 minutes)
 - **Static isolation**: Only compiled assets from `dist/public` are served in production
+- **Request validation**: All API requests validated with Zod schemas
 - **No vulnerabilities**: `npm audit` reports 0 vulnerabilities
 
 ### Security Best Practices
@@ -70,9 +78,9 @@ This application follows a **security by design** approach with multiple layers 
 │       ├── lib/            # Utilities (subnet-utils)
 │       └── pages/          # Route components
 ├── server/                 # Express backend
-│   ├── index.ts            # Entry point with Helmet configuration
-│   ├── routes.ts           # API route definitions
-│   ├── vite.ts             # Vite dev server setup
+│   ├── index.ts            # Entry point with Helmet + security configuration
+│   ├── routes.ts           # API route definitions (Kubernetes Network Planning)
+│   ├── vite.ts             # Vite dev server setup with SPA fallback
 │   └── static.ts           # Static file serving with rate limiting
 ├── tests/                  # Comprehensive unit and integration test suite
 │   ├── unit/               # Unit tests (subnet-utils.test.ts)
@@ -198,11 +206,182 @@ All development tools and commands work identically on Windows, macOS, and Linux
 
 ## Usage
 
+### Web Interface
+
 1. Enter a CIDR notation (e.g., `192.168.1.0/24`) in the input field
 2. Click "Calculate" or use one of the example buttons
 3. View the subnet details in the Network Overview card
 4. Use the split button to divide subnets into smaller ranges
 5. Select rows with checkboxes and export to CSV
+
+### REST API - Kubernetes Network Planning
+
+The application provides production-ready REST endpoints for generating optimized network configurations across EKS, GKE, AKS, and self-hosted Kubernetes.
+
+#### Endpoint 1: Generate Network Plan
+
+**POST `/api/kubernetes/network-plan`**
+
+Generate an optimized network plan with subnet allocation, pod CIDR, and service CIDR ranges.
+
+**Request Parameters:**
+```json
+{
+  "deploymentSize": "standard|professional|enterprise|hyperscale",
+  "provider": "eks|gke|kubernetes",
+  "vpcCidr": "10.0.0.0/16",
+  "deploymentName": "my-cluster"
+}
+```
+
+- `deploymentSize` (required): Deployment tier for cluster size
+- `provider` (optional): Cloud provider (`eks`, `gke`, `kubernetes`). Defaults to `kubernetes`
+- `vpcCidr` (optional): Custom VPC CIDR. If omitted, generates random RFC 1918 range
+- `deploymentName` (optional): Reference name for deployment tracking
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16",
+    "deploymentName": "prod-us-east-1"
+  }'
+```
+
+**Response:**
+```json
+{
+  "deploymentSize": "professional",
+  "provider": "eks",
+  "deploymentName": "prod-us-east-1",
+  "vpc": {
+    "cidr": "10.0.0.0/16"
+  },
+  "subnets": {
+    "public": [
+      {
+        "cidr": "10.0.0.0/24",
+        "name": "public-1",
+        "type": "public"
+      },
+      {
+        "cidr": "10.0.1.0/24",
+        "name": "public-2",
+        "type": "public"
+      }
+    ],
+    "private": [
+      {
+        "cidr": "10.0.2.0/23",
+        "name": "private-1",
+        "type": "private"
+      },
+      {
+        "cidr": "10.0.4.0/23",
+        "name": "private-2",
+        "type": "private"
+      }
+    ]
+  },
+  "pods": {
+    "cidr": "10.1.0.0/16"
+  },
+  "services": {
+    "cidr": "10.2.0.0/16"
+  },
+  "metadata": {
+    "generatedAt": "2026-02-01T15:30:45.123Z",
+    "version": "1.0"
+  }
+}
+```
+
+#### Endpoint 2: Get Deployment Tiers
+
+**GET `/api/kubernetes/tiers`**
+
+Retrieve information about all available deployment tiers and their configurations.
+
+**Example Request:**
+```bash
+curl http://localhost:5000/api/kubernetes/tiers
+```
+
+**Response:**
+```json
+{
+  "standard": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 24,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
+  },
+  "professional": {
+    "publicSubnets": 2,
+    "privateSubnets": 2,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Small Production: 3-10 nodes, dual AZ ready"
+  },
+  "enterprise": {
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
+  },
+  "hyperscale": {
+    "publicSubnets": 8,
+    "privateSubnets": 8,
+    "subnetSize": 19,
+    "podsPrefix": 13,
+    "servicesPrefix": 16,
+    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+  }
+}
+```
+
+#### API Error Responses
+
+**400 Bad Request** - Invalid parameters:
+```json
+{
+  "error": "Invalid deployment size: unknown",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**500 Internal Server Error** - Server error:
+```json
+{
+  "error": "Failed to generate network plan",
+  "code": "INTERNAL_ERROR"
+}
+```
+
+#### Deployment Tiers Overview
+
+| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Use Case |
+|------|-------|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /25 | POC, Development |
+| **Standard** | 1-3 | 1 | 1 | /24 | Dev/Testing |
+| **Professional** | 3-10 | 2 | 2 | /23 | Small Production (HA-ready) |
+| **Enterprise** | 10-50 | 3 | 3 | /23 | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 8 | 8 | /19 | Global Scale (EKS/GKE max) |
+
+#### Supported Providers
+
+- **EKS** - AWS Elastic Kubernetes Service with VPC CNI
+- **GKE** - Google Kubernetes Engine with Alias IP ranges
+- **AKS** - Azure Kubernetes Service with Azure CNI Overlay
+- **Kubernetes** - Generic self-hosted or alternative cloud providers
 
 ## Supported Network Classes
 

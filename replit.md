@@ -35,6 +35,12 @@ Preferred communication style: Simple, everyday language.
 - **API Pattern**: RESTful endpoints prefixed with `/api`
 - **Static Serving**: Built client assets served from `dist/public`
 - **Development**: Vite dev server middleware for HMR support
+- **API Features**:
+  - POST `/api/kubernetes/network-plan` - Generate optimized network plans
+  - GET `/api/kubernetes/tiers` - Retrieve tier information
+  - Support for EKS, GKE, AKS, and generic Kubernetes
+  - All 5 deployment tiers (Micro → Hyperscale)
+  - Full request/response validation with Zod
 
 ### Data Layer
 - **Architecture**: All subnet calculations performed client-side (no database required)
@@ -110,12 +116,16 @@ Preferred communication style: Simple, everyday language.
 
 ### Security
 - **helmet**: Security headers middleware (XSS protection, clickjacking prevention, MIME sniffing protection)
+- **express-rate-limit**: Rate limiting for production endpoints (30 requests per 15 minutes for SPA)
 - **Security by design**: 
   - No database = no user data to protect
-  - No API endpoints = minimal attack surface
-  - Client-side calculations = no server-side vulnerabilities
-  - Static assets only = reduced exposure
-- **Static isolation**: Production only serves compiled assets from `dist/public`
+  - Stateless API = deterministic, no state attacks
+  - Client-side calculations = reduced server burden
+  - Request validation = all API inputs validated with Zod
+  - Static isolation: Production only serves compiled assets from `dist/public`
+- **CSP Configuration**:
+  - Production: Strict `script-src 'self'` only
+  - Development: Relaxed for Vite HMR and React Fast Refresh
 - **Replit platform**: Additional DDoS protection and network-level firewall
 
 ### Development & Documentation
