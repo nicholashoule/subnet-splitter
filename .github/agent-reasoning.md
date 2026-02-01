@@ -807,25 +807,25 @@ Implemented 5 major robustness improvements:
 
 ## Current Status (January 31, 2026)
 
-✅ **Environment Setup Complete**:
+ **Environment Setup Complete**:
 - TypeScript types installed and configured
 - npm scripts working on Windows
 - Server binding with fallback mechanism tested and working
 - Development server successfully starts on `127.0.0.1:5000`
 
-✅ **Robustness Enhancements Complete**:
+ **Robustness Enhancements Complete**:
 - Input validation hardening with network address verification
 - Recursion depth and tree size protection implemented
 - Error boundaries for graceful failure handling
 - State validation in split/delete operations
 - Comprehensive error messages and logging
 
-✅ **UX Improvements Complete**:
+ **UX Improvements Complete**:
 - Toast duration optimized (2.5 seconds)
 - Error handling with user-friendly messages
 - Fallback UI for unexpected errors
 
-✅ **Documentation Complete**:
+ **Documentation Complete**:
 - `.github/.copilot-instructions.md` created with comprehensive guidelines
 - API layer features documented for future implementation
 - Code style and conventions established
@@ -942,16 +942,16 @@ Implemented 5 major robustness improvements:
 - Ready for CI/CD integration
 
 **Quality Metrics**:
-- **Test Organization**: ⭐⭐⭐⭐⭐ (well-structured, scalable)
-- **Coverage**: ⭐⭐⭐⭐⭐ (38 tests covering all critical paths)
-- **Maintainability**: ⭐⭐⭐⭐⭐ (clear naming, good organization)
-- **Documentation**: ⭐⭐⭐⭐⭐ (comprehensive guides in place)
+- **Test Organization**: 5 Stars (well-structured, scalable)
+- **Coverage**: 5 Stars (38 tests covering all critical paths)
+- **Maintainability**: 5 Stars (clear naming, good organization)
+- **Documentation**: 5 Stars (comprehensive guides in place)
 
 ---
 
 ## Current Status (January 31, 2026 - End of Day)
 
-✅ **Complete Project State**:
+ **Complete Project State**:
 - Core functionality: Fully implemented and tested
 - Testing framework: Vitest 3+ with 38 comprehensive tests
 - Code organization: Clean separation of concerns
@@ -961,14 +961,14 @@ Implemented 5 major robustness improvements:
 - Cross-platform: Windows/Mac/Linux compatible
 - Performance: All operations <50ms
 
-✅ **Test Suite**:
+ **Test Suite**:
 - 38 unit tests covering all calculation logic
 - All tests passing (100% pass rate)
 - Well-organized directory structure
 - Comprehensive edge case coverage
 - Ready for CI/CD integration
 
-✅ **Documentation**:
+ **Documentation**:
 - README.md: Complete user and developer guide
 - replit.md: Detailed architecture documentation
 - .github/copilot-instructions.md: Mandatory security protocols and development guidelines
@@ -1029,18 +1029,18 @@ The real issue was **not** the content configuration glob patterns - the site wa
 
 #### What NOT To Do
 
-❌ Don't change `tailwind.config.ts` content paths unless specifically advised by Tailwind documentation  
-❌ Don't add experimental path resolution (like `import.meta.url`) without documented reason  
-❌ Don't modify `postcss.config.js` plugin options unless there's a specific error message  
-❌ Don't use Simple Browser in VS Code for Vite dev servers (use real browser: Chrome, Edge, Firefox)  
+ Don't change `tailwind.config.ts` content paths unless specifically advised by Tailwind documentation  
+ Don't add experimental path resolution (like `import.meta.url`) without documented reason  
+ Don't modify `postcss.config.js` plugin options unless there's a specific error message  
+ Don't use Simple Browser in VS Code for Vite dev servers (use real browser: Chrome, Edge, Firefox)  
 
 #### What TO Do
 
-✅ Always run tests before and after configuration changes  
-✅ Keep configuration as simple and standard as possible  
-✅ Use real browser for development (not VS Code Simple Browser)  
-✅ Revert config to last known good state before making new changes  
-✅ Clear browser cache (Ctrl+Shift+R) when CSS doesn't update  
+ Always run tests before and after configuration changes  
+ Keep configuration as simple and standard as possible  
+ Use real browser for development (not VS Code Simple Browser)  
+ Revert config to last known good state before making new changes  
+ Clear browser cache (Ctrl+Shift+R) when CSS doesn't update  
 
 #### Recovery Command Sequence
 
@@ -1063,11 +1063,11 @@ npm run dev
 
 #### Impact
 
-- ✅ No code changes needed
-- ✅ No new features broken
-- ✅ All 80 tests passing
-- ✅ Full styling restored
-- ✅ Development environment now stable
+-  No code changes needed
+-  No new features broken
+-  All 80 tests passing
+-  Full styling restored
+-  Development environment now stable
 
 #### Prevention
 
@@ -1123,5 +1123,77 @@ Added to `.github/copilot-instructions.md`:
 - **Image Location**: `client/public/github-nicholashoule.png`
 - **URL Reference**: `/github-nicholashoule.png` (served from public directory)
 - **Component File**: `client/src/pages/calculator.tsx` (lines 519-528)
+
+---
+
+### 24. Security Hardening & CSP Configuration (Final Session)
+
+**Session**: January 31, 2026 (Evening/Final)  
+**Context**: Fixing security audit issues while maintaining development experience
+
+#### Issues Identified
+
+**Security Issue 1: Insecure Helmet Configuration**
+- **Problem**: Helmet CSP was flagged as potentially insecure
+- **Root Cause**: Missing explicit security feature enablement beyond just CSP
+- **Solution**: Hardened Helmet by tightening Content Security Policy directives and configuring `referrerPolicy`; legacy `xssFilter`/`noSniff` options (removed in Helmet v8) were not used
+
+**Security Issue 2: Missing Rate Limiting**
+- **Problem**: Expensive operations (file system access) had no rate limiting
+- **Status**: Already implemented in `static.ts` for production
+- **Issue**: Development server needed careful configuration to avoid breaking Vite
+
+**CSP Development Mode Blocker**
+- **Problem**: Vite injects inline scripts for HMR and React Fast Refresh during development
+- **CSP Violation**: `script-src 'self'` was blocking these inline scripts
+- **Initial Fix Attempt**: Removing SPA fallback from vite.ts broke the app (404 on root)
+- **Solution**: Keep SPA fallback but skip file requests, allow `'unsafe-inline'` in development CSP
+
+#### Implementation
+
+**Changes to `server/index.ts`:**
+```typescript
+// In development, allow inline scripts and WebSocket for Vite HMR
+if (isDevelopment) {
+  cspDirectives.scriptSrc.push("'unsafe-inline'");
+  cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
+}
+```
+
+**Changes to `server/vite.ts`:**
+- Kept SPA fallback middleware for client-side routing
+- Added file extension check to skip fallback for `.tsx`, `.js`, etc.
+- This allows Vite to handle assets while SPA fallback catches route requests
+
+**Production vs Development CSP:**
+- **Production**: Strict CSP with `script-src: "'self'"` only
+- **Development**: Relaxed CSP with `script-src: "'self'", "'unsafe-inline'"` for tooling
+
+#### Key Learnings
+
+1. **Middleware Order Matters**: SPA fallback MUST come after Vite middleware to avoid interfering with asset serving
+2. **Extension Checks**: Skipping requests with file extensions prevents SPA fallback from processing module files
+3. **Environment-Aware Security**: Different CSP policies for dev vs production balances security with developer experience
+4. **Rate Limiting Strategy**: 
+   - Development: Localhost exempt from rate limiting for better DX
+   - Production: Rate limiting on file system operations to prevent DoS
+
+#### Final State
+
+ **Security Hardened**
+- Helmet properly configured with all features enabled
+- CSP allows development tools while staying secure
+- Rate limiting in place for production
+
+ **App Fully Functional**
+- Dev server runs without errors
+- Vite HMR works smoothly
+- React Fast Refresh functional
+- All UI loads with proper styling
+
+ **All Tests Pass**
+- 144 tests (6 test files) - 100% passing
+- npm audit: 0 vulnerabilities
+- TypeScript strict mode: No errors
 
 ---

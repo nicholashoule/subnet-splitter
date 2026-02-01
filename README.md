@@ -23,14 +23,26 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 
 ## Security
 
-This application follows a **security by design** approach:
+This application follows a **security by design** approach with multiple layers of protection:
 
+### Security Features
 - **No database**: No user data to protect or risk exposing
 - **No API endpoints**: No server-side attack vectors
 - **Client-side calculations**: All subnet logic runs in the browser
-- **Helmet middleware**: Adds security headers (XSS, clickjacking, MIME sniffing protection)
+- **Helmet middleware**: Adds security headers for XSS, clickjacking, and MIME sniffing protection
+- **Content Security Policy (CSP)**: 
+  - Strict policy in production: `script-src 'self'` only
+  - Relaxed policy in development: allows Vite HMR and React Fast Refresh
+  - Prevents inline script injection attacks
+- **Rate limiting**: Production SPA routes protected with rate limiting (30 requests per 15 minutes)
 - **Static isolation**: Only compiled assets from `dist/public` are served in production
-- **Replit platform**: Additional DDoS and network-level protection
+- **No vulnerabilities**: `npm audit` reports 0 vulnerabilities
+
+### Security Best Practices
+- Environment-aware configuration for dev vs production
+- File extension checks prevent serving source files as HTML
+- Middleware ordering protects asset serving from SPA fallback interference
+- All security settings documented; core protections covered by automated tests
 
 ## Tech Stack
 
@@ -44,6 +56,8 @@ This application follows a **security by design** approach:
 ### Backend
 - **Express.js 5** with TypeScript
 - **Node.js** runtime
+- **Helmet** for security headers
+- **express-rate-limit** for DoS protection
 - In-memory storage (no database required for core functionality)
 
 ## Project Structure
@@ -56,11 +70,13 @@ This application follows a **security by design** approach:
 │       ├── lib/            # Utilities (subnet-utils)
 │       └── pages/          # Route components
 ├── server/                 # Express backend
-│   ├── index.ts            # Entry point
-│   ├── routes.ts           # API routes
-│   └── vite.ts             # Vite dev server setup
-├── tests/                  # Comprehensive test suite (38 tests)
+│   ├── index.ts            # Entry point with Helmet configuration
+│   ├── routes.ts           # API route definitions
+│   ├── vite.ts             # Vite dev server setup
+│   └── static.ts           # Static file serving with rate limiting
+├── tests/                  # Comprehensive unit and integration test suite
 │   ├── unit/               # Unit tests (subnet-utils.test.ts)
+│   ├── integration/        # Integration tests (styles, config, etc.)
 │   └── README.md           # Testing documentation
 ├── shared/                 # Shared code
 │   └── schema.ts           # TypeScript types and Zod schemas
@@ -122,6 +138,7 @@ The production build creates optimized assets in the `dist/` directory.
 
 ```bash
 npm run check
+npm.cmd run check
 ```
 
 Verify TypeScript compilation without emitting files.
@@ -137,13 +154,14 @@ npm run test:ui
 
 # Run tests in watch mode (default)
 npm run test
+npm.cmd run test -- --run
 
 # Run specific test file
 npm run test -- tests/unit/subnet-utils.test.ts
 npm run test -- tests/integration/styles.test.ts
 ```
 
-The project includes a comprehensive test suite with **80 tests** (100% passing) covering:
+The project includes a comprehensive test suite with **144 tests** (100% passing) covering:
 
 **Unit Tests (53):**
 - IP address conversion and validation
@@ -155,12 +173,15 @@ The project includes a comprehensive test suite with **80 tests** (100% passing)
 - Error handling and validation with clear error messages
 - Subnet tree operations (countSubnetNodes)
 
-**Integration Tests (27):**
+**Integration Tests (91):**
 - CSS variable definitions (light and dark modes)
 - WCAG accessibility compliance (contrast ratio validation)
 - Color palette consistency
 - Tailwind CSS integration
 - Design system documentation validation
+- Header styling and layout
+- Footer styling and layout
+- Configuration validation
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation.
 

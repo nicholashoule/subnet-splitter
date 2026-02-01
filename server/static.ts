@@ -31,8 +31,17 @@ export function serveStatic(app: Express, customDistPath?: string) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", spaRateLimiter, (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // SPA fallback for client-side routing with selective rate limiting:
+  // - GET/HEAD requests (the expensive SPA fallback) are rate-limited
+  // - POST/PUT/DELETE/etc bypass rate limiting and fall through to 404
+  app.use((req, res, next) => {
+    // Only serve SPA fallback for GET and HEAD requests
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+    // Apply rate limiter to GET/HEAD (expensive file system operation)
+    spaRateLimiter(req, res, () => {
+      res.sendFile(path.resolve(distPath, "index.html"));
+    });
   });
 }

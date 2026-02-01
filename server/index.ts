@@ -41,8 +41,10 @@ const cspDirectives: Record<string, string[]> = {
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
 };
 
-// In development, allow WebSocket connections for Vite HMR
+// In development, allow inline scripts and WebSocket for Vite HMR
+// Vite injects inline scripts for Fast Refresh and HMR
 if (isDevelopment) {
+  cspDirectives.scriptSrc.push("'unsafe-inline'");
   cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
 }
 
@@ -54,13 +56,45 @@ if (isDevelopment && isReplit) {
   cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
 }
 
+// Security middleware with strict CSP configuration
+// crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
+// Note: xssFilter and noSniff were removed - they are deprecated and not supported in Helmet v8
+// X-XSS-Protection header is deprecated by browsers and should not be enabled
+// X-Content-Type-Options: nosniff is set by default in Helmet v8
 app.use(helmet({
   contentSecurityPolicy: {
     directives: cspDirectives,
   },
   crossOriginEmbedderPolicy: false,
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 const httpServer = createServer(app);
+
+// Configure trust proxy for accurate client IP detection in rate limiting
+// WARNING: Only trust proxies you control. Trusting untrusted proxies allows X-Forwarded-For spoofing
+// which breaks per-IP rate limiting. Attackers can then bypass rate limits or cause collateral damage.
+//
+// Configuration via environment variables (default to secure-by-default):
+// - TRUST_PROXY=false (default): Don't trust any proxy headers, use direct socket IP
+// - TRUST_PROXY=loopback: Trust only loopback (127.0.0.1, ::1) - for development
+// - TRUST_PROXY=<N>: Trust N hops through proxies (e.g., 1 for single reverse proxy)
+// - TRUST_PROXY="<IP1>,<IP2>,...": Trust specific proxy IPs/CIDRs (e.g., "10.0.0.0/8,127.0.0.1")
+const trustProxyConfig = process.env.TRUST_PROXY || (isDevelopment ? 'loopback' : 'false');
+
+if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
+  // Default: don't trust any proxies - use direct socket IP
+  // Safe for direct internet exposure or when running behind unknown proxies
+  app.set('trust proxy', false);
+} else if (trustProxyConfig === 'loopback') {
+  // Development mode: trust only localhost (safe for local development)
+  app.set('trust proxy', ['127.0.0.1', '::1']);
+} else if (/^\d+$/.test(trustProxyConfig)) {
+  // Numeric value: trust N hops through proxies
+  app.set('trust proxy', parseInt(trustProxyConfig, 10));
+} else {
+  // Assume it's a comma-separated list of IPs/CIDRs
+  app.set('trust proxy', trustProxyConfig.split(',').map(ip => ip.trim()));
+}
 
 app.use(express.json());
 
