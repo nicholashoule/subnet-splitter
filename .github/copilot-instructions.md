@@ -347,16 +347,16 @@ The SPA fallback is responsible for serving `index.html` for client-side routes 
 
 **Critical Control Point**: Requests for file extensions (e.g. `.js`, `.css`, `.tsx`) must be excluded from the SPA fallback so they can be handled by Vite's own middleware or static file serving.
 
-In the current implementation, this **file-extension guard is enforced in the rate limiter middleware's `skip` logic**, which runs before the SPA fallback is reached. The `skip` function detects requests that look like static assets (contain a file extension and do not end in `.html`) and bypasses both rate limiting and the SPA fallback behavior for those URLs.
+To achieve this safely, the **file-extension guard must live in the SPA fallback middleware itself** (before rendering `index.html`). The `express-rate-limit` middleware's `skip` function only controls whether rate limiting is applied; when `skip` returns `true`, the limiter simply calls `next`, which still invokes the SPA fallback. It does **not** by itself prevent the SPA fallback from running.
 
 This means:
-- The SPA fallback in `server/vite.ts` will only handle "route-like" URLs (e.g. `/`, `/subnets`, `/plans/123`) that do **not** look like asset requests.
-- Asset requests (e.g. `/src/main.tsx`, `/assets/logo.svg`, `/src/main.css`) are allowed to flow through to Vite or static middleware and are **not** treated as SPA routes.
+- The SPA fallback in `server/vite.ts` should internally check for asset-like URLs (contain a file extension and do not end in `.html`) and immediately `next()` for those, allowing them to be handled by Vite or static middleware instead of being treated as SPA routes.
+- The rate limiter can still use `skip` to avoid counting obvious asset requests, but this only affects rate limiting behavior, not routing or fallback behavior.
 
 **Why This Matters**:
-- Without a file-extension check somewhere in the pipeline, the SPA fallback could try to render `.tsx` (or other source) files as HTML.
+- Without a file-extension check inside the SPA fallback, the fallback could try to render `.tsx` (or other source) files as HTML.
 - That behavior can break Vite's React plugin and obscure preamble/runtime errors, making debugging significantly harder.
-- Middleware order remains: Vite middleware and rate limiter (with `skip` guard) run first, then the SPA fallback in `server/vite.ts` handles only the remaining route-like requests.
+- Recommended middleware order: Vite middleware and static serving first, then the rate limiter (optionally with `skip` for assets), and finally the SPA fallback in `server/vite.ts` which performs its own file-extension guard before serving `index.html`.
 
 ### Security Checklist for Code Changes
 
