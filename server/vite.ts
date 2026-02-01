@@ -18,32 +18,8 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import rateLimit from "express-rate-limit";
 
 const viteLogger = createLogger();
-
-const viteDevLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Localhost is exempt from rate limiting for better DX
-  skip: (req) => {
-    const ip = req.ip;
-    const hostHeader = req.headers.host ?? "";
-    return (
-      ip === "127.0.0.1" ||
-      ip === "::1" ||
-      hostHeader.startsWith("localhost") ||
-      hostHeader.startsWith("127.0.0.1")
-    );
-  },
-  handler: (req, res) => {
-    res.status(429).json({
-      error: "Too many requests, please try again later.",
-    });
-  },
-});
 
 export async function setupVite(server: Server, app: Express) {
   const serverOptions = {
@@ -68,16 +44,16 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  const spaRateLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 30, // limit each IP to 30 SPA fallback requests per windowMs
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    message: "Too many requests to the application. Please wait a moment and try again.",
-  });
-
-  app.use("*", spaRateLimiter, async (req, res, next) => {
+  // SPA fallback: serve index.html for client-side routes
+  // This runs AFTER Vite middleware, so Vite handles actual assets first
+  app.use(async (req, res, next) => {
     const url = req.originalUrl;
+    
+    // Skip fallback for file requests (has extension but not .html)
+    // Vite should have already handled these
+    if (url.includes('.') && !url.endsWith('.html')) {
+      return next();
+    }
 
     try {
       const clientTemplate = path.resolve(

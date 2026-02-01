@@ -41,8 +41,10 @@ const cspDirectives: Record<string, string[]> = {
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
 };
 
-// In development, allow WebSocket connections for Vite HMR
+// In development, allow inline scripts and WebSocket for Vite HMR
+// Vite injects inline scripts for Fast Refresh and HMR
 if (isDevelopment) {
+  cspDirectives.scriptSrc.push("'unsafe-inline'");
   cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
 }
 
@@ -54,11 +56,17 @@ if (isDevelopment && isReplit) {
   cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
 }
 
+// Security middleware with strict CSP configuration
+// crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
 app.use(helmet({
   contentSecurityPolicy: {
     directives: cspDirectives,
   },
   crossOriginEmbedderPolicy: false,
+  // Ensure other security features are explicitly enabled
+  xssFilter: true,
+  noSniff: true,
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 const httpServer = createServer(app);
 
