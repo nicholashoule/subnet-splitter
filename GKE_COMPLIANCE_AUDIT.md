@@ -527,7 +527,7 @@ describe("GKE Compliance", () => {
 3. **API response warnings** - Consider adding GKE quota warnings
 4. **Test coverage** - Add GKE formula validation tests
 
-### 📝 Recommended Updates
+### Recommended Updates
 
 **High Priority (1-2 days):**
 1. Update hyperscale `subnetSize: 20` → `19`
