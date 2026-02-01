@@ -70,6 +70,12 @@ app.use(helmet({
 }));
 const httpServer = createServer(app);
 
+// Trust proxy headers for accurate client IP detection
+// Required for rate limiting to work correctly behind reverse proxies
+// Setting to true trusts X-Forwarded-For header (use with care in untrusted networks)
+// In production, restrict this to known proxy IPs: app.set('trust proxy', ['10.0.0.0/8', '127.0.0.1'])
+app.set('trust proxy', true);
+
 app.use(express.json());
 
 app.use(express.urlencoded({ extended: false }));

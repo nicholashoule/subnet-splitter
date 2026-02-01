@@ -329,8 +329,15 @@ app.use(spaRateLimiter, (req, res) => {
 **Rate Limiting Best Practices**:
 1. **File system operations** are expensive - always rate limit in production
 2. **Localhost is exempt** - development experience shouldn't be throttled
-3. **Per-IP tracking** - uses `req.ip` to track clients
+3. **Per-IP tracking** - Express configured with `app.set('trust proxy', true)` to properly parse `X-Forwarded-For` headers for accurate client IP detection even behind reverse proxies
 4. **Graceful degradation** - returns 429 status with error message
+
+**Important Security Note**: The `trust proxy` setting should be configured based on your deployment:
+- **Development/Replit**: `app.set('trust proxy', true)` (default in this app)
+- **Production behind known proxies**: Restrict to specific proxy IPs: `app.set('trust proxy', ['10.0.0.0/8', '127.0.0.1'])`
+- **No proxies**: Set to `false` to use direct socket IP only
+
+This ensures `express-rate-limit` uses the correct client IP via `req.ip` instead of the proxy's IP.
 
 ### SPA Fallback Middleware
 
