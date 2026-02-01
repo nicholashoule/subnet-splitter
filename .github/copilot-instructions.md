@@ -924,6 +924,7 @@ chore: expand .gitignore for cross-platform coverage
 - **Client-Side Only**: All subnet logic executes in the browser
 - **Helmet Middleware**: Adds XSS, clickjacking, and MIME sniffing protection
 - **Static Serving**: Production only serves compiled assets from `dist/public`
+- **Rate Limiting**: SPA fallback routes are protected with rate limiting to prevent abuse of file system operations
 - **No APIs**: No external API calls except for static assets
 
 ## Common Tasks

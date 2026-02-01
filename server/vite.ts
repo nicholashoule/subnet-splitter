@@ -68,7 +68,15 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("*", viteDevLimiter, async (req, res, next) => {
+  const spaRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 30, // limit each IP to 30 SPA fallback requests per windowMs
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: "Too many requests to the application. Please wait a moment and try again.",
+  });
+
+  app.use("*", spaRateLimiter, async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
