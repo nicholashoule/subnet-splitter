@@ -23,6 +23,7 @@ import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import os from "os";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "../../");
@@ -35,8 +36,12 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     app = express();
     
     // Create temporary mock dist directory with index.html
-    mockDistPath = path.join(projectRoot, "node_modules/.test-dist-" + Date.now());
-    await fs.promises.mkdir(mockDistPath, { recursive: true });
+    // Use os.tmpdir() + fs.mkdtemp() instead of node_modules to avoid:
+    // - Polluting the workspace
+    // - Conflicts with package manager (npm/yarn/pnpm)
+    // - Issues with read-only installs
+    const tmpPrefix = path.join(os.tmpdir(), "test-dist-");
+    mockDistPath = await fs.promises.mkdtemp(tmpPrefix);
     await fs.promises.writeFile(
       path.join(mockDistPath, "index.html"),
       "<html><body>SPA</body></html>"
