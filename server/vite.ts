@@ -61,28 +61,38 @@ export async function setupVite(server: Server, app: Express) {
     },
   });
 
-  // SPA fallback: serve index.html for client-side routes
-  // This runs AFTER Vite middleware, so Vite handles actual assets first
-  app.use(spaRateLimiter, async (req, res, next) => {
-    try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
-        "client",
-        "index.html",
-      );
-
-      // always reload the index.html file from disk incase it changes
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
-      );
-      const page = await vite.transformIndexHtml(req.originalUrl, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
-    } catch (e) {
-      vite.ssrFixStacktrace(e as Error);
-      next(e);
+  // SPA fallback for client-side routing with selective rate limiting:
+  // - GET/HEAD requests (expensive file I/O) are rate-limited
+  // - POST/PUT/DELETE/etc bypass rate limiting and fall through to 404
+  // Runs AFTER Vite middleware so actual assets are served by Vite first
+  app.use(async (req, res, next) => {
+    // Only serve SPA fallback for GET and HEAD requests
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
     }
+
+    // Apply rate limiter to GET/HEAD (expensive file system operation)
+    spaRateLimiter(req, res, async () => {
+      try {
+        const clientTemplate = path.resolve(
+          import.meta.dirname,
+          "..",
+          "client",
+          "index.html",
+        );
+
+        // always reload the index.html file from disk incase it changes
+        let template = await fs.promises.readFile(clientTemplate, "utf-8");
+        template = template.replace(
+          `src="/src/main.tsx"`,
+          `src="/src/main.tsx?v=${nanoid()}"`,
+        );
+        const page = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   });
 }

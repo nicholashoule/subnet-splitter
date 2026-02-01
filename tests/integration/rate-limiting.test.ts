@@ -51,14 +51,19 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
       message: "Too many requests to the application. Please wait a moment and try again.",
     });
 
-    // For testing, apply rate limiter to all requests (SPA fallback serves everything in production)
-    // The key thing we're testing is that the limiter works correctly
-    app.use(spaRateLimiter);
-    
-    // Catch all routes and serve SPA content
-    app.use((_req, res) => {
-      res.setHeader("Content-Type", "text/html");
-      res.end("<html><body>SPA</body></html>");
+    // Apply SPA fallback middleware with selective rate limiting
+    // Rate limiter only applies to GET/HEAD requests (the expensive SPA fallback path)
+    // POST/PUT/DELETE/etc bypass rate limiting since they don't serve SPA content
+    app.use((req, res, next) => {
+      // Only serve SPA fallback for GET and HEAD requests
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return next();
+      }
+      // Apply rate limiter only for GET/HEAD (expensive SPA fallback)
+      spaRateLimiter(req, res, () => {
+        res.setHeader("Content-Type", "text/html");
+        res.end("<html><body>SPA</body></html>");
+      });
     });
 
   });
@@ -291,6 +296,55 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
       expect(response.text).not.toContain("Error");
       expect(response.text).not.toContain("stack");
       expect(response.text).toContain("Too many requests");
+    });
+  });
+
+  describe("HTTP Method Handling", () => {
+    it("should serve SPA for GET requests to unknown routes", async () => {
+      const response = await request(app).get("/unknown-route");
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("SPA");
+    });
+
+    it("should serve SPA for HEAD requests to unknown routes", async () => {
+      const response = await request(app).head("/unknown-route");
+      expect(response.status).toBe(200);
+    });
+
+    it("should return 404 for POST to unknown routes (not SPA fallback)", async () => {
+      const response = await request(app).post("/unknown-api-endpoint");
+      // POST should not trigger SPA fallback - falls through to 404
+      expect(response.status).toBe(404);
+    });
+
+    it("should return 404 for PUT to unknown routes (not SPA fallback)", async () => {
+      const response = await request(app).put("/unknown-api-endpoint");
+      expect(response.status).toBe(404);
+    });
+
+    it("should return 404 for DELETE to unknown routes (not SPA fallback)", async () => {
+      const response = await request(app).delete("/unknown-api-endpoint");
+      expect(response.status).toBe(404);
+    });
+
+    it("should return 404 for PATCH to unknown routes (not SPA fallback)", async () => {
+      const response = await request(app).patch("/unknown-api-endpoint");
+      expect(response.status).toBe(404);
+    });
+
+    it("should not count POST/PUT/DELETE toward rate limit (no SPA serve)", async () => {
+      // Make 30 GET requests to reach limit
+      for (let i = 0; i < 30; i++) {
+        await request(app).get("/route-" + i);
+      }
+
+      // POST should return 404, not 429 (not rate limited because not SPA fallback)
+      const postResponse = await request(app).post("/some-post");
+      expect(postResponse.status).toBe(404);
+
+      // Verify GET is still rate limited
+      const getResponse = await request(app).get("/should-be-limited");
+      expect(getResponse.status).toBe(429);
     });
   });
 });
