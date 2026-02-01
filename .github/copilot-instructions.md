@@ -256,6 +256,159 @@ If `npm audit fix` introduces breaking changes:
 5. Build check: `npm run build` → verify production build works
 6. If issues persist, manually review the changed packages and revert if necessary
 
+## Application Security Configuration
+
+### Helmet & Content Security Policy (CSP)
+
+**File**: `server/index.ts`
+
+The application uses Helmet.js middleware to enforce strict security headers. The CSP is environment-aware to balance security with developer experience.
+
+**Production CSP (Strict)**:
+```typescript
+{
+  scriptSrc: ["'self'"],           // Only scripts from this origin
+  styleSrc: ["'self'", "'unsafe-inline'"],  // Needed for dynamic styles
+  connectSrc: ["'self'", ...],     // Only API calls to self
+  imgSrc: ["'self'", "data:"],     // Images from self and data URIs
+  // Other directives...
+}
+```
+
+**Development CSP (Relaxed for Tooling)**:
+```typescript
+if (isDevelopment) {
+  cspDirectives.scriptSrc.push("'unsafe-inline'");  // Vite HMR & Fast Refresh
+  cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");  // WebSocket HMR
+}
+```
+
+**Security Features Enabled**:
+- `xssFilter: true` - Protects against XSS attacks
+- `noSniff: true` - Prevents MIME sniffing
+- `referrerPolicy: strict-origin-when-cross-origin` - Controls referrer leaking
+- `crossOriginEmbedderPolicy: false` - Allows SPA embedding needs
+
+**When Modifying CSP**:
+1. **Test in both light and dark modes** - Ensure styles load
+2. **Test Vite HMR** - Dev server must stay responsive
+3. **Verify no console errors** - Check browser DevTools for blocked resources
+4. **Run `npm run dev`** - Confirm development experience works
+5. **Check production build** - Run `npm run build && npm start`
+
+### Rate Limiting Strategy
+
+**Files**: `server/static.ts`, `server/vite.ts`
+
+Rate limiting protects against denial-of-service attacks on expensive operations:
+
+**Production Rate Limiting** (`server/static.ts`):
+```typescript
+const spaRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 30,                    // 30 requests per window
+  standardHeaders: true,      // Return rate limit info
+  legacyHeaders: false,
+  message: "Too many requests..."
+});
+
+app.use(spaRateLimiter, (req, res) => {
+  res.sendFile(path.resolve(distPath, "index.html"));
+});
+```
+
+**Development Setup** (`server/vite.ts`):
+- No rate limiting on Vite middleware (localhost is trusted)
+- Vite handles HMR and asset serving efficiently
+- SPA fallback only serves index.html for client-side routes
+
+**Rate Limiting Best Practices**:
+1. **File system operations** are expensive - always rate limit in production
+2. **Localhost is exempt** - development experience shouldn't be throttled
+3. **Per-IP tracking** - uses `req.ip` to track clients
+4. **Graceful degradation** - returns 429 status with error message
+
+### SPA Fallback Middleware
+
+**File**: `server/vite.ts`
+
+The SPA fallback serves `index.html` for client-side routes (not static assets).
+
+**Critical**: Must skip requests for file extensions:
+```typescript
+app.use(async (req, res, next) => {
+  const url = req.originalUrl;
+  
+  // Skip fallback for file requests - Vite handles these
+  if (url.includes('.') && !url.endsWith('.html')) {
+    return next();
+  }
+
+  // Serve index.html for routes
+  const page = await vite.transformIndexHtml(url, template);
+  res.status(200).set({ "Content-Type": "text/html" }).end(page);
+});
+```
+
+**Why This Matters**:
+- Without the file check, SPA fallback would try to render `.tsx` files as HTML
+- This breaks Vite's React plugin (can't detect preamble error)
+- Middleware order: Vite first, then SPA fallback
+- Vite middleware only handles files it recognizes (assets, modules)
+
+### Security Checklist for Code Changes
+
+**Before committing any changes:**
+- [ ] Run `npm audit` - verify 0 vulnerabilities
+- [ ] Run `npm run check` - TypeScript strict mode passes
+- [ ] Run `npm run test -- --run` - all tests pass
+- [ ] Test dev server: `npm run dev` - no console errors
+- [ ] Test production build: `npm run build && npm start`
+- [ ] Check CSP compliance:
+  - [ ] Test in Chrome/Edge/Firefox (CSP enforcement varies)
+  - [ ] Open DevTools Console (check for blocked resources)
+  - [ ] Verify no CSP violations for expected functionality
+- [ ] Check Helmet headers with browser inspector
+- [ ] If modifying CSP directives:
+  - [ ] Document why the change is needed
+  - [ ] Test both development and production modes
+  - [ ] Verify security posture isn't weakened
+
+### Common Security Pitfalls
+
+** Never do this:**
+- Disable CSP entirely: `contentSecurityPolicy: false`
+- Use overly broad directives: `scriptSrc: ["*"]`
+- Leave `'unsafe-inline'` in production for scripts
+- Forget to test in real browser (VS Code Simple Browser has limitations)
+- Commit CSP changes without testing both dev and prod
+
+** Do this instead:**
+- Use `'self'` for same-origin resources
+- Use `'unsafe-inline'` only in development (with clear comments)
+- Test CSP violations in browser console
+- Document why each directive is needed
+- Use environment checks (`isDevelopment`) for relaxed rules
+
+### Security Issues & Resolutions (Recent Session)
+
+**Issue 1: Insecure Helmet Configuration**
+- **Problem**: Missing explicit security feature enablement
+- **Resolution**: Added `xssFilter`, `noSniff`, `referrerPolicy` explicitly
+- **Files Modified**: `server/index.ts`
+
+**Issue 2: CSP Blocking Development Tools**
+- **Problem**: Vite HMR and React Fast Refresh blocked in development
+- **Root Cause**: `script-src 'self'` doesn't allow inline scripts
+- **Resolution**: Added `'unsafe-inline'` to scriptSrc in development only
+- **Key Learning**: Development and production CSP policies must differ
+
+**Issue 3: SPA Fallback Interfering with Vite**
+- **Problem**: Middleware was trying to render `.tsx` files as HTML
+- **Root Cause**: Catch-all middleware running before file extension check
+- **Resolution**: Skip fallback for requests with file extensions
+- **Files Modified**: `server/vite.ts`
+
 ## Testing & Test Coverage
 
 ### Test Structure
@@ -917,6 +1070,189 @@ chore: expand .gitignore for cross-platform coverage
    - [ ] All features work in both light and dark modes
    - [ ] Changes follow existing code style
    - [ ] No security vulnerabilities introduced
+
+## Agent Token Usage Optimization
+
+**Reduce context and token consumption when working on this project:**
+
+### Efficient Search & Discovery
+
+**Use targeted searches, not broad exploration:**
+-  `grep_search` for specific strings or patterns: `grep_search` with file patterns (`includePattern`)
+-  `semantic_search` only when you need natural language matching
+-  Don't run multiple broad `semantic_search` calls in sequence
+-  Don't search without `maxResults` limit when working with large files
+
+**Example - DO:**
+```
+grep_search: { query: "calculateSubnet|splitSubnet", isRegexp: true, includePattern: "lib/subnet-utils.ts" }
+```
+
+**Example - DON'T:**
+```
+semantic_search: "subnet calculation" (returns entire codebase)
+semantic_search: "error handling" (too broad)
+semantic_search: "button components" (too broad)
+```
+
+### Parallel Tool Execution
+
+**Execute independent operations simultaneously, not sequentially:**
+-  Run multiple `read_file` operations in one batch (different files)
+-  Run multiple `grep_search` operations in one batch (different files/patterns)
+-  Run `get_errors` and `grep_search` together (independent checks)
+-  Don't chain sequential `read_file` calls when you could read ranges in parallel
+-  Don't run searches one-at-a-time when gathering different information
+
+**Example - Parallel (Efficient):**
+```
+Batch 1: read_file (lines 1-50), read_file (lines 100-150), grep_search (pattern A), grep_search (pattern B)
+```
+
+**Example - Sequential (Wasteful):**
+```
+read_file (lines 1-50)
+read_file (lines 100-150)
+grep_search (pattern A)
+grep_search (pattern B)
+```
+
+### Reading Files Intelligently
+
+**Read larger sections, not many small ones:**
+-  Read 100+ lines in one call if you need that context
+-  Read entire small files (< 200 lines) in one operation
+-  Use line ranges that capture complete logical sections
+-  Don't call `read_file` multiple times to read sequential lines
+-  Don't read 5 lines at a time when you need 50
+
+**Example - Good file reading strategy:**
+```
+// First call: read entire function signature area (100 lines)
+read_file { start: 1, end: 100 }
+// If you need to see how it's called, read the other location (50 lines)
+read_file { start: 500, end: 550 }
+```
+
+### Batch Edit Operations
+
+**Use `multi_replace_string_in_file` for multiple changes:**
+-  Execute 5+ related edits in single `multi_replace_string_in_file` call
+-  Group edits by file or by logical feature
+-  Don't use `replace_string_in_file` for each individual change
+-  Don't edit one file, wait for result, then edit another
+
+**Example - Efficient batch edits:**
+```
+multi_replace_string_in_file {
+  replacements: [
+    { filePath: "file1.ts", oldString: "...", newString: "..." },
+    { filePath: "file1.ts", oldString: "...", newString: "..." },
+    { filePath: "file2.ts", oldString: "...", newString: "..." }
+  ]
+}
+```
+
+### Context Reuse & Deduplication
+
+**Avoid redundant information gathering:**
+-  Save search results and reference them across multiple operations
+-  If a `grep_search` returned a file path, use it for subsequent reads
+-  If you found a file location, reference it by name in explanations
+-  Don't search for the same pattern twice
+-  Don't re-read files you already have in context
+-  Don't ask for information you already discovered
+
+**Example - Reuse discovered information:**
+```
+Search: grep_search finds calculateSubnet in subnet-utils.ts line 45
+Action: read_file { filePath: "subnet-utils.ts", startLine: 40, endLine: 60 }
+Reference: In subsequent operations, you know calculateSubnet is at line 45
+```
+
+### Tool Selection Strategy
+
+**Choose the right tool for each task:**
+
+| Task | Best Tool | Why |
+|------|-----------|-----|
+| Search for specific string | `grep_search` | Fast, exact matching, small output |
+| Find how a function is used | `list_code_usages` | Designed for this, returns all references |
+| Understand a vague concept | `semantic_search` | Natural language matching across codebase |
+| Find files by name pattern | `file_search` | Glob pattern matching for discovery |
+| Explore project structure | `list_dir` | Directory listing, not full file content |
+| Fix type errors | `get_errors` | Specific error information from TypeScript |
+| Multi-location edits | `multi_replace_string_in_file` | 1 operation instead of N separate calls |
+
+### Common Inefficiencies to Avoid
+
+**1. Over-searching**
+-  Running semantic_search to find a file that could be discovered with `file_search`
+-  Use file_search for file discovery, semantic_search only for code patterns
+
+**2. Small reads**
+-  `read_file` with 10-line ranges when you need full function context
+-  Read complete functions/sections (often 50-100 lines)
+
+**3. Sequential discovery**
+-  Read a file, discover reference to another file, read that file
+-  Identify all files you need, then read them in parallel batch
+
+**4. Redundant searches**
+-  Search for "calculateSubnet" to find the function, then search again later in same task
+-  Save first search result, reference it for all subsequent operations
+
+**5. Single edits in loop**
+-  Make one change, see result, make another change, see result (10+ operations)
+-  Batch all changes together if possible (1-2 operations)
+
+### Token Budget Rules
+
+**Project-specific efficiency targets:**
+- Small fixes (1-3 files): < 15KB context
+- Feature additions (5-10 files): < 50KB context
+- Full reviews (entire codebase): < 150KB context
+
+**How to stay efficient:**
+1. **Before searching**: Ask "Do I already have this information?"
+2. **Before reading**: Ask "What's the minimum range I need?"
+3. **Before editing**: Ask "Can I batch this with other changes?"
+4. **Before tool selection**: Ask "Is there a more specific tool?"
+
+### Example: Efficient vs Wasteful Approaches
+
+**Task: Add a new validation to SubnetInfo**
+
+**Wasteful (70+ tokens in searches/reads):**
+```
+1. semantic_search: "SubnetInfo" (returns entire codebase overview)
+2. read_file: get all of subnet-utils.ts (250 lines)
+3. read_file: get all of schema.ts (200 lines)
+4. grep_search: find SubnetInfo definition
+5. grep_search: find SubnetInfo usage
+6. read_file: check package.json
+... (multiple sequential operations)
+```
+
+**Efficient (20-30 tokens for same task):**
+```
+1. grep_search: "interface SubnetInfo|type SubnetInfo" in schema.ts
+2. read_file: schema.ts lines 1-100 (covers types)
+3. grep_search: "SubnetInfo" in subnet-utils.ts (finds references)
+4. read_file: subnet-utils.ts lines 45-95 (covers usage)
+... (parallel operations, targeted searches)
+```
+
+### When Working on Complex Features
+
+**For multi-file changes (features, refactors):**
+1. Identify all affected files using targeted searches
+2. Read all files in parallel batch
+3. Plan all changes before executing
+4. Execute all edits in one `multi_replace_string_in_file` call
+5. Verify with single `get_errors` or `run_in_terminal` call
+
+**This approach:** ~40-50KB context vs 200KB+ for sequential approach
 
 ## Security Principles
 
