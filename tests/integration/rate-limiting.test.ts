@@ -9,8 +9,8 @@
  * 
  * Security Behaviors Tested:
  * - 30 requests per 15-minute window per IP (production configuration)
- * - 429 Too Many Requests response after limit exceeded
- * - RateLimit-* headers (RFC 6585) present in all responses
+ * - 429 Too Many Requests response after limit exceeded (RFC 6585)
+ * - RateLimit-* headers (RFC 9239) present in all responses
  * - X-RateLimit-* headers (legacy) NOT present
  * - Per-IP rate limiting (separate quota per client IP)
  * - Message guidance when rate limited
@@ -112,12 +112,12 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     });
   });
 
-  describe("RFC 6585 Rate Limit Headers", () => {
+  describe("RFC 9239 Rate Limit Headers", () => {
     it("should include RateLimit-* headers in responses", async () => {
       const response = await request(app).get("/test-route");
       expect(response.status).toBe(200);
 
-      // Check for standard RateLimit headers (RFC 6585)
+      // Check for standard RateLimit headers (RFC 9239)
       expect(response.headers["ratelimit-limit"]).toBeDefined();
       expect(response.headers["ratelimit-remaining"]).toBeDefined();
       expect(response.headers["ratelimit-reset"]).toBeDefined();
@@ -242,7 +242,7 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     it("should have 15-minute window", async () => {
       const response = await request(app).get("/test");
       
-      // RateLimit-Reset header should be present (RFC 6585)
+      // RateLimit-Reset header should be present (RFC 9239)
       // It contains the timestamp when the rate limit window resets
       const resetTimeStr = response.headers["ratelimit-reset"];
       expect(resetTimeStr).toBeDefined();
