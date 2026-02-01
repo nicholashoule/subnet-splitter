@@ -329,15 +329,24 @@ app.use(spaRateLimiter, (req, res) => {
 **Rate Limiting Best Practices**:
 1. **File system operations** are expensive - always rate limit SPA fallback in production
 2. **Development should also use rate limiting**, but with more permissive limits (higher `max`) to avoid impacting normal local workflows
-3. **Per-IP tracking** - Express configured with `app.set('trust proxy', true)` to properly parse `X-Forwarded-For` headers for accurate client IP detection even behind reverse proxies
+3. **Per-IP tracking** - Express trust proxy configured via environment variable for accurate client IP detection
 4. **Graceful degradation** - returns 429 status with error message
 
-**Important Security Note**: The `trust proxy` setting should be configured based on your deployment:
-- **Development/Replit**: `app.set('trust proxy', true)` (default in this app)
-- **Production behind known proxies**: Restrict to specific proxy IPs: `app.set('trust proxy', ['10.0.0.0/8', '127.0.0.1'])`
-- **No proxies**: Set to `false` to use direct socket IP only
+**Trust Proxy Security**: Configured via `TRUST_PROXY` environment variable (secure-by-default):
 
-This ensures `express-rate-limit` uses the correct client IP via `req.ip` instead of the proxy's IP.
+| Setting | Use Case | Security |
+|---------|----------|----------|
+| `TRUST_PROXY=false` (default production) | Direct internet or unknown proxies | ✅ Safe - uses direct socket IP, prevents spoofing |
+| `TRUST_PROXY=loopback` (default development) | Local development only | ✅ Safe - trusts only localhost (127.0.0.1, ::1) |
+| `TRUST_PROXY=1` | Single reverse proxy (e.g., Nginx) | ✅ Safe - trusts 1 hop |
+| `TRUST_PROXY="10.0.0.0/8,127.0.0.1"` | Specific proxy IPs/CIDRs | ✅ Safe - allowlist specific proxies |
+
+**⚠️ CRITICAL SECURITY WARNING**: Never set `trust proxy = true` in production without understanding the risks. This allows attackers to spoof client IPs via `X-Forwarded-For` header, breaking per-IP rate limiting and enabling:
+- Bypassing rate limits completely
+- Causing collateral damage (blocking legitimate users)
+- Exhausting server resources
+
+Always configure `TRUST_PROXY` explicitly based on your deployment architecture.
 
 ### SPA Fallback Middleware
 

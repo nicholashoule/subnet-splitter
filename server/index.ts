@@ -70,17 +70,30 @@ app.use(helmet({
 }));
 const httpServer = createServer(app);
 
-// Trust proxy headers for accurate client IP detection
-// Required for rate limiting to work correctly behind reverse proxies
-// In development, trust only localhost IPs (safe for local development)
-// In production, restrict to known proxy IPs based on your deployment architecture
-if (isDevelopment) {
-  // Development: trust only IPv4 and IPv6 loopback addresses (safe for local development)
+// Configure trust proxy for accurate client IP detection in rate limiting
+// WARNING: Only trust proxies you control. Trusting untrusted proxies allows X-Forwarded-For spoofing
+// which breaks per-IP rate limiting. Attackers can then bypass rate limits or cause collateral damage.
+//
+// Configuration via environment variables (default to secure-by-default):
+// - TRUST_PROXY=false (default): Don't trust any proxy headers, use direct socket IP
+// - TRUST_PROXY=loopback: Trust only loopback (127.0.0.1, ::1) - for development
+// - TRUST_PROXY=<N>: Trust N hops through proxies (e.g., 1 for single reverse proxy)
+// - TRUST_PROXY="<IP1>,<IP2>,...": Trust specific proxy IPs/CIDRs (e.g., "10.0.0.0/8,127.0.0.1")
+const trustProxyConfig = process.env.TRUST_PROXY || (isDevelopment ? 'loopback' : 'false');
+
+if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
+  // Default: don't trust any proxies - use direct socket IP
+  // Safe for direct internet exposure or when running behind unknown proxies
+  app.set('trust proxy', false);
+} else if (trustProxyConfig === 'loopback') {
+  // Development mode: trust only localhost (safe for local development)
   app.set('trust proxy', ['127.0.0.1', '::1']);
+} else if (/^\d+$/.test(trustProxyConfig)) {
+  // Numeric value: trust N hops through proxies
+  app.set('trust proxy', parseInt(trustProxyConfig, 10));
 } else {
-  // Production: restrict to known proxy IPs, e.g., ['10.0.0.0/8', '172.16.0.0/12', '127.0.0.1']
-  // For now, use a safe default (would need to be configured for your specific deployment)
-  app.set('trust proxy', ['127.0.0.1', '::1']);
+  // Assume it's a comma-separated list of IPs/CIDRs
+  app.set('trust proxy', trustProxyConfig.split(',').map(ip => ip.trim()));
 }
 
 app.use(express.json());
