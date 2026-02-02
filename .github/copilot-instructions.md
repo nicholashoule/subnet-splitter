@@ -570,6 +570,12 @@ app.get('/some/path', function(req, res) {
 
 **Why this works**: Extracting `.host` ensures exact domain matching. An attacker cannot use `https://evil.com?redirect=example.com` to bypass the check.
 
+**Security References**:
+- **OWASP**: Server-Side Request Forgery (SSRF)
+- **OWASP**: [Unvalidated Redirects and Forwards Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html)
+- **CWE-20**: Improper Input Validation
+- **CWE-601**: URL Redirection to Untrusted Site ('Open Redirect')
+
 **NOT A VULNERABILITY - CSP Directive Building (Server Configuration)**:
 Our CSP configuration in `server/csp-config.ts` is **not** URL validation:
 
