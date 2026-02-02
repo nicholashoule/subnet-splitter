@@ -15,6 +15,7 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -99,7 +100,18 @@ app.use(express.urlencoded({ extended: false }));
 // Browsers send CSP violation reports here when content is blocked
 // This helps catch CSP issues early before pushing to production
 if (isDevelopment) {
-  app.post('/__csp-violation', (req: Request, res: Response) => {
+  // Rate limit CSP violation reports to prevent log flooding attacks
+  // Legitimate CSP violations are rare and browsers batch them
+  const cspViolationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 reports per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false, // Count all requests, even successful ones
+    message: "Too many CSP violation reports. Please try again later.",
+  });
+
+  app.post('/__csp-violation', cspViolationLimiter, (req: Request, res: Response) => {
     try {
       // Validate the wrapper structure (browsers send { "csp-report": {...} })
       const validationResult = cspViolationReportSchema.safeParse(req.body);

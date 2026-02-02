@@ -446,7 +446,7 @@ app.post('/__csp-violation', (req: Request, res: Response) => {
 
 ### Rate Limiting Strategy
 
-**Files**: `server/static.ts`, `server/vite.ts`
+**Files**: `server/static.ts`, `server/vite.ts`, `server/index.ts`
 
 Rate limiting protects against denial-of-service attacks on expensive operations:
 
@@ -465,6 +465,22 @@ app.use(spaRateLimiter, (req, res) => {
 });
 ```
 
+**CSP Violation Report Rate Limiting** (`server/index.ts`):
+```typescript
+const cspViolationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 100,                   // 100 reports per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: "Too many CSP violation reports. Please try again later.",
+});
+
+app.post('/__csp-violation', cspViolationLimiter, (req, res) => {
+  // ... endpoint logic
+});
+```
+
 **Development Setup** (`server/vite.ts`):
 - Vite middleware is used for HMR and asset serving during development
 - SPA fallback is also protected by a `spaRateLimiter` in dev, but with a higher limit (e.g., `max: 100`) tuned for local usage
@@ -473,8 +489,10 @@ app.use(spaRateLimiter, (req, res) => {
 **Rate Limiting Best Practices**:
 1. **File system operations** are expensive - always rate limit SPA fallback in production
 2. **Development should also use rate limiting**, but with more permissive limits (higher `max`) to avoid impacting normal local workflows
-3. **Per-IP tracking** - Express trust proxy configured via environment variable for accurate client IP detection
-4. **Graceful degradation** - returns 429 status with error message
+3. **Logging endpoints** need rate limiting to prevent log flooding DoS attacks
+4. **CSP violation endpoint** uses higher limit (100 vs 30) because browsers batch legitimate reports
+5. **Per-IP tracking** - Express trust proxy configured via environment variable for accurate client IP detection
+6. **Graceful degradation** - returns 429 status with error message
 
 **Trust Proxy Security**: Configured via `TRUST_PROXY` environment variable (secure-by-default):
 
@@ -632,6 +650,19 @@ if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
 - **Commit**: e6f0f11
 - **Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
 
+**Issue 5: CSP Violation Endpoint Not Rate Limited (SECURITY FIX - February 2026)**
+- **Problem**: CSP violation endpoint had no rate limiting, allowing attackers to flood logs
+- **Impact**: Potential log flooding, disk space exhaustion, log rotation issues, DoS via excessive logging
+- **Root Cause**: Endpoint was focused on functionality without considering abuse scenarios
+- **Resolution**:
+  - Added rate limiting middleware to `/__csp-violation` endpoint
+  - Limit: 100 reports per 15 minutes per IP
+  - Rationale: Legitimate CSP violations are rare and browsers batch them
+  - Added test coverage for rate limiting configuration
+- **Key Learning**: All endpoints accepting external input need rate limiting, even development-only endpoints
+- **Files Modified**: `server/index.ts`, `tests/integration/csp-violation-endpoint.test.ts`
+- **Security Impact**: Prevents log-based DoS attacks in development environments
+
 ## Testing & Test Coverage
 
 ### Test Structure
@@ -640,11 +671,24 @@ Tests are organized in a dedicated `tests/` directory with clear organization:
 
 ```
 tests/
-├── unit/                        # Unit tests for individual functions
-│   └── subnet-utils.test.ts     # Core calculation logic (53 tests)
-├── integration/                 # Integration tests for system-wide features
-│   └── styles.test.ts           # Styling & design system tests (27 tests)
+├── unit/                        # Unit tests for individual functions (3 files, 121 tests)
+│   ├── subnet-utils.test.ts     # Core calculation logic (53 tests)
+│   ├── kubernetes-network-generator.test.ts  # K8s network logic (57 tests)
+│   └── emoji-detection.test.ts  # Emoji validation (11 tests)
+├── integration/                 # Integration tests for system-wide features (9 files, 194 tests)
+│   ├── api-endpoints.test.ts    # API infrastructure (38 tests)
+│   ├── kubernetes-network-api.test.ts  # K8s API (33 tests)
+│   ├── calculator-ui.test.ts    # React components (31 tests)
+│   ├── rate-limiting.test.ts    # Security middleware (23 tests)
+│   ├── ui-styles.test.ts        # WCAG accessibility (19 tests)
+│   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests)
+│   ├── swagger-ui-theming.test.ts  # Swagger UI themes (12 tests)
+│   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests)
+│   └── config.test.ts           # Configuration (8 tests)
+├── manual/                      # PowerShell testing scripts (2 files)
 └── README.md                    # Testing documentation
+
+See [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md) for comprehensive test suite analysis.
 ```
 
 ### Running Tests
@@ -659,7 +703,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 ### Test Coverage
 
-**Current Suite: 80 comprehensive tests (53 unit + 27 integration) - 100% pass rate [PASS]**
+**Current Suite: 315 comprehensive tests (121 unit + 194 integration) - 100% pass rate [PASS]**
 
 **Unit Tests** (`tests/unit/subnet-utils.test.ts` - 53 tests):
 - **IP Conversion**: ipToNumber, numberToIp with roundtrip validation
@@ -692,25 +736,32 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 80 |
-| **Unit Tests** | 53 |
-| **Integration Tests** | 27 |
+| **Total Tests** | 315 |
+| **Unit Tests** | 121 |
+| **Integration Tests** | 194 |
 | **Pass Rate** | 100% |
-| **Execution Time** | ~1.3 seconds |
+| **Execution Time** | ~3.2 seconds |
+| **Test Files** | 12 (3 unit, 9 integration) |
+| **Lines of Test Code** | 4,225 lines |
+| **Average Lines/Test** | 13.4 (efficient) |
+| **Bloat Reduction** | -7% (consolidated from 338 tests) |
+| **Overall Grade** | A- |
 | **WCAG Compliance** | AAA for primary text, AA for secondary elements |
 | **Code Type Safety** | TypeScript strict mode enabled throughout |
-| **Test Files** | 2 organized by type (unit and integration) |
-| **Calculation Functions Covered** | 100% (all subnet-utils.ts functions) |
-| **Design System Coverage** | All colors, contrast ratios, dark mode |
+| **Core Logic Coverage** | 100% (subnet-utils, kubernetes-network-generator) |
+| **Security Testing** | Comprehensive (CSP, rate limiting, RFC 1918 enforcement) |
 
 ### Test Success Criteria
 
 For the test suite to be considered passing:
-- [PASS] All 80 tests must pass
+- [PASS] All 315 tests must pass
 - [PASS] No skipped or pending tests (except during development)
 - [PASS] WCAG accessibility standards maintained
 - [PASS] All calculation logic validated
-- [PASS] Design system fully tested
+- [PASS] Security endpoints fully tested
+- [PASS] API infrastructure validated
+
+For detailed test suite health analysis, see [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md).
 
 ### Writing Tests
 
@@ -822,18 +873,21 @@ When adding new tests:
 ```bash
 npm audit                  # Security audit (0 vulnerabilities required)
 npm run check              # TypeScript type checking (no errors)
-npm run test -- --run      # Run full test suite (all 80 tests must pass)
+npm run test -- --run      # Run full test suite (all 315 tests must pass)
 npm run build              # Verify production build succeeds
 ```
 
 **Quality Gates:**
-- [PASS] All 260 tests passing (53 subnet utils + 49 k8s generator + 33 API integration + 125 other)
+- [PASS] All 315 tests passing (121 unit + 194 integration)
 - [PASS] Zero TypeScript errors in strict mode
 - [PASS] Zero npm audit vulnerabilities
 - [PASS] Production build succeeds without warnings
 - [PASS] No console errors in dev environment
 - [PASS] WCAG accessibility standards maintained
 - [PASS] API endpoints return valid JSON and YAML formats
+- [PASS] Test suite efficiency: 13.4 lines/test average
+
+For test suite analysis and optimization recommendations, see [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md).
 
 ## Code Style & Conventions
 

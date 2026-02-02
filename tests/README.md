@@ -4,54 +4,76 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Total Tests**: 257 tests across 8 test files  
-**Pass Rate**: 100% (257/257 passing)  
-**Execution Time**: ~3 seconds  
-**Test Distribution**: 113 unit tests (44%), 144 integration tests (56%)  
-**Overall Grade**: A (Consolidated, focused, high-value tests)
+**Total Tests**: 315 tests across 12 test files  
+**Pass Rate**: 100% (315/315 passing)  
+**Execution Time**: ~3.2 seconds  
+**Test Distribution**: 121 unit tests (38%), 194 integration tests (62%)  
+**Overall Grade**: A- (Bloat reduced from 338 tests)
+
+## Test Categories
+
+The project uses three types of tests:
+
+1. **Unit Tests** (`tests/unit/`) - Pure function tests, no I/O, no servers
+2. **Integration Tests** (`tests/integration/`) - Self-contained tests with their own test servers
+3. **E2E Tests** (marked with server checks) - Require full webapp running on port 5000
+
+**Note**: Most integration tests spin up their own test servers on random ports, so they don't require the webapp to be running. Only tests explicitly marked with server availability checks need `npm run dev` running.
 
 ## Structure
 
 ```
 tests/
-├── unit/                          # Unit tests (113 total)
-│   ├── subnet-utils.test.ts      # Subnet calculation utilities (53 tests) - Critical
-│   ├── kubernetes-network-generator.test.ts  # K8s network generation (49 tests) - Critical
-│   └── emoji-detection.test.ts   # Emoji validation (11 tests) - High
-├── integration/                   # Integration tests (144 total)
-│   ├── api-endpoints.test.ts     # API infrastructure tests (36 tests) - High
-│   ├── kubernetes-network-api.test.ts  # K8s API integration (33 tests) - Critical
-│   ├── rate-limiting.test.ts     # Rate limiting security (23 tests) - Critical
-│   ├── calculator-ui.test.ts     # React component behavior (31 tests) - High  
-│   ├── ui-styles.test.ts         # WCAG accessibility (19 tests) - Medium
-│   └── config.test.ts            # Configuration validation (8 tests) - Low
+├── unit/                          # Unit tests (121 total) - No server required
+│   ├── subnet-utils.test.ts      # Subnet calculation utilities (53 tests)
+│   ├── kubernetes-network-generator.test.ts  # K8s network generation (57 tests)
+│   └── emoji-detection.test.ts   # Emoji validation (11 tests)
+├── integration/                   # Integration tests (217 total) - Self-contained with test servers
+│   ├── api-endpoints.test.ts     # API infrastructure (38 tests) - Starts own server
+│   ├── kubernetes-network-api.test.ts  # K8s API (33 tests) - Starts own server
+│   ├── rate-limiting.test.ts     # Rate limiting (23 tests) - Starts own server
+│   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests) - Starts own server
+│   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests) - Starts own server
+│   ├── swagger-ui-theming.test.ts  # Swagger themes (12 tests) - WARNING REQUIRES WEBAPP
+│   ├── calculator-ui.test.ts     # React components (31 tests) - No server
+│   ├── ui-styles.test.ts         # WCAG accessibility (19 tests) - No server
+│   └── config.test.ts            # Configuration (8 tests) - No server
 ├── manual/                        # Manual testing scripts
 │   ├── test-api-endpoints.ps1    # PowerShell API validation (5 test cases)
 │   └── test-api.ps1              # PowerShell private IP validation (4 test cases)
+├── TEST_AUDIT.md                  # Comprehensive test suite analysis and optimization plan
 └── README.md                      # This file
 ```
 
-**Priority Levels**:
-- Critical: Essential tests protecting core business logic or security
-- High: Important tests for production readiness
-- Medium: Valuable tests with acceptable maintenance cost
-- Low: Limited value or requires evaluation
+### Server Requirements
+
+**Self-Contained Tests (Most tests)**:
+- Start their own Express servers on random ports
+- Do NOT require webapp to be running
+- Can run in parallel
+- Includes: `api-endpoints.test.ts`, `kubernetes-network-api.test.ts`, `rate-limiting.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`
+
+**Webapp-Dependent Tests** (marked with WARNING):
+- Require full webapp running: `npm run dev`
+- Check for server availability and skip gracefully if not running
+- Currently only `swagger-ui-theming.test.ts`
+- These tests will show `[SKIP]` message if server unavailable
 
 ## Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (most don't need webapp)
 npm run test
+
+# Run tests once and exit
+npm run test -- --run
 
 # Run tests with interactive UI
 npm run test:ui
 
-# Run tests in watch mode (default)
-npm run test
-
 # Run specific test file
-npm run test -- tests/unit/subnet-utils.test.ts
-npm run test -- tests/integration/styles.test.ts
+npm run test -- tests/unit/subnet-utils.test.ts --run
+npm run test -- tests/integration/ui-styles.test.ts --run
 
 # Run emoji detection tests only
 npm run test:emoji
@@ -62,6 +84,20 @@ npm run emoji:check
 # Auto-fix emoji in codebase
 npm run emoji:fix
 ```
+
+### Testing With Webapp Running
+
+For tests that require the full webapp (currently only `swagger-ui-theming.test.ts`):
+
+```bash
+# Terminal 1: Start webapp
+npm run dev
+
+# Terminal 2: Run all tests (webapp-dependent tests will pass)
+npm run test -- --run
+```
+
+If webapp is not running, these tests automatically skip with informative messages.
 
 ## Test Organization
 
@@ -87,17 +123,67 @@ Unit tests verify individual functions and utilities in isolation.
 
 ### Integration Tests (`tests/integration/`)
 
-Integration tests verify system-wide features like styling and design system compliance.
+Integration tests verify system-wide features and API behavior.
 
-**kubernetes-network-api.test.ts (33 tests):**
+**Self-Contained Integration Tests (Start Own Servers)**:
+
+**api-endpoints.test.ts (38 tests)**:
+- Health check endpoints (/health, /health/ready, /health/live)
+- API version endpoint
+- OpenAPI specification (JSON/YAML)
+- Swagger UI presentation
+- Error handling consistency
+
+**kubernetes-network-api.test.ts (33 tests)**:
 - API endpoint integration
 - JSON/YAML output format validation
 - RFC 1918 private IP enforcement
 - Public IP rejection
-- All deployment tiers (micro → hyperscale)
+- All deployment tiers (micro -> hyperscale)
 - Provider support (EKS, GKE, AKS, Kubernetes)
 
-**styles.test.ts (27 tests):**
+**rate-limiting.test.ts (23 tests)**:
+- Rate limiter configuration
+- Request throttling behavior
+- Header verification (X-RateLimit-*)
+- Multiple endpoints protected
+
+**csp-violation-endpoint.test.ts (12 tests)**:
+- CSP violation report handling
+- W3C spec compliance
+- Rate limiting for log flooding prevention
+- Schema validation
+
+**swagger-ui-csp-middleware.test.ts (18 tests)**:
+- Route-specific CSP headers
+- Development vs production mode
+- CDN source permissions
+- Middleware isolation
+
+**Webapp-Dependent Tests (Require `npm run dev`)**:
+
+**swagger-ui-theming.test.ts (35 tests)** WARNING:
+- HTML structure and theme scripts
+- Light/dark mode CSS loading
+- Theme persistence in localStorage
+- Color scheme validation
+- **Note**: Skips gracefully if server not running on port 5000
+
+**Component Tests (No Server)**:
+
+**calculator-ui.test.ts (31 tests)**:
+- React component behavior
+- Form submission and validation
+- Subnet splitting operations
+- CSV export functionality
+
+**ui-styles.test.ts (19 tests)**:
+- WCAG contrast ratios
+- Color palette consistency
+- Design system validation
+
+**config.test.ts (8 tests)**:
+- Configuration file validation
 - CSS variable definitions (light/dark modes)
 - WCAG accessibility compliance
 - Color palette consistency
@@ -211,7 +297,31 @@ Tests are configured in `vitest.config.ts` at the project root:
 - **Environment**: Node.js
 - **Globals enabled**: `describe`, `it`, `expect` available without imports (optional)
 
-## Test Quality Assessment (February 2026)
+## Test Quality & Audit
+
+**For detailed analysis of test suite health, see [TEST_AUDIT.md](../docs/TEST_AUDIT.md)**
+
+**Current Assessment** (February 2, 2026):
+- **Grade**: B+ (Some bloat identified)
+- **Total Tests**: 338 tests (4,491 lines)
+- **Pass Rate**: 100%
+- **Identified Issues**:
+  - Moderate bloat in swagger-ui-theming.test.ts (35 tests)
+  - Some redundant coverage between styling tests
+  - Inconsistent server requirement handling (now fixed)
+
+**Key Strengths**:
+- [PASS] Comprehensive core logic coverage (121 unit tests)
+- [PASS] Security-first testing (72+ security-related tests)
+- [PASS] Production-ready infrastructure (44 tests)
+- [PASS] Fast execution (~3.5 seconds total)
+
+**Optimization Opportunities**:
+- Reduce swagger-ui-theming.test.ts from 35 to ~12 tests
+- Move webapp-dependent tests to separate e2e/ category
+- Document test strategy more explicitly
+
+See [TEST_AUDIT.md](TEST_AUDIT.md) for complete analysis and recommendations.
 
 ### Strengths
 
@@ -266,7 +376,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 **Goal**: Reduce redundancy and maintenance burden
 
 **Action Items**:
-- Merge header.test.ts + footer.test.ts + styles.test.ts → ui-styles.test.ts
+- Merge header.test.ts + footer.test.ts + styles.test.ts -> ui-styles.test.ts
 - Reduce from 110 tests to 30-40 tests
 - Focus on WCAG compliance, not CSS properties
 - Keep only behavioral and accessibility tests
@@ -326,8 +436,8 @@ describe("Calculator UI", () => {
 **Action Items**:
 - Create `tests/e2e/smoke.test.ts` using Playwright or Cypress
 - Test complete user workflow:
-  - Open app → calculate subnet → split → select rows → export CSV
-- Test health check endpoints → API calls → response validation
+  - Open app -> calculate subnet -> split -> select rows -> export CSV
+- Test health check endpoints -> API calls -> response validation
 - Run in CI/CD as final gate before deployment
 
 **Expected Impact**:
@@ -458,4 +568,4 @@ npm run build  # Production build
 
 ---
 
-**Last Updated**: January 31, 2026
+**Last Updated**: February 2, 2026

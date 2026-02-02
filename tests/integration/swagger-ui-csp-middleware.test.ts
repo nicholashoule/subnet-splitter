@@ -1,288 +1,354 @@
 /**
  * tests/integration/swagger-ui-csp-middleware.test.ts
  * 
- * Tests for the Swagger UI CSP middleware that sets environment-aware
+ * Integration tests for the Swagger UI CSP middleware that sets environment-aware
  * Content-Security-Policy headers for the /api/docs/ui endpoint.
  * 
- * Verifies:
+ * These tests start a real test server with Swagger UI route and middleware,
+ * then make HTTP requests to verify actual CSP behavior:
  * - CSP middleware sets Content-Security-Policy header correctly
- * - Header includes required directives for Swagger UI
- * - Development mode includes 'unsafe-inline' for scripts
+ * - Header includes required directives for Swagger UI functionality
+ * - Development mode includes 'unsafe-inline' for scripts (Swagger UI + HMR)
  * - Production mode maintains strict CSP without 'unsafe-inline'
  * - Middleware only affects Swagger UI route (not other endpoints)
- * - All required CSP directives are present
+ * - All required CSP directives are present and properly formatted
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import express from "express";
+import { createServer, type Server as HttpServer } from "http";
+import { buildSwaggerUICSP } from "../../server/csp-config";
 
 /**
- * Swagger UI CSP Middleware Test Suite
+ * Swagger UI CSP Middleware Integration Test Suite
  * 
  * Tests the route-specific CSP override that allows 'unsafe-inline'
  * for Swagger UI without affecting the rest of the application.
+ * 
+ * Tests make real HTTP requests to a test server to verify CSP headers.
  */
-describe("Swagger UI CSP Middleware", () => {
-  /**
-   * Test 1: CSP header is set on Swagger UI route
-   * 
-   * Verifies that the /api/docs/ui endpoint sets a Content-Security-Policy header
-   * and that it's not empty.
-   */
-  it("should set Content-Security-Policy header on /api/docs/ui", () => {
-    // The middleware should always set this header
-    const cspHeaderName = "Content-Security-Policy";
-    const expectedHeaderName = "Content-Security-Policy";
+describe("Swagger UI CSP Middleware Integration", () => {
+  let developmentApp: express.Express;
+  let productionApp: express.Express;
+  let developmentServer: HttpServer;
+  let productionServer: HttpServer;
+  let developmentBaseUrl: string;
+  let productionBaseUrl: string;
 
-    expect(cspHeaderName).toBe(expectedHeaderName);
-    // Header presence verified in integration tests via fetch
+  beforeAll(async () => {
+    // Create development test server with 'unsafe-inline' for Swagger UI
+    developmentApp = express();
+    developmentServer = createServer(developmentApp);
+
+    // Swagger UI route with development CSP middleware
+    developmentApp.get("/api/docs/ui", (req, res, next) => {
+      res.setHeader('Content-Security-Policy', buildSwaggerUICSP(true));
+      next();
+    }, (req, res) => {
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.send('<html><body>Swagger UI (Development)</body></html>');
+    });
+
+    // Other API route without Swagger CSP middleware
+    developmentApp.post("/api/k8s/plan", (req, res) => {
+      res.json({ message: "Network plan endpoint" });
+    });
+
+    // Start development server
+    await new Promise<void>((resolve) => {
+      developmentServer.listen(0, "127.0.0.1", () => {
+        const address = developmentServer.address();
+        const port = typeof address === "object" && address ? address.port : 5001;
+        developmentBaseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+
+    // Create production test server without 'unsafe-inline'
+    productionApp = express();
+    productionServer = createServer(productionApp);
+
+    // Swagger UI route with production CSP middleware
+    productionApp.get("/api/docs/ui", (req, res, next) => {
+      res.setHeader('Content-Security-Policy', buildSwaggerUICSP(false));
+      next();
+    }, (req, res) => {
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.send('<html><body>Swagger UI (Production)</body></html>');
+    });
+
+    // Other API route without Swagger CSP middleware
+    productionApp.post("/api/k8s/plan", (req, res) => {
+      res.json({ message: "Network plan endpoint" });
+    });
+
+    // Start production server
+    await new Promise<void>((resolve) => {
+      productionServer.listen(0, "127.0.0.1", () => {
+        const address = productionServer.address();
+        const port = typeof address === "object" && address ? address.port : 5002;
+        productionBaseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
   });
 
-  /**
-   * Test 2: CSP includes base directives from baseCSPDirectives
-   * 
-   * Verifies that Swagger UI CSP starts with baseCSPDirectives
-   * and adds Swagger-specific overrides.
-   */
-  it("should include base CSP directives in Swagger UI policy", () => {
-    // Expected directives from baseCSPDirectives
-    const expectedDirectives = [
-      "default-src 'self'",
-      "script-src",
-      "style-src",
-      "img-src",
-      "connect-src",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "frame-ancestors 'self'",
-      "font-src",
-    ];
-
-    // All these directives should be present in Swagger UI CSP
-    for (const directive of expectedDirectives) {
-      const directiveName = directive.split(" ")[0];
-      expect(["default-src", "script-src", "style-src", "img-src", "connect-src", "object-src", "base-uri", "frame-ancestors", "font-src"]).toContain(
-        directiveName
-      );
-    }
+  afterAll(async () => {
+    await Promise.all([
+      new Promise<void>((resolve) => developmentServer.close(() => resolve())),
+      new Promise<void>((resolve) => productionServer.close(() => resolve()))
+    ]);
   });
 
-  /**
-   * Test 3: Development mode includes 'unsafe-inline' for scripts
-   * 
-   * Verifies that in development (NODE_ENV=development),
-   * 'unsafe-inline' is added to script-src for Swagger UI.
-   */
-  it("should include 'unsafe-inline' in script-src for development", () => {
-    // In development mode, buildSwaggerUICSP(true) should include 'unsafe-inline'
-    // This allows Swagger UI inline scripts and HMR to work
-    const isDevelopment = true;
+  describe("CSP Header Presence and Format", () => {
+    it("should set Content-Security-Policy header on Swagger UI route", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      
+      expect(response.status).toBe(200);
+      expect(response.headers.has("content-security-policy")).toBe(true);
+      
+      const cspHeader = response.headers.get("content-security-policy");
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader!.length).toBeGreaterThan(0);
+    });
 
-    // The CSP should contain 'unsafe-inline' when isDevelopment=true
-    // (This is verified in server/csp-config.ts tests)
-    expect(isDevelopment).toBe(true);
+    it("should produce valid CSP header format with semicolon-separated directives", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      
+      // CSP format: "directive value; another-directive value2"
+      expect(cspHeader).toContain(";");
+      
+      // Should contain directive names like default-src, script-src, etc.
+      expect(cspHeader).toMatch(/default-src/);
+      expect(cspHeader).toMatch(/script-src/);
+      expect(cspHeader).toMatch(/style-src/);
+      expect(cspHeader).toMatch(/connect-src/);
+    });
   });
 
-  /**
-   * Test 4: Production mode does not include 'unsafe-inline'
-   * 
-   * Verifies that in production (NODE_ENV not 'development'),
-   * 'unsafe-inline' is NOT added to script-src, maintaining strict CSP.
-   */
-  it("should not include 'unsafe-inline' in production mode", () => {
-    // In production mode, buildSwaggerUICSP(false) should NOT include 'unsafe-inline'
-    // This maintains strict CSP to prevent XSS attacks
-    const isDevelopment = false;
+  describe("Base CSP Directives", () => {
+    it("should include all base CSP directives from baseCSPDirectives", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
 
-    // The CSP should NOT contain 'unsafe-inline' when isDevelopment=false
-    // This prevents XSS attacks on the /api/docs/ui endpoint
-    expect(isDevelopment).toBe(false);
+      expect(cspHeader).toBeTruthy();
+
+      // Base directives that should be present
+      const requiredDirectives = [
+        "default-src",
+        "script-src",
+        "style-src",
+        "img-src",
+        "connect-src",
+        "object-src",
+        "base-uri",
+        "frame-ancestors",
+        "font-src",
+      ];
+
+      for (const directive of requiredDirectives) {
+        expect(cspHeader).toContain(directive);
+      }
+    });
+
+    it("should include 'self' in appropriate directives", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toContain("'self'");
+      expect(cspHeader).toContain("default-src 'self'");
+    });
+
+    it("should include object-src 'none' for security", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toContain("object-src 'none'");
+    });
   });
 
-  /**
-   * Test 5: CSP includes CDN domain for Swagger UI dependencies
-   * 
-   * Verifies that https://cdn.jsdelivr.net is included in connect-src
-   * for fetching Swagger UI dependencies.
-   */
-  it("should include https://cdn.jsdelivr.net in connect-src", () => {
-    // Swagger UI loads from CDN: https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/
-    // connect-src must include this domain for source maps and dependencies
-    const cdnDomain = "https://cdn.jsdelivr.net";
-    const connectSrcDirective = "connect-src";
+  describe("Development vs Production CSP", () => {
+    it("should include 'unsafe-inline' in script-src for development mode", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
 
-    // The CSP should include this CDN for Swagger UI assets
-    expect(cdnDomain).toContain("cdn.jsdelivr.net");
-    expect(connectSrcDirective).toBe("connect-src");
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toContain("'unsafe-inline'");
+      
+      // Should be in script-src directive
+      expect(cspHeader).toMatch(/script-src[^;]*'unsafe-inline'/);
+    });
+
+    it("should NOT include 'unsafe-inline' in script-src for production mode", async () => {
+      const response = await fetch(`${productionBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      
+      // Extract script-src directive
+      const scriptSrcMatch = cspHeader!.match(/script-src([^;]+)/);
+      expect(scriptSrcMatch).toBeTruthy();
+      
+      const scriptSrcDirective = scriptSrcMatch![0];
+      // Should NOT contain 'unsafe-inline'
+      expect(scriptSrcDirective).not.toContain("'unsafe-inline'");
+    });
+
+    it("should have different CSP between development and production", async () => {
+      const devResponse = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const prodResponse = await fetch(`${productionBaseUrl}/api/docs/ui`);
+
+      const devCSP = devResponse.headers.get("content-security-policy");
+      const prodCSP = prodResponse.headers.get("content-security-policy");
+
+      expect(devCSP).toBeTruthy();
+      expect(prodCSP).toBeTruthy();
+      
+      // CSP should be different between environments
+      expect(devCSP).not.toBe(prodCSP);
+      
+      // Development is less strict (longer CSP due to 'unsafe-inline')
+      expect(devCSP!.length).toBeGreaterThan(prodCSP!.length);
+    });
   });
 
-  /**
-   * Test 6: CSP includes stylesheet sources
-   * 
-   * Verifies that style-src includes necessary sources for:
-   * - Inline styles (for dynamic theming)
-   * - Google Fonts (for webapp design system)
-   * - Swagger UI CDN
-   */
-  it("should include required sources in style-src", () => {
-    // style-src should include:
-    // - 'self' (CSS from same origin)
-    // - 'unsafe-inline' (dynamic inline styles from theme management and charts)
-    // - https://fonts.googleapis.com (Google Fonts for webapp)
-    // - https://cdn.jsdelivr.net (Swagger UI styles)
+  describe("Swagger UI CDN Sources", () => {
+    it("should include https://cdn.jsdelivr.net in script-src", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
 
-    const requiredStyleSources = [
-      "'self'",
-      "'unsafe-inline'",
-      "https://fonts.googleapis.com",
-      "https://cdn.jsdelivr.net",
-    ];
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toContain("https://cdn.jsdelivr.net");
+      expect(cspHeader).toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+    });
 
-    // All style sources are required for the app to work properly
-    for (const source of requiredStyleSources) {
-      expect(["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"]).toContain(source);
-    }
+    it("should include https://cdn.jsdelivr.net in style-src", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toMatch(/style-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+    });
+
+    it("should include https://cdn.jsdelivr.net in connect-src for source maps", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toMatch(/connect-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+    });
   });
 
-  /**
-   * Test 7: CSP includes image sources
-   * 
-   * Verifies that img-src allows:
-   * - Self images (QR code, etc)
-   * - Data URIs (for inline SVG/images)
-   */
-  it("should include required sources in img-src", () => {
-    // img-src should include:
-    // - 'self' (images from same origin)
-    // - data: (data URIs for inline images)
+  describe("Style and Font Sources", () => {
+    it("should include 'unsafe-inline' in style-src for dynamic theming", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
 
-    const requiredImgSources = ["'self'", "data:"];
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toMatch(/style-src[^;]*'unsafe-inline'/);
+    });
 
-    for (const source of requiredImgSources) {
-      expect(["'self'", "data:"]).toContain(source);
-    }
+    it("should include Google Fonts in style-src and font-src", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toContain("https://fonts.googleapis.com");
+      expect(cspHeader).toContain("https://fonts.gstatic.com");
+      
+      // Verify in correct directives
+      expect(cspHeader).toMatch(/style-src[^;]*https:\/\/fonts\.googleapis\.com/);
+      expect(cspHeader).toMatch(/font-src[^;]*https:\/\/fonts\.gstatic\.com/);
+    });
+
+    it("should include data: in img-src for inline images", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
+
+      expect(cspHeader).toBeTruthy();
+      expect(cspHeader).toMatch(/img-src[^;]*data:/);
+    });
   });
 
-  /**
-   * Test 8: CSP includes font sources
-   * 
-   * Verifies that font-src allows:
-   * - Self fonts
-   * - Google Fonts for webapp design system
-   */
-  it("should include required sources in font-src", () => {
-    // font-src should include:
-    // - 'self' (fonts from same origin)
-    // - https://fonts.gstatic.com (Google Fonts CDN for webapp)
+  describe("Route-Specific Middleware Application", () => {
+    it("should only affect /api/docs/ui endpoint (not other routes)", async () => {
+      // Swagger UI route should have CSP
+      const swaggerResponse = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const swaggerCSP = swaggerResponse.headers.get("content-security-policy");
+      expect(swaggerCSP).toBeTruthy();
 
-    const requiredFontSources = ["'self'", "https://fonts.gstatic.com"];
-
-    for (const source of requiredFontSources) {
-      expect(["'self'", "https://fonts.gstatic.com"]).toContain(source);
-    }
+      // Other API routes should NOT have this specific Swagger CSP
+      const apiResponse = await fetch(`${developmentBaseUrl}/api/k8s/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      // This route doesn't have Swagger CSP middleware
+      // (In real implementation it would have global CSP, but not Swagger-specific)
+      expect(apiResponse.status).toBe(200);
+    });
   });
 
-  /**
-   * Test 9: Middleware does not affect other endpoints
-   * 
-   * Verifies that the Swagger UI CSP middleware is only applied to
-   * the /api/docs/ui route and doesn't affect other endpoints like
-   * /api/k8s/plan or /api/k8s/tiers which use global CSP.
-   */
-  it("should only affect /api/docs/ui endpoint (not other routes)", () => {
-    // The middleware is registered conditionally:
-    // app.get("/api/docs/ui", swaggerCSPMiddleware, handler)
-    //
-    // Other endpoints don't have this middleware, so they use:
-    // app.post("/api/k8s/plan", handler) - no swaggerCSPMiddleware
-    // app.get("/api/k8s/tiers", handler) - no swaggerCSPMiddleware
-    //
-    // This is verified by the middleware registration in server/routes.ts
+  describe("Header Preservation", () => {
+    it("should preserve other response headers set by route handler", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
 
-    const swaggerRoute = "/api/docs/ui";
-    const otherRoutes = ["/api/k8s/plan", "/api/k8s/tiers"];
+      // CSP middleware sets CSP header
+      expect(response.headers.has("content-security-policy")).toBe(true);
 
-    expect(swaggerRoute).not.toEqual(otherRoutes[0]);
-    expect(swaggerRoute).not.toEqual(otherRoutes[1]);
+      // Route handler sets cache control headers
+      expect(response.headers.has("cache-control")).toBe(true);
+      expect(response.headers.get("cache-control")).toBe("no-cache, no-store, must-revalidate");
+
+      // Route handler sets content type
+      expect(response.headers.has("content-type")).toBe(true);
+      expect(response.headers.get("content-type")).toContain("text/html");
+    });
+
+    it("should not interfere with response body from route handler", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(body).toContain("Swagger UI");
+    });
   });
 
-  /**
-   * Test 10: CSP header format is valid
-   * 
-   * Verifies that the CSP header follows W3C format:
-   * "directive-name value1 value2; another-directive value3"
-   */
-  it("should produce valid CSP header format", () => {
-    // Valid CSP format: directives separated by semicolons
-    // Each directive has a name and space-separated values
-    // Regex: starts with directive-name, has space, then values until semicolon
+  describe("CSP Directive Completeness", () => {
+    it("should have all required directives for Swagger UI functionality", async () => {
+      const response = await fetch(`${developmentBaseUrl}/api/docs/ui`);
+      const cspHeader = response.headers.get("content-security-policy");
 
-    // Test basic directive format
-    const simpleDirective = "default-src 'self'";
-    const directivePattern = /^[\w\-]+ .+/;
-    expect(directivePattern.test(simpleDirective)).toBe(true);
+      expect(cspHeader).toBeTruthy();
 
-    // Test directive with multiple values
-    const directiveWithValues = "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net";
-    expect(directivePattern.test(directiveWithValues)).toBe(true);
+      // Check all Swagger UI requirements are met
+      const requirements = [
+        { directive: "script-src", mustInclude: ["'self'", "https://cdn.jsdelivr.net"] },
+        { directive: "style-src", mustInclude: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"] },
+        { directive: "img-src", mustInclude: ["'self'", "data:"] },
+        { directive: "connect-src", mustInclude: ["'self'", "https://cdn.jsdelivr.net"] },
+        { directive: "font-src", mustInclude: ["'self'", "https://fonts.gstatic.com"] },
+      ];
 
-    // Test semicolon-separated directives
-    const multipleDirectives = "default-src 'self'; script-src 'self'";
-    const multiDirectivePattern = /[\w\-]+ .+/;
-    expect(multiDirectivePattern.test(multipleDirectives)).toBe(true);
-  });
-
-  /**
-   * Test 11: Environment-aware behavior verification
-   * 
-   * Verifies the middleware correctly uses NODE_ENV to determine
-   * whether to include 'unsafe-inline' for development HMR support.
-   * 
-   * The buildSwaggerUICSP function accepts isDevelopment parameter:
-   * - isDevelopment=true: includes 'unsafe-inline' for Swagger UI inline scripts + HMR
-   * - isDevelopment=false: strict CSP without 'unsafe-inline' for production security
-   */
-  it("should produce different CSP based on isDevelopment parameter", () => {
-    // The middleware determines development mode:
-    // const isDevelopment = process.env.NODE_ENV === 'development';
-    // Then calls: buildSwaggerUICSP(isDevelopment)
-
-    // In development (isDevelopment=true), CSP should include 'unsafe-inline'
-    // In production (isDevelopment=false), CSP should NOT include 'unsafe-inline'
-
-    // These are the two different CSP policies based on environment
-    const developmentCspShouldInclude = "'unsafe-inline'";
-    const productionCspShouldNotInclude = "'unsafe-inline'";
-
-    // Verify the concepts are correct (not the actual values)
-    expect(typeof developmentCspShouldInclude).toBe("string");
-    expect(typeof productionCspShouldNotInclude).toBe("string");
-  });
-
-  /**
-   * Test 12: Middleware preserves other headers
-   * 
-   * Verifies that the CSP middleware doesn't remove or interfere
-   * with other response headers set by the Swagger UI route handler.
-   */
-  it("should not interfere with other response headers", () => {
-    // The middleware does:
-    // res.setHeader('Content-Security-Policy', buildSwaggerUICSP(isDevelopment));
-    // next(); // Call next middleware/handler
-    //
-    // The Swagger UI handler sets:
-    // res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    // res.setHeader('Pragma', 'no-cache');
-    // res.setHeader('Expires', '0');
-    //
-    // Both sets of headers should be present
-
-    const cspHeader = "Content-Security-Policy";
-    const cacheControlHeader = "Cache-Control";
-    const pragmaHeader = "Pragma";
-    const expiresHeader = "Expires";
-
-    // Headers are independent and should all be set
-    const headers = [cspHeader, cacheControlHeader, pragmaHeader, expiresHeader];
-    expect(headers.length).toBe(4);
+      for (const req of requirements) {
+        // Extract directive content
+        const directiveMatch = cspHeader!.match(new RegExp(`${req.directive}([^;]+)`));
+        expect(directiveMatch).toBeTruthy();
+        
+        const directiveContent = directiveMatch![0];
+        
+        // Verify all required sources are present
+        for (const source of req.mustInclude) {
+          expect(directiveContent).toContain(source);
+        }
+      }
+    });
   });
 });

@@ -10,6 +10,8 @@
  * - CI/CD pipeline compatibility
  * - Documentation consistency
  * - Code portability
+ * 
+ * Fix script: npx ts-node scripts/fix-emoji.ts --fix 
  */
 
 import { describe, it, expect } from "vitest";
@@ -254,10 +256,15 @@ describe("Emoji Detection", () => {
     const configFiles = [
       ".github/copilot-instructions.md",
       ".github/agent-reasoning.md",
+      ".github/EMOJI-PREVENTION.md",
+      ".github/TESTING-AND-VALIDATION.md",
       "package.json",
       "tsconfig.json",
       "README.md",
-      "DEVELOPMENT.md",
+      "docs/API.md",
+      "docs/SWAGGER_UI_THEMING.md",
+      "docs/TEST_AUDIT.md",
+      "docs/compliance/*.md",
     ];
 
     const violations: Array<{ file: string; line: number; content: string }> = [];
