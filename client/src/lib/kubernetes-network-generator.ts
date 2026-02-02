@@ -123,12 +123,54 @@ function normalizeVpcCidr(vpcCidr: string): string {
 }
 
 /**
+ * Get availability zone assignments for subnets
+ * AWS/GKE/AKS best practices recommend minimum 3 AZs for production
+ * @param subnetCount Total number of subnets to distribute
+ * @param provider Cloud provider (affects AZ naming)
+ * @returns Array of AZ identifiers
+ */
+function getAvailabilityZones(subnetCount: number, provider: Provider): string[] {
+  const azs: string[] = [];
+  
+  // AWS availability zones: us-east-1a, us-east-1b, us-east-1c, etc.
+  // GKE zones: us-central1-a, us-central1-b, us-central1-c, etc.
+  // AKS zones: 1, 2, 3 (numerical zones)
+  
+  if (provider === "eks") {
+    // AWS EKS - use letter suffixes (a, b, c, d, e, f, g, h)
+    const azLetters = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    for (let i = 0; i < subnetCount; i++) {
+      const letter = azLetters[i % azLetters.length];
+      azs.push(`<region>-${letter}`);
+    }
+  } else if (provider === "gke") {
+    // GKE - use letter suffixes for zones
+    const zoneLetters = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    for (let i = 0; i < subnetCount; i++) {
+      const letter = zoneLetters[i % zoneLetters.length];
+      azs.push(`<region>-${letter}`);
+    }
+  } else {
+    // Generic Kubernetes or AKS - use numerical zones
+    const maxZones = 3; // Standard for most cloud providers
+    for (let i = 0; i < subnetCount; i++) {
+      const zone = (i % maxZones) + 1;
+      azs.push(`zone-${zone}`);
+    }
+  }
+  
+  return azs;
+}
+
+/**
  * Split a VPC CIDR into subnets for the given deployment tier
+ * Automatically distributes subnets across availability zones
  */
 function generateSubnets(
   vpcCidr: string,
   config: DeploymentTierConfig,
-  subnetType: "public" | "private"
+  subnetType: "public" | "private",
+  provider: Provider
 ): SubnetConfig[] {
   const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
   const vpcPrefix = parseInt(vpcCidr.split("/")[1], 10);
@@ -147,7 +189,10 @@ function generateSubnets(
   // Calculate step size in IP addresses
   const subnetAddresses = Math.pow(2, 32 - config.subnetSize);
   
-  // Generate subnets
+  // Get availability zone assignments
+  const azs = getAvailabilityZones(subnetCount, provider);
+  
+  // Generate subnets with AZ distribution
   for (let i = 0; i < subnetCount; i++) {
     const subnetStart = vpcNum + (i * subnetAddresses);
     const subnetIp = numberToIp(subnetStart);
@@ -156,7 +201,7 @@ function generateSubnets(
       cidr: `${subnetIp}/${config.subnetSize}`,
       name: `${subnetType}-${i + 1}`,
       type: subnetType,
-      availabilityZone: undefined // Multi-AZ support in future
+      availabilityZone: azs[i]
     });
   }
 
@@ -199,9 +244,10 @@ export async function generateKubernetesNetworkPlan(
     );
   }
 
-  // Generate public and private subnets
-  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public");
-  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private");
+  // Generate public and private subnets with AZ distribution
+  const provider = validatedRequest.provider;
+  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider);
+  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider);
 
   // Calculate total subnets used for offset
   const totalSubnets = publicSubnets.length + privateSubnets.length;

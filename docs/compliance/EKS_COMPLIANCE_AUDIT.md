@@ -15,6 +15,8 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 -  VPC CNI compatibility verified for all configurations
 -  IP prefix delegation support confirmed
 -  RFC 1918 private addressing enforced
+-  **Multi-AZ distribution** automatically configured for all tiers
+-  **AWS availability zones** properly assigned (region letter suffixes: a, b, c, etc.)
 -  Subnet sizing appropriate for EKS node types
 -  Pod IP space sufficient for maximum density deployments
 -  Service CIDR allocation exceeds EKS recommendations

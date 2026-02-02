@@ -239,6 +239,115 @@ describe("Kubernetes Network Generator", () => {
       });
     });
 
+    describe("Availability Zone Assignment", () => {
+      it("should assign AWS-style AZs for EKS provider", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          provider: "eks",
+          vpcCidr: "10.0.0.0/16"
+        });
+
+        // Enterprise tier: 3 public + 3 private subnets
+        expect(plan.subnets.public).toHaveLength(3);
+        expect(plan.subnets.private).toHaveLength(3);
+
+        // Check public subnets have AZ assignments
+        expect(plan.subnets.public[0].availabilityZone).toBe("<region>-a");
+        expect(plan.subnets.public[1].availabilityZone).toBe("<region>-b");
+        expect(plan.subnets.public[2].availabilityZone).toBe("<region>-c");
+
+        // Check private subnets have AZ assignments
+        expect(plan.subnets.private[0].availabilityZone).toBe("<region>-a");
+        expect(plan.subnets.private[1].availabilityZone).toBe("<region>-b");
+        expect(plan.subnets.private[2].availabilityZone).toBe("<region>-c");
+      });
+
+      it("should assign GKE-style zones for GKE provider", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          provider: "gke",
+          vpcCidr: "10.50.0.0/16"
+        });
+
+        // Professional tier: 2 public + 2 private subnets
+        expect(plan.subnets.public).toHaveLength(2);
+        expect(plan.subnets.private).toHaveLength(2);
+
+        // Check zone assignments (GKE uses same format as AWS)
+        expect(plan.subnets.public[0].availabilityZone).toBe("<region>-a");
+        expect(plan.subnets.public[1].availabilityZone).toBe("<region>-b");
+        expect(plan.subnets.private[0].availabilityZone).toBe("<region>-a");
+        expect(plan.subnets.private[1].availabilityZone).toBe("<region>-b");
+      });
+
+      it("should assign numerical zones for generic Kubernetes", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          provider: "kubernetes",
+          vpcCidr: "192.168.0.0/16"
+        });
+
+        // Check zone assignments for generic provider
+        expect(plan.subnets.public[0].availabilityZone).toBe("zone-1");
+        expect(plan.subnets.public[1].availabilityZone).toBe("zone-2");
+        expect(plan.subnets.public[2].availabilityZone).toBe("zone-3");
+        expect(plan.subnets.private[0].availabilityZone).toBe("zone-1");
+        expect(plan.subnets.private[1].availabilityZone).toBe("zone-2");
+        expect(plan.subnets.private[2].availabilityZone).toBe("zone-3");
+      });
+
+      it("should round-robin AZs for hyperscale tier (8 subnets)", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "hyperscale",
+          provider: "eks",
+          vpcCidr: "10.100.0.0/16"
+        });
+
+        // Hyperscale tier: 8 public + 8 private subnets
+        expect(plan.subnets.public).toHaveLength(8);
+        expect(plan.subnets.private).toHaveLength(8);
+
+        // Check round-robin distribution (a-h for 8 subnets)
+        const expectedAZs = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        plan.subnets.public.forEach((subnet, i) => {
+          expect(subnet.availabilityZone).toBe(`<region>-${expectedAZs[i]}`);
+        });
+        plan.subnets.private.forEach((subnet, i) => {
+          expect(subnet.availabilityZone).toBe(`<region>-${expectedAZs[i]}`);
+        });
+      });
+
+      it("should ensure minimum 3 AZs for production tiers (enterprise)", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          provider: "eks"
+        });
+
+        // Count unique AZs
+        const publicAZs = new Set(plan.subnets.public.map(s => s.availabilityZone));
+        const privateAZs = new Set(plan.subnets.private.map(s => s.availabilityZone));
+
+        // Enterprise should have 3 distinct AZs
+        expect(publicAZs.size).toBe(3);
+        expect(privateAZs.size).toBe(3);
+      });
+
+      it("should support dual-AZ for professional tier", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          provider: "eks"
+        });
+
+        // Count unique AZs
+        const publicAZs = new Set(plan.subnets.public.map(s => s.availabilityZone));
+        const privateAZs = new Set(plan.subnets.private.map(s => s.availabilityZone));
+
+        // Professional should have 2 distinct AZs
+        expect(publicAZs.size).toBe(2);
+        expect(privateAZs.size).toBe(2);
+      });
+    });
+
     describe("Metadata", () => {
       it("should include generation timestamp", async () => {
         const plan = await generateKubernetesNetworkPlan({

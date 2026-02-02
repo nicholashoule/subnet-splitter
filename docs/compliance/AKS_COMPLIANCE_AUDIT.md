@@ -15,6 +15,8 @@ The Kubernetes Network Planning API has been validated against Microsoft Azure K
 -  Azure CNI Overlay compatibility verified for all configurations
 -  Token bucket throttling algorithm documented
 -  Azure Resource Manager (ARM) quota system compatible
+-  **Multi-zone distribution** automatically configured for all tiers
+-  **Azure availability zones** properly assigned (zone-1, zone-2, zone-3)
 -  Multi-node pool scaling patterns supported
 -  Control plane tier support (Free, Standard, Premium) documented
 -  RFC 1918 private addressing enforced
