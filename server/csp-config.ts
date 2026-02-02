@@ -137,12 +137,15 @@ export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
   }
 
   // Always add CDN for Swagger UI dependencies (route-specific permission)
-  // Note: This is CSP directive building, not URL validation. CSP requires exact string matches.
-  // CodeQL: This is not substring sanitization - we're checking array membership for exact match.
+  // SECURITY NOTE: This is CSP directive construction, NOT URL validation or sanitization.
+  // We are building a whitelist of exact hosts for Content-Security-Policy headers.
+  // Array.includes() checks for exact element match - no substring matching occurs.
+  // lgtm[js/incomplete-url-substring-sanitization]
   const cdnSource = "https://cdn.jsdelivr.net";
   if (!swaggerDirectives.connectSrc) {
     swaggerDirectives.connectSrc = [];
   }
+  // nosemgrep: javascript.lang.security.audit.url-string-concat
   if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
     swaggerDirectives.connectSrc.push(cdnSource);
   }
