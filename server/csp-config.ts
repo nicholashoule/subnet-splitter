@@ -78,23 +78,51 @@ export const replitCSPAdditions: CSPDirectives = {
  * Swagger UI requires 'unsafe-inline' for inline script execution.
  * This cannot be safely added to global CSP without affecting all endpoints.
  * 
- * Starting from baseCSPDirectives, we add:
- * - 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
- * - https://cdn.jsdelivr.net to connect-src for source map fetching
+ * This function automatically builds the Swagger UI CSP by:
+ * 1. Starting with baseCSPDirectives (ensures consistency with global policy)
+ * 2. Adding 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
+ * 3. Adding 'https://cdn.jsdelivr.net' to connect-src for source map fetching
  * 
- * IMPORTANT: When baseCSPDirectives changes, this must also be updated to stay in sync.
+ * Benefits of programmatic approach:
+ * - Automatic synchronization: Changes to baseCSPDirectives automatically inherited
+ * - No manual sync required: Eliminates risk of configuration drift
+ * - Single source of truth: All CSP policies derive from baseCSPDirectives
+ * - Maintainability: Future updates to base policy don't require manual Swagger override updates
  */
 export function buildSwaggerUICSP(): string {
-  const directives = [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
-    "img-src 'self' data:",
-    "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "frame-ancestors 'self'",
-    "font-src 'self' https://fonts.gstatic.com"
-  ];
-  return directives.join("; ");
+  // Helper: Convert camelCase directive names to kebab-case (e.g., scriptSrc -> script-src)
+  const toKebabCase = (str: string): string => {
+    return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+  };
+
+  // Start with a copy of baseCSPDirectives to avoid mutating the original
+  const swaggerDirectives: CSPDirectives = {};
+  
+  // Copy all base directives
+  for (const [key, values] of Object.entries(baseCSPDirectives)) {
+    swaggerDirectives[key] = [...values];
+  }
+
+  // Add Swagger UI-specific overrides
+  if (!swaggerDirectives.scriptSrc) {
+    swaggerDirectives.scriptSrc = [];
+  }
+  if (!swaggerDirectives.scriptSrc.includes("'unsafe-inline'")) {
+    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  }
+
+  if (!swaggerDirectives.connectSrc) {
+    swaggerDirectives.connectSrc = [];
+  }
+  if (!swaggerDirectives.connectSrc.includes("https://cdn.jsdelivr.net")) {
+    swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
+  }
+
+  // Convert CSPDirectives object to CSP header string
+  // Format: "directive-name value1 value2; another-directive value3"
+  const cspString = Object.entries(swaggerDirectives)
+    .map(([key, values]) => `${toKebabCase(key)} ${values.join(" ")}`)
+    .join("; ");
+
+  return cspString;
 }
