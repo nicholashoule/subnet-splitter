@@ -126,7 +126,7 @@ class Logger {
 
   // Request-specific logging helper
   request(method: string, path: string, statusCode: number, duration: number, context?: Record<string, any>): void {
-    this.info(`${method} ${path}`, {
+    this.info("Request", {
       method,
       path,
       statusCode,
