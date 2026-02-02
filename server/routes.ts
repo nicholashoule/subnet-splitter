@@ -170,16 +170,25 @@ export async function registerRoutes(
   });
 
   // Swagger UI CSP override middleware
-  // Route-specific override approach provides defense-in-depth security:
-  // - Global CSP (server/index.ts) enforces strict 'script-src': ['self', cdn.jsdelivr.net] on all endpoints
-  // - This middleware overrides CSP only for /api/docs/ui endpoint to allow Swagger UI's inline scripts
-  // - Rest of application remains protected by strict CSP
-  // Why route-specific override over alternatives:
-  // 1. Nonces: Would require generating unique nonces per-request and injecting them into SwaggerUIBundle's inline scripts; library doesn't support this
-  // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; moving to external scripts would require maintaining a fork
-  // 3. Hashes: Swagger UI bundle changes with library updates; maintaining script content hashes is fragile and requires CI/CD updates per version
-  // Design decision: Route-specific CSP override is the cleanest, most maintainable solution that preserves security elsewhere
+  // IMPORTANT: This completely replaces the global CSP policy, not extends it.
+  // 
+  // Rationale: Swagger UI requires 'unsafe-inline' for script execution, which cannot
+  // be safely added to the global CSP without affecting all endpoints. Route-specific
+  // override allows Swagger UI exception while keeping rest of app fully protected.
+  //
+  // Maintenance Requirement: Changes to the global CSP in server/index.ts must be
+  // manually synchronized here. This is a known limitation. Future improvement: extract
+  // CSP directives to a shared config module to prevent drift.
+  //
+  // Why route-specific override (despite maintenance cost):
+  // 1. Nonces: Would require per-request generation and script tag injection; SwaggerUIBundle doesn't support this
+  // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; library doesn't support externalization
+  // 3. Hashes: Requires maintaining SHA-256 hashes per script version; fragile with library updates
   const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    // NOTE: These directives mirror the global CSP in server/index.ts with additions for Swagger UI
+    // Keep in sync with: cspDirectives in server/index.ts, specifically:
+    // - Add 'unsafe-inline' to script-src for Swagger UI inline scripts
+    // - Add https://cdn.jsdelivr.net to connect-src for source map fetching
     const swaggerCSP = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
