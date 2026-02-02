@@ -175,9 +175,9 @@ export async function registerRoutes(
   // - This middleware overrides CSP only for /api/docs/ui endpoint to allow Swagger UI's inline scripts
   // - Rest of application remains protected by strict CSP
   // Why route-specific override over alternatives:
-  // 1. Nonces: SwaggerUIBundle doesn't support CSP nonces; would require extensive refactoring of library
+  // 1. Nonces: Would require generating unique nonces per-request and injecting them into SwaggerUIBundle's inline scripts; library doesn't support this
   // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; moving to external scripts would require maintaining a fork
-  // 3. Hashes: Swagger UI bundle changes with library updates; maintaining hash list is fragile and adds CI/CD complexity
+  // 3. Hashes: Swagger UI bundle changes with library updates; maintaining script content hashes is fragile and requires CI/CD updates per version
   // Design decision: Route-specific CSP override is the cleanest, most maintainable solution that preserves security elsewhere
   const swaggerCSPMiddleware = (req: any, res: any, next: any) => {
     const swaggerCSP = [
