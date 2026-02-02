@@ -5,11 +5,14 @@
   "license": "MIT",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
-    "build": "tsx script/build.ts",
+    "build": "tsx scripts/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "test": "vitest",
     "test:ui": "vitest --ui",
+    "test:emoji": "vitest run tests/unit/emoji-detection.test.ts",
+    "emoji:check": "tsx scripts/fix-emoji.ts",
+    "emoji:fix": "tsx scripts/fix-emoji.ts --fix",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },
@@ -65,6 +68,7 @@
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
+    "yaml": "^2.8.2",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },

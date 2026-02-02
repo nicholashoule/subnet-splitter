@@ -1,5 +1,5 @@
 /**
- * script/build.ts
+ * scripts/build.ts
  * 
  * Production build script that:
  * 1. Cleans the dist directory
@@ -18,30 +18,12 @@ import { rm, readFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
+// Only includes dependencies actually used by this application
 const allowlist = [
-  "@google/generative-ai",
-  "axios",
-  "connect-pg-simple",
-  "cors",
-  "date-fns",
-  "drizzle-orm",
-  "drizzle-zod",
   "express",
   "express-rate-limit",
-  "express-session",
-  "jsonwebtoken",
-  "memorystore",
-  "multer",
-  "nanoid",
-  "nodemailer",
-  "openai",
-  "passport",
-  "passport-local",
-  "pg",
-  "stripe",
-  "uuid",
-  "ws",
-  "xlsx",
+  "helmet",
+  "yaml",
   "zod",
   "zod-validation-error",
 ];

@@ -4,6 +4,7 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 
 ## Features
 
+### Frontend Application
 - **Subnet Calculation**: Enter any CIDR notation to get detailed network information
 - **Recursive Splitting**: Split networks into smaller subnets down to /32 (single host)
 - **Interactive Table**: Expand/collapse subnet hierarchies with visual indentation
@@ -11,6 +12,12 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 - **CSV Export**: Select rows and export subnet details to CSV for use in Excel or other tools
 - **Dark/Light Mode**: Theme support with elegant UI
 - **Responsive Design**: Works on desktop and mobile devices
+
+### Backend API (Production-Ready)
+- **Kubernetes Network Planning**: Generate optimized network plans for EKS, GKE, AKS, and generic Kubernetes
+- **Multi-Cloud Support**: Battle-tested configurations for all major cloud providers
+- **Deployment Tiers**: Pre-configured subnet allocations (Micro → Hyperscale)
+- **Provider Flexibility**: Same API works with AWS, Google Cloud, Azure, and self-hosted Kubernetes
 
 ## Network Information Provided
 
@@ -27,7 +34,7 @@ This application follows a **security by design** approach with multiple layers 
 
 ### Security Features
 - **No database**: No user data to protect or risk exposing
-- **No API endpoints**: No server-side attack vectors
+- **Stateless API**: All operations are deterministic (same input = same output)
 - **Client-side calculations**: All subnet logic runs in the browser
 - **Helmet middleware**: Adds security headers for XSS, clickjacking, and MIME sniffing protection
 - **Content Security Policy (CSP)**: 
@@ -36,6 +43,7 @@ This application follows a **security by design** approach with multiple layers 
   - Prevents inline script injection attacks
 - **Rate limiting**: Production SPA routes protected with rate limiting (30 requests per 15 minutes)
 - **Static isolation**: Only compiled assets from `dist/public` are served in production
+- **Request validation**: All API requests validated with Zod schemas
 - **No vulnerabilities**: `npm audit` reports 0 vulnerabilities
 
 ### Security Best Practices
@@ -67,19 +75,30 @@ This application follows a **security by design** approach with multiple layers 
 │   └── src/
 │       ├── components/ui/  # shadcn/ui components
 │       ├── hooks/          # Custom React hooks
-│       ├── lib/            # Utilities (subnet-utils)
+│       ├── lib/            # Utilities (subnet-utils, kubernetes-network-generator)
 │       └── pages/          # Route components
 ├── server/                 # Express backend
-│   ├── index.ts            # Entry point with Helmet configuration
-│   ├── routes.ts           # API route definitions
-│   ├── vite.ts             # Vite dev server setup
+│   ├── index.ts            # Entry point with Helmet + security configuration
+│   ├── routes.ts           # API route definitions (Kubernetes Network Planning)
+│   ├── vite.ts             # Vite dev server setup with SPA fallback
 │   └── static.ts           # Static file serving with rate limiting
 ├── tests/                  # Comprehensive unit and integration test suite
-│   ├── unit/               # Unit tests (subnet-utils.test.ts)
-│   ├── integration/        # Integration tests (styles, config, etc.)
+│   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
+│   ├── integration/        # Integration tests (styles, API, config, security)
+│   ├── manual/             # PowerShell manual testing scripts
 │   └── README.md           # Testing documentation
+├── scripts/                # Build and utility tools
+│   ├── build.ts            # Production build orchestration
+│   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
+├── docs/                   # Reference documentation
+│   ├── API.md              # Kubernetes Network Planning API reference
+│   └── compliance/         # Platform-specific compliance audits
+│       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
+│       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
+│       └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
 ├── shared/                 # Shared code
-│   └── schema.ts           # TypeScript types and Zod schemas
+│   ├── schema.ts           # TypeScript types and Zod schemas
+│   └── kubernetes-schema.ts # Kubernetes API schemas
 └── package.json
 ```
 
@@ -105,12 +124,38 @@ cd subnet-cidr-splitter
 npm install
 ```
 
+#### Security Audit (Required)
+
+Always verify the project has no security vulnerabilities before running any code:
+
+```bash
+npm audit
+```
+
+If vulnerabilities are found, fix them:
+```bash
+npm audit fix
+```
+
+If issues persist, use `--force` (may install breaking changes):
+```bash
+npm audit fix --force
+```
+
+**Note:** Do not run `npm run dev`, `npm run test`, or `npm run build` without addressing security vulnerabilities first.
+
 **Start development server:**
 ```bash
 npm run dev
 ```
 
 The application will be available at `http://localhost:5000` or `http://127.0.0.1:5000`.
+
+**Access the application:**
+- Web UI: Open `http://127.0.0.1:5000` in your browser
+- API endpoint: `POST http://127.0.0.1:5000/api/k8s/plan`
+- Tier info: `GET http://127.0.0.1:5000/api/k8s/tiers`
+- API docs: `http://127.0.0.1:5000/api/docs/ui` (Swagger UI)
 
 #### Windows-Specific Setup
 
@@ -159,29 +204,81 @@ npm.cmd run test -- --run
 # Run specific test file
 npm run test -- tests/unit/subnet-utils.test.ts
 npm run test -- tests/integration/styles.test.ts
+
+# Run API tests specifically (JSON/YAML validation)
+npm run test -- tests/integration/kubernetes-network-api.test.ts --run
+
+# Run only JSON/YAML format tests
+npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+
+# Run emoji detection tests
+npm run test:emoji
+
+# Check for emoji in codebase
+npm run emoji:check
+
+# Auto-fix emoji in codebase
+npm run emoji:fix
 ```
 
-The project includes a comprehensive test suite with **144 tests** (100% passing) covering:
+#### Testing the API Endpoints
 
-**Unit Tests (53):**
-- IP address conversion and validation
-- CIDR prefix/mask calculations for all prefix lengths (0-32)
-- Subnet splitting and calculations
-- Network class identification (Classes A-E including multicast and reserved)
-- Edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4)
-- RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- Error handling and validation with clear error messages
-- Subnet tree operations (countSubnetNodes)
+**Prerequisites**: Start the development server first:
+```bash
+npm run dev
+```
 
-**Integration Tests (91):**
-- CSS variable definitions (light and dark modes)
-- WCAG accessibility compliance (contrast ratio validation)
-- Color palette consistency
-- Tailwind CSS integration
-- Design system documentation validation
-- Header styling and layout
-- Footer styling and layout
-- Configuration validation
+**Test JSON output** (default format):
+```bash
+curl -X POST http://127.0.0.1:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+```
+
+**Test YAML output** (add `?format=yaml` query parameter):
+```bash
+curl -X POST "http://127.0.0.1:5000/api/k8s/plan?format=yaml" \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+```
+
+**Test tier information endpoint**:
+```bash
+# JSON format
+curl http://127.0.0.1:5000/api/k8s/tiers
+
+# YAML format
+curl "http://127.0.0.1:5000/api/k8s/tiers?format=yaml"
+```
+
+**PowerShell Testing** (Windows):
+```powershell
+# JSON output
+Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/k8s/plan" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"deploymentSize":"professional","provider":"eks"}' | ConvertTo-Json -Depth 10
+
+# YAML output
+Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
+```
+
+The project includes a comprehensive test suite with **260 tests** (100% passing) covering:
+
+**Unit Tests (113):**
+- **Subnet calculations (53 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
+- **Kubernetes network generation (49 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
+- **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
+
+**Integration Tests (147):**
+- **API endpoints (33 tests)**: Kubernetes Network Planning API with JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Design system (27 tests)**: CSS variable definitions (light and dark modes), WCAG accessibility compliance (contrast ratio validation), color palette consistency, Tailwind CSS integration
+- **UI components (56 tests)**: Header styling and layout (29 tests), footer styling and layout (27 tests)
+- **Configuration (8 tests)**: Build configuration validation, environment setup
+- **Security (23 tests)**: Rate limiting middleware, CSP enforcement, Helmet configuration
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation.
 
@@ -198,11 +295,218 @@ All development tools and commands work identically on Windows, macOS, and Linux
 
 ## Usage
 
+### Web Interface
+
 1. Enter a CIDR notation (e.g., `192.168.1.0/24`) in the input field
 2. Click "Calculate" or use one of the example buttons
 3. View the subnet details in the Network Overview card
 4. Use the split button to divide subnets into smaller ranges
 5. Select rows with checkboxes and export to CSV
+
+### REST API - Kubernetes Network Planning
+
+The application provides production-ready REST endpoints for generating optimized network configurations across EKS, GKE, AKS, and self-hosted Kubernetes.
+
+**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/API.md) for details.
+
+#### Endpoint 1: Generate Network Plan
+
+**POST `/api/k8s/plan`**
+
+Generate an optimized network plan with subnet allocation, pod CIDR, and service CIDR ranges.
+
+**Quick Example:**
+```bash
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+```
+
+**Request Parameters:**
+```json
+{
+  "deploymentSize": "micro|standard|professional|enterprise|hyperscale",
+  "provider": "eks|gke|aks|kubernetes|k8s",
+  "vpcCidr": "10.0.0.0/16",
+  "deploymentName": "my-cluster"
+}
+```
+
+- `deploymentSize` (required): Deployment tier for cluster size
+- `provider` (optional): Cloud provider (`eks`, `gke`, `aks`, `kubernetes`, `k8s`). Defaults to `kubernetes`. Note: `k8s` is an alias for `kubernetes`
+- `vpcCidr` (optional): **Private RFC 1918 CIDR only** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). If omitted, generates random RFC 1918 range
+- `deploymentName` (optional): Reference name for deployment tracking
+
+**Accepted Private IP Ranges:**
+- [PASS] Class A: `10.0.0.0/8` (any /16 or larger subnet within this range)
+- [PASS] Class B: `172.16.0.0/12` (172.16.0.0 - 172.31.255.255)
+- [PASS] Class C: `192.168.0.0/16` (any subnet within this range)
+
+**Rejected Public IPs:** All non-RFC 1918 ranges are rejected (e.g., `8.8.8.0/16`, `1.1.1.0/16`, `200.0.0.0/16`)
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16",
+    "deploymentName": "prod-us-east-1"
+  }'
+```
+
+**Response:**
+```json
+{
+  "deploymentSize": "professional",
+  "provider": "eks",
+  "deploymentName": "prod-us-east-1",
+  "vpc": {
+    "cidr": "10.0.0.0/16"
+  },
+  "subnets": {
+    "public": [
+      {
+        "cidr": "10.0.0.0/24",
+        "name": "public-1",
+        "type": "public"
+      },
+      {
+        "cidr": "10.0.1.0/24",
+        "name": "public-2",
+        "type": "public"
+      }
+    ],
+    "private": [
+      {
+        "cidr": "10.0.2.0/23",
+        "name": "private-1",
+        "type": "private"
+      },
+      {
+        "cidr": "10.0.4.0/23",
+        "name": "private-2",
+        "type": "private"
+      }
+    ]
+  },
+  "pods": {
+    "cidr": "10.1.0.0/16"
+  },
+  "services": {
+    "cidr": "10.2.0.0/16"
+  },
+  "metadata": {
+    "generatedAt": "2026-02-01T15:30:45.123Z",
+    "version": "1.0"
+  }
+}
+```
+
+#### Endpoint 2: Get Deployment Tiers
+
+**GET `/api/k8s/tiers`**
+
+Retrieve information about all available deployment tiers and their configurations.
+
+**Example Request:**
+```bash
+curl http://localhost:5000/api/k8s/tiers
+```
+
+**Response:**
+```json
+{
+  "micro": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 25,
+    "podsPrefix": 18,
+    "servicesPrefix": 16,
+    "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
+  },
+  "standard": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 24,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
+  },
+  "professional": {
+    "publicSubnets": 2,
+    "privateSubnets": 2,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Small Production: 3-10 nodes, dual AZ ready"
+  },
+  "enterprise": {
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
+  },
+  "hyperscale": {
+    "publicSubnets": 8,
+    "privateSubnets": 8,
+    "subnetSize": 19,
+    "podsPrefix": 13,
+    "servicesPrefix": 16,
+    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+  }
+}
+```
+
+#### API Error Responses
+
+**400 Bad Request** - Invalid parameters:
+```json
+{
+  "error": "Invalid deployment size: unknown",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**400 Bad Request** - Public IP rejected (security enforcement):
+```json
+{
+  "error": "VPC CIDR \"8.8.8.0/16\" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. Public IPs expose nodes to the internet (critical security risk). Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**500 Internal Server Error** - Server error:
+```json
+{
+  "error": "Failed to generate network plan",
+  "code": "INTERNAL_ERROR"
+}
+```
+
+#### Deployment Tiers Overview
+
+| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Use Case |
+|------|-------|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /25 | POC, Development |
+| **Standard** | 1-3 | 1 | 1 | /24 | Dev/Testing |
+| **Professional** | 3-10 | 2 | 2 | /23 | Small Production (HA-ready) |
+| **Enterprise** | 10-50 | 3 | 3 | /23 | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 8 | 8 | /19 | Global Scale (EKS/GKE max) |
+
+#### Supported Providers
+
+- **EKS** - AWS Elastic Kubernetes Service with VPC CNI
+- **GKE** - Google Kubernetes Engine with Alias IP ranges
+- **AKS** - Azure Kubernetes Service with Azure CNI Overlay
+- **Kubernetes** / **k8s** - Generic self-hosted or alternative cloud providers
 
 ## Supported Network Classes
 

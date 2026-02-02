@@ -18,6 +18,7 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { logger } from "./logger";
 
 const app = express();
 
@@ -29,10 +30,10 @@ const isReplit = process.env.REPL_ID !== undefined;
 
 const cspDirectives: Record<string, string[]> = {
   defaultSrc: ["'self'"],
-  scriptSrc: ["'self'"],
+  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
   // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
   // and for Tailwind CSS compiled styles that rely on inline style blocks.
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
   imgSrc: ["'self'", "data:"],
   connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
   objectSrc: ["'none'"],
@@ -100,6 +101,8 @@ app.use(express.json());
 
 app.use(express.urlencoded({ extended: false }));
 
+// Deprecated: Legacy log function - use structured logger instead
+// Kept for backward compatibility during transition
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -111,6 +114,7 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Request logging middleware with structured logging
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -125,12 +129,20 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      const context: Record<string, any> = {
+        method: req.method,
+        path,
+        statusCode: res.statusCode,
+        duration,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      };
+
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        context.response = capturedJsonResponse;
       }
 
-      log(logLine);
+      logger.request(req.method, path, res.statusCode, duration, context);
     }
   });
 
@@ -138,13 +150,93 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  const { routes } = await registerRoutes(httpServer, app);
+
+  // Categorize routes
+  const healthRoutes = routes.filter(r => r.path.startsWith("/health") && !r.path.startsWith("/api"));
+  const apiHealthRoutes = routes.filter(r => r.path.startsWith("/api/v1/health"));
+  
+  // Primary API endpoints (concise)
+  const primaryApiRoutes = routes.filter(r => 
+    r.path === "/api/k8s/plan" || 
+    r.path === "/api/k8s/tiers" ||
+    r.path === "/api/version" ||
+    r.path === "/api/docs" ||
+    r.path === "/api/docs/ui"
+  );
+  
+  // Versioned short-form aliases
+  const versionedAliases = routes.filter(r => r.path.startsWith("/api/v1/k8s/"));
+  
+  // Descriptive long-form endpoints
+  const descriptiveRoutes = routes.filter(r => 
+    r.path.includes("/kubernetes/") && 
+    (r.path.startsWith("/api/v1/kubernetes/") || r.path.startsWith("/api/kubernetes/"))
+  );
+  
+  // Other routes
+  const otherRoutes = routes.filter(r => 
+    !healthRoutes.includes(r) &&
+    !apiHealthRoutes.includes(r) &&
+    !primaryApiRoutes.includes(r) &&
+    !versionedAliases.includes(r) &&
+    !descriptiveRoutes.includes(r)
+  );
+
+  logger.info(`Registered ${routes.length} routes`, {
+    total: routes.length,
+    health: healthRoutes.length,
+    apiHealth: apiHealthRoutes.length,
+    primary: primaryApiRoutes.length,
+    aliases: versionedAliases.length,
+    descriptive: descriptiveRoutes.length,
+    other: otherRoutes.length
+  });
+
+  if (healthRoutes.length > 0) {
+    logger.info("Health check routes:");
+    healthRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (apiHealthRoutes.length > 0) {
+    logger.info("API health routes:");
+    apiHealthRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (primaryApiRoutes.length > 0) {
+    logger.info("Primary API routes (concise):");
+    primaryApiRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (versionedAliases.length > 0) {
+    logger.info("Versioned short-form aliases:");
+    versionedAliases.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (descriptiveRoutes.length > 0) {
+    logger.info("Descriptive long-form endpoints:");
+    descriptiveRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    logger.error("Internal Server Error", {
+      status,
+      path: _req.path,
+      method: _req.method,
+    }, err);
 
     if (res.headersSent) {
       return next(err);
@@ -178,16 +270,25 @@ app.use((req, res, next) => {
     
     const host = hosts[hostIndex];
     httpServer.listen(port, host, () => {
-      log(`serving on ${host}:${port}`);
+      logger.info(`Server started`, {
+        host,
+        port,
+        environment: process.env.NODE_ENV || "development",
+      });
     });
     
     httpServer.once("error", (err: any) => {
       if (err.code === "ENOTSUP" || err.code === "EADDRINUSE") {
-        log(`${host} failed (${err.code}), trying next host`);
+        logger.warn(`Failed to bind to ${host}`, {
+          code: err.code,
+          host,
+          port,
+        });
         httpServer.removeAllListeners();
         hostIndex++;
         tryListen();
       } else {
+        logger.error("Server startup error", { host, port }, err);
         throw err;
       }
     });
