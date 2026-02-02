@@ -20,6 +20,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { logger } from "./logger";
 import { baseCSPDirectives, developmentCSPAdditions, replitCSPAdditions } from "./csp-config";
+import { cspViolationReportSchema } from "../shared/schema";
 
 const app = express();
 
@@ -99,18 +100,50 @@ app.use(express.urlencoded({ extended: false }));
 // This helps catch CSP issues early before pushing to production
 if (isDevelopment) {
   app.post('/__csp-violation', (req: Request, res: Response) => {
-    const violation = req.body;
-    if (violation && violation['blocked-uri']) {
-      logger.warn('CSP Violation Detected in Development', {
-        blockedUri: violation['blocked-uri'],
-        violatedDirective: violation['violated-directive'],
-        originalPolicy: violation['original-policy'],
-        sourceFile: violation['source-file'],
-        lineNumber: violation['line-number'],
-        columnNumber: violation['column-number'],
-        documentUri: violation['document-uri'],
+    try {
+      // Validate and parse the request body using CSP violation report schema
+      const validationResult = cspViolationReportSchema.safeParse(req.body);
+      
+      if (!validationResult.success) {
+        // Log validation error but don't expose schema details
+        logger.warn('Invalid CSP violation report received', {
+          error: 'Request body does not match CSP violation report schema',
+          issues: validationResult.error.issues.length,
+        });
+        // Return 204 No Content regardless (don't leak schema info to potential attackers)
+        res.status(204).end();
+        return;
+      }
+      
+      const violation = validationResult.data;
+      
+      // Only log if we have actual violation data (at least one expected field)
+      if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+        logger.warn('CSP Violation Detected in Development', {
+          blockedUri: violation['blocked-uri'],
+          violatedDirective: violation['violated-directive'],
+          originalPolicy: violation['original-policy'],
+          sourceFile: violation['source-file'],
+          lineNumber: violation['line-number'],
+          columnNumber: violation['column-number'],
+          documentUri: violation['document-uri'],
+          disposition: violation.disposition,
+        });
+      } else {
+        // Empty or minimal report - still log but at debug level
+        logger.debug('CSP violation report received with minimal data', {
+          bodyFields: Object.keys(req.body).length,
+        });
+      }
+    } catch (error) {
+      // Handle unexpected errors gracefully
+      logger.error('Error processing CSP violation report', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+    
+    // Always return 204 No Content per CSP spec
+    // This acknowledges receipt without exposing details
     res.status(204).end();
   });
 }

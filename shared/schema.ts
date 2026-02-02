@@ -78,6 +78,28 @@ export const cidrInputSchema = z.object({
 
 export type CidrInput = z.infer<typeof cidrInputSchema>;
 
+/**
+ * CSP Violation Report Schema
+ * 
+ * Used for validating and typing Content Security Policy violation reports
+ * sent by browsers to the development-only /__csp-violation endpoint.
+ * 
+ * Reference: https://w3c.github.io/webappsec-csp/#violation-reports
+ */
+export const cspViolationReportSchema = z.object({
+  'blocked-uri': z.string().optional(),
+  'violated-directive': z.string().optional(),
+  'original-policy': z.string().optional(),
+  'source-file': z.string().optional(),
+  'line-number': z.number().optional(),
+  'column-number': z.number().optional(),
+  'document-uri': z.string().optional(),
+  disposition: z.enum(['enforce', 'report']).optional(),
+  status: z.number().optional(),
+}).strict().optional();
+
+export type CSPViolationReport = z.infer<typeof cspViolationReportSchema>;
+
 // Constants for robustness
 export const SUBNET_CALCULATOR_LIMITS = {
   MAX_SPLIT_DEPTH: 32, // Prevent splitting beyond /32
