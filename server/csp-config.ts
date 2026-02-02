@@ -140,13 +140,12 @@ export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
   // SECURITY NOTE: This is CSP directive construction, NOT URL validation or sanitization.
   // We are building a whitelist of exact hosts for Content-Security-Policy headers.
   // Array.includes() checks for exact element match - no substring matching occurs.
-  // lgtm[js/incomplete-url-substring-sanitization]
   const cdnSource = "https://cdn.jsdelivr.net";
   if (!swaggerDirectives.connectSrc) {
     swaggerDirectives.connectSrc = [];
   }
-  // nosemgrep: javascript.lang.security.audit.url-string-concat
-  if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
+  // lgtm[js/incomplete-url-substring-sanitization] - CSP directive building, not URL validation
+  if (!swaggerDirectives.connectSrc.includes(cdnSource)) { // lgtm[js/incomplete-url-substring-sanitization]
     swaggerDirectives.connectSrc.push(cdnSource);
   }
 
