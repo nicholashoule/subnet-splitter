@@ -10,7 +10,7 @@
  * - Include input validation using Zod schemas from shared/schema.ts
  */
 
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { generateKubernetesNetworkPlan, getDeploymentTierInfo, KubernetesNetworkGenerationError } from "../client/src/lib/kubernetes-network-generator";
 import YAML from "yaml";
@@ -179,7 +179,7 @@ export async function registerRoutes(
   // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; moving to external scripts would require maintaining a fork
   // 3. Hashes: Swagger UI bundle changes with library updates; maintaining script content hashes is fragile and requires CI/CD updates per version
   // Design decision: Route-specific CSP override is the cleanest, most maintainable solution that preserves security elsewhere
-  const swaggerCSPMiddleware = (req: any, res: any, next: any) => {
+  const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
     const swaggerCSP = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
