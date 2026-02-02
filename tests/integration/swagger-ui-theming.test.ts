@@ -324,6 +324,121 @@ describe("Swagger UI Theming", () => {
     });
   });
 
+  describe("Component Styling Consistency", () => {
+    it("should style info section with rounded corners (light mode)", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Info section should have card-like styling with rounded corners
+      expect(html).toContain(".swagger-ui .info {");
+      expect(html).toMatch(/\.swagger-ui \.info \{[^}]*border-radius: 0\.5rem/);
+      expect(html).toMatch(/\.swagger-ui \.info \{[^}]*padding: 1\.5rem/);
+    });
+
+    it("should style info section with rounded corners (dark mode)", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Dark mode info section should also have card-like styling
+      expect(html).toContain("html.dark .swagger-ui .info {");
+      expect(html).toMatch(/html\.dark \.swagger-ui \.info \{[^}]*border-radius: 0\.5rem/);
+      expect(html).toMatch(/html\.dark \.swagger-ui \.info \{[^}]*padding: 1\.5rem/);
+    });
+
+    it("should have consistent border styling on card components", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Light mode: info section should have visible border
+      expect(html).toMatch(/\.swagger-ui \.info \{[^}]*border: 1px solid hsl\(214, 20%, 88%\)/);
+      
+      // Dark mode: info section should have dark-themed border
+      expect(html).toMatch(/html\.dark \.swagger-ui \.info \{[^}]*border: 1px solid hsl\(217, 33%, 17%\)/);
+    });
+
+    it("should style scheme-container with rounded corners (light mode)", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Scheme container (server selector) should have card-like styling
+      expect(html).toContain(".swagger-ui .scheme-container {");
+      expect(html).toMatch(/\.swagger-ui \.scheme-container \{[^}]*border-radius: 0\.5rem/);
+      expect(html).toMatch(/\.swagger-ui \.scheme-container \{[^}]*padding: 1rem 1\.5rem/);
+    });
+
+    it("should style scheme-container with rounded corners (dark mode)", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Dark mode scheme container should also have card-like styling
+      expect(html).toContain("html.dark .swagger-ui .scheme-container {");
+      expect(html).toMatch(/html\.dark \.swagger-ui \.scheme-container \{[^}]*border-radius: 0\.5rem/);
+      expect(html).toMatch(/html\.dark \.swagger-ui \.scheme-container \{[^}]*padding: 1rem 1\.5rem/);
+    });
+
+    it("should have consistent border styling on scheme-container", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Light mode: scheme-container should have visible border
+      expect(html).toMatch(/\.swagger-ui \.scheme-container \{[^}]*border: 1px solid hsl\(214, 20%, 88%\)/);
+      
+      // Dark mode: scheme-container should have dark-themed border
+      expect(html).toMatch(/html\.dark \.swagger-ui \.scheme-container \{[^}]*border: 1px solid hsl\(217, 33%, 17%\)/);
+    });
+
+    it("should style opblock (operation blocks) with rounded corners", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Light mode: opblock should have rounded corners
+      expect(html).toMatch(/\.swagger-ui \.opblock \{[^}]*border-radius: 0\.5rem/);
+      
+      // Dark mode: opblock should also have rounded corners
+      expect(html).toMatch(/html\.dark \.swagger-ui \.opblock \{[^}]*border-radius: 0\.5rem/);
+    });
+
+    it("should style model-box with rounded corners", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Light mode: model-box should have subtle rounded corners
+      expect(html).toMatch(/\.swagger-ui \.model-box,[^}]*border-radius: 0\.375rem/s);
+      
+      // Dark mode: model-box should also have rounded corners
+      expect(html).toMatch(/html\.dark \.swagger-ui \.model-box,[^}]*border-radius: 0\.375rem/s);
+    });
+
+    it("should style form inputs with rounded corners", async () => {
+      if (skipIfNoServer()) return;
+      
+      const response = await fetch(SWAGGER_UI_URL);
+      const html = await response.text();
+      
+      // Light mode: inputs should have rounded corners
+      expect(html).toMatch(/\.swagger-ui select,[^}]*border-radius: 0\.375rem/s);
+      
+      // Dark mode: inputs should also have rounded corners
+      expect(html).toMatch(/html\.dark \.swagger-ui select,[^}]*border-radius: 0\.375rem/s);
+    });
+  });
+
   describe("Color Consistency", () => {
     it("should use consistent color palette in light mode", async () => {
       if (skipIfNoServer()) return;

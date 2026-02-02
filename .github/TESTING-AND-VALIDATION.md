@@ -29,6 +29,11 @@ npm run test -- --run
 # Result: All 256 tests passing in ~3 seconds
 ```
 
+# runs the Vitest test suite once and exits
+```bash
+npx vitest --run
+```
+
 ### Specific Test Files
 ```bash
 # Unit tests
@@ -42,15 +47,21 @@ npm run test -- tests/integration/rate-limiting.test.ts --run
 npm run test -- tests/integration/calculator-ui.test.ts --run
 npm run test -- tests/integration/ui-styles.test.ts --run
 npm run test -- tests/integration/swagger-ui-theming.test.ts --run
+```
 
 # Swagger UI tests with running webapp
 ## Powershell (Windows)
+```powershell
 $job = Start-Job -ScriptBlock { Set-Location "$HOME\github.com\subnet-splitter"; npm run dev 2>&1 }; Start-Sleep -Seconds 5; npx vitest run tests/integration/swagger-ui-theming.test.ts 2>&1; Stop-Job -Job $job; Remove-Job -Job $job -Forcec
+```
 
 # Emoji detection
+```bash
 npm run test:emoji
+```
 
 # Emoji Fix
+```bash
 npm run emoji:fix
 ```
 

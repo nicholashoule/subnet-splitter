@@ -214,7 +214,10 @@ export async function registerRoutes(
     .swagger-ui .info {
       background-color: white !important;
       color: hsl(222, 47%, 11%) !important;
-      border-color: hsl(214, 20%, 88%) !important;
+      border: 1px solid hsl(214, 20%, 88%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1.5rem !important;
+      margin-bottom: 1.5rem !important;
     }
     .swagger-ui .info .title,
     .swagger-ui .info p,
@@ -230,7 +233,7 @@ export async function registerRoutes(
     .swagger-ui span:not(.info .title small) {
       color: hsl(222, 47%, 11%) !important;
     }
-    /* Version badges (1.0.0, OAS 3.0) - ensure backgrounds are visible */
+    /* Light mode - Version badges (1.0.0, OAS 3.0) - ensure backgrounds are visible */
     .swagger-ui .info .title small {
       background-color: hsl(215, 16%, 47%) !important;
       color: white !important;
@@ -244,8 +247,17 @@ export async function registerRoutes(
     }
     .swagger-ui .scheme-container {
       background-color: white !important;
-      border-color: hsl(214, 20%, 88%) !important;
+      border: 1px solid hsl(214, 20%, 88%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1rem 1.5rem !important;
+      margin: 0 0 1.5rem 0 !important;
       box-shadow: none !important;
+      box-sizing: border-box !important;
+      flex: 1 !important;
+    }
+    /* Fix scheme-container parent to allow full width */
+    .swagger-ui .swagger-container .scheme-container {
+      max-width: 100% !important;
     }
     .swagger-ui .opblock-tag-section {
       background-color: transparent !important;
@@ -260,6 +272,7 @@ export async function registerRoutes(
     .swagger-ui .opblock {
       background-color: white !important;
       border-color: hsl(214, 20%, 88%) !important;
+      border-radius: 0.5rem !important;
     }
     .swagger-ui .opblock .opblock-summary {
       background-color: hsl(210, 20%, 99%) !important;
@@ -285,12 +298,41 @@ export async function registerRoutes(
       background-color: white !important;
       color: hsl(222, 47%, 11%) !important;
       border-color: hsl(214, 20%, 88%) !important;
+      border-radius: 0.375rem !important;
+    }
+    .swagger-ui .models {
+      background-color: white !important;
+      border: 1px solid hsl(214, 20%, 88%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1rem !important;
+      margin-top: 1.5rem !important;
+      overflow: hidden !important;
     }
     .swagger-ui .model-title,
     .swagger-ui .model .property,
     .swagger-ui .model-box-control,
     .swagger-ui .models-control {
       color: hsl(222, 47%, 11%) !important;
+    }
+    /* Hover effects for model section headers */
+    .swagger-ui .models h4,
+    .swagger-ui .models-control,
+    .swagger-ui .model-box-control {
+      cursor: pointer !important;
+      transition: color 0.15s ease, background-color 0.15s ease !important;
+      padding: 0.5rem 0.75rem !important;
+      border-radius: 0.25rem !important;
+      display: flex !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+    }
+    .swagger-ui .models h4:hover,
+    .swagger-ui .models-control:hover,
+    .swagger-ui .model-box-control:hover {
+      color: hsl(221, 83%, 53%) !important;
+      background-color: hsl(210, 20%, 96%) !important;
     }
     .swagger-ui .tab-content,
     .swagger-ui .responses-inner,
@@ -357,6 +399,7 @@ export async function registerRoutes(
       background-color: white !important;
       color: hsl(222, 47%, 11%) !important;
       border: 1px solid hsl(214, 20%, 88%) !important;
+      border-radius: 0.375rem !important;
     }
     .swagger-ui select:focus,
     .swagger-ui input:focus,
@@ -475,13 +518,16 @@ export async function registerRoutes(
       background-color: hsl(222, 47%, 8%) !important;
       color: hsl(210, 20%, 98%) !important;
     }
-    /* Dark mode version badges */
+    /* Dark mode - Version badges (1.0.0, OAS 3.0) - ensure backgrounds are visible */
     html.dark .swagger-ui .info .title small {
-      background-color: #434b4f !important;
-      color: #e4e6e6 !important;
+      background-color: hsl(222, 13%, 22%) !important;
+      color: hsl(210, 20%, 98%) !important;
+      padding: 2px 8px !important;
+      border-radius: 3px !important;
+      display: inline-block !important;
     }
     html.dark .swagger-ui .info .title small.version-stamp {
-      background-color: #1d632e !important;
+      background-color: hsl(160, 60%, 22%) !important;
       color: white !important;
     }
     html.dark .swagger-ui .wrapper {
@@ -490,7 +536,10 @@ export async function registerRoutes(
     html.dark .swagger-ui .info {
       background-color: hsl(222, 47%, 11%) !important;
       color: hsl(210, 20%, 98%) !important;
-      border-color: hsl(217, 33%, 17%) !important;
+      border: 1px solid hsl(217, 33%, 17%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1.5rem !important;
+      margin-bottom: 1.5rem !important;
     }
     html.dark .swagger-ui .info .title,
     html.dark .swagger-ui .info p,
@@ -508,8 +557,17 @@ export async function registerRoutes(
     }
     html.dark .swagger-ui .scheme-container {
       background-color: hsl(222, 47%, 11%) !important;
-      border-color: hsl(217, 33%, 17%) !important;
+      border: 1px solid hsl(217, 33%, 17%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1rem 1.5rem !important;
+      margin: 0 0 1.5rem 0 !important;
       box-shadow: none !important;
+      box-sizing: border-box !important;
+      flex: 1 !important;
+    }
+    /* Dark mode: Fix scheme-container parent to allow full width */
+    html.dark .swagger-ui .swagger-container .scheme-container {
+      max-width: 100% !important;
     }
     html.dark .swagger-ui .opblock-tag-section {
       background-color: transparent !important;
@@ -524,6 +582,7 @@ export async function registerRoutes(
     html.dark .swagger-ui .opblock {
       background-color: hsl(222, 47%, 11%) !important;
       border-color: hsl(217, 33%, 17%) !important;
+      border-radius: 0.5rem !important;
     }
     html.dark .swagger-ui .opblock .opblock-summary {
       background-color: hsl(222, 47%, 9%) !important;
@@ -549,12 +608,41 @@ export async function registerRoutes(
       background-color: hsl(222, 47%, 11%) !important;
       color: hsl(210, 20%, 98%) !important;
       border-color: hsl(217, 33%, 17%) !important;
+      border-radius: 0.375rem !important;
+    }
+    html.dark .swagger-ui .models {
+      background-color: hsl(222, 47%, 11%) !important;
+      border: 1px solid hsl(217, 33%, 17%) !important;
+      border-radius: 0.5rem !important;
+      padding: 1rem !important;
+      margin-top: 1.5rem !important;
+      overflow: hidden !important;
     }
     html.dark .swagger-ui .model-title,
     html.dark .swagger-ui .model .property,
     html.dark .swagger-ui .model-box-control,
     html.dark .swagger-ui .models-control {
       color: hsl(210, 20%, 98%) !important;
+    }
+    /* Dark mode: Hover effects for model section headers */
+    html.dark .swagger-ui .models h4,
+    html.dark .swagger-ui .models-control,
+    html.dark .swagger-ui .model-box-control {
+      cursor: pointer !important;
+      transition: color 0.15s ease, background-color 0.15s ease !important;
+      padding: 0.5rem 0.75rem !important;
+      border-radius: 0.25rem !important;
+      display: flex !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+    }
+    html.dark .swagger-ui .models h4:hover,
+    html.dark .swagger-ui .models-control:hover,
+    html.dark .swagger-ui .model-box-control:hover {
+      color: hsl(217, 91%, 60%) !important;
+      background-color: hsl(222, 47%, 14%) !important;
     }
     html.dark .swagger-ui .tab-content,
     html.dark .swagger-ui .responses-inner,
@@ -577,7 +665,7 @@ export async function registerRoutes(
     html.dark .swagger-ui .highlight-code,
     html.dark .swagger-ui code,
     html.dark .swagger-ui pre {
-      background-color: hsl(222, 47%, 9%) !important;
+      background-color: transparent !important;
       color: hsl(210, 20%, 98%) !important;
     }
     html.dark .swagger-ui .microlight *,
@@ -605,6 +693,7 @@ export async function registerRoutes(
       background-color: hsl(222, 47%, 11%) !important;
       color: hsl(210, 20%, 98%) !important;
       border: 1px solid hsl(217, 33%, 17%) !important;
+      border-radius: 0.375rem !important;
     }
     html.dark .swagger-ui select:focus,
     html.dark .swagger-ui input:focus,
