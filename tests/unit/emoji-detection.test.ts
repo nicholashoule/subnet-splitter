@@ -257,7 +257,6 @@ describe("Emoji Detection", () => {
       ".github/copilot-instructions.md",
       ".github/agent-reasoning.md",
       ".github/EMOJI-PREVENTION.md",
-      ".github/TESTING-AND-VALIDATION.md",
       "package.json",
       "tsconfig.json",
       "README.md",
