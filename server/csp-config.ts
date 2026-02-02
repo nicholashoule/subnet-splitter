@@ -75,21 +75,27 @@ export const replitCSPAdditions: CSPDirectives = {
 /**
  * Swagger UI-specific CSP overrides
  * 
- * Swagger UI requires 'unsafe-inline' for inline script execution.
- * This cannot be safely added to global CSP without affecting all endpoints.
- * 
- * This function automatically builds the Swagger UI CSP by:
+ * This function automatically builds environment-aware CSP for Swagger UI by:
  * 1. Starting with baseCSPDirectives (ensures consistency with global policy)
- * 2. Adding 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
- * 3. Adding 'https://cdn.jsdelivr.net' to connect-src for source map fetching
+ * 2. In DEVELOPMENT: Adding 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
+ * 3. In PRODUCTION: Keeping strict CSP without 'unsafe-inline' to maintain security posture
+ * 4. Always adding 'https://cdn.jsdelivr.net' to connect-src for source map fetching
+ * 
+ * Security Rationale:
+ * - Production environments must maintain strict CSP (`script-src 'self'`) to prevent XSS attacks
+ * - Development-only 'unsafe-inline' allows Swagger UI HMR without compromising production security
+ * - The CDN connection for source maps is always permitted (non-injectable resource type)
  * 
  * Benefits of programmatic approach:
  * - Automatic synchronization: Changes to baseCSPDirectives automatically inherited
  * - No manual sync required: Eliminates risk of configuration drift
+ * - Environment-aware: Security posture matches deployment environment
  * - Single source of truth: All CSP policies derive from baseCSPDirectives
- * - Maintainability: Future updates to base policy don't require manual Swagger override updates
+ * 
+ * @param isDevelopment - Whether running in development mode (process.env.NODE_ENV === 'development')
+ * @returns CSP header string for the Swagger UI route
  */
-export function buildSwaggerUICSP(): string {
+export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
   // Helper: Convert camelCase directive names to kebab-case (e.g., scriptSrc -> script-src)
   const toKebabCase = (str: string): string => {
     return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
@@ -103,14 +109,18 @@ export function buildSwaggerUICSP(): string {
     swaggerDirectives[key] = [...values];
   }
 
-  // Add Swagger UI-specific overrides
-  if (!swaggerDirectives.scriptSrc) {
-    swaggerDirectives.scriptSrc = [];
-  }
-  if (!swaggerDirectives.scriptSrc.includes("'unsafe-inline'")) {
-    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  // Development-only: Add 'unsafe-inline' for Swagger UI inline scripts
+  // Production: Maintain strict CSP without 'unsafe-inline' to prevent XSS attacks
+  if (isDevelopment) {
+    if (!swaggerDirectives.scriptSrc) {
+      swaggerDirectives.scriptSrc = [];
+    }
+    if (!swaggerDirectives.scriptSrc.includes("'unsafe-inline'")) {
+      swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+    }
   }
 
+  // Always add CDN for Swagger UI dependencies (safe: non-injectable resource)
   if (!swaggerDirectives.connectSrc) {
     swaggerDirectives.connectSrc = [];
   }

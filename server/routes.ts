@@ -173,14 +173,17 @@ export async function registerRoutes(
   // Swagger UI CSP override middleware
   // IMPORTANT: This completely replaces the global CSP policy to allow 'unsafe-inline' for scripts.
   // 
-  // Swagger UI requires inline script execution, which cannot be safely added to global CSP
-  // without affecting all endpoints. Route-specific override allows Swagger UI exception
-  // while keeping the rest of the application fully protected.
+  // Swagger UI requires inline script execution in development (for HMR), which cannot be safely 
+  // added to global CSP without affecting all endpoints. Route-specific override allows Swagger UI 
+  // exception only in development while keeping production fully protected with strict CSP.
   //
   // The CSP directives are defined in server/csp-config.ts (buildSwaggerUICSP function)
   // and are kept in sync with baseCSPDirectives via that shared module.
+  // - Development: 'unsafe-inline' allowed (supports HMR + Swagger UI scripting)
+  // - Production: Strict CSP enforced (prevents XSS attacks on /api/docs/ui)
+  const isDevelopment = process.env.NODE_ENV === 'development';
   const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
+    res.setHeader('Content-Security-Policy', buildSwaggerUICSP(isDevelopment));
     next();
   };
 
