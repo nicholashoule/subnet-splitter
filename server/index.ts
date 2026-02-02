@@ -124,6 +124,8 @@ if (isDevelopment) {
           error: 'Request body does not match CSP violation report schema',
           issues: validationResult.error.issues.length,
           bodyKeys,
+          bodyType: typeof req.body,
+          contentType: req.get('content-type'),
           firstIssue: validationResult.error.issues[0],
         });
         // Return 204 No Content regardless (don't leak schema info to potential attackers)
