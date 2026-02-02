@@ -545,6 +545,51 @@ This means:
 - Document why each directive is needed
 - Use environment checks (`isDevelopment`) for relaxed rules
 
+### URL Validation vs CSP Directive Building
+
+**Important Distinction**: There's a critical difference between URL validation (security-sensitive) and CSP directive construction (configuration).
+
+**GOOD - URL Validation (User Input)**:
+When validating user-provided URLs, always extract and validate the host:
+
+```javascript
+app.get('/some/path', function(req, res) {
+    let url = req.param('url'),
+        host = urlLib.parse(url).host;
+    // GOOD: the host of `url` can not be controlled by an attacker
+    let allowedHosts = [
+        'example.com',
+        'beta.example.com',
+        'www.example.com'
+    ];
+    if (allowedHosts.includes(host)) {
+        res.redirect(url);
+    }
+});
+```
+
+**Why this works**: Extracting `.host` ensures exact domain matching. An attacker cannot use `https://evil.com?redirect=example.com` to bypass the check.
+
+**NOT A VULNERABILITY - CSP Directive Building (Server Configuration)**:
+Our CSP configuration in `server/csp-config.ts` is **not** URL validation:
+
+```typescript
+// This is CSP directive construction (safe - not user input)
+const cdnSource = "https://cdn.jsdelivr.net";
+if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
+    swaggerDirectives.connectSrc.push(cdnSource);
+}
+```
+
+**Why this is safe**:
+- We're building Content-Security-Policy headers (server configuration)
+- The URL is a hardcoded constant, not user input
+- `Array.includes()` checks for exact element match (not substring search)
+- CSP requires exact host matching - no substring wildcards
+- CodeQL warning suppressed with `lgtm[js/incomplete-url-substring-sanitization]`
+
+**Key Takeaway**: Use URL parsing for user input validation. Use exact string matching for configuration constants.
+
 ### Security Issues & Resolutions (Recent Session)
 
 **Issue 1: Helmet v8 Compatibility (Deprecated Options)**
