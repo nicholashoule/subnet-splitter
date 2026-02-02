@@ -735,8 +735,8 @@ Implemented 5 major robustness improvements:
 
 **Files Modified:**
 - `client/src/pages/calculator.tsx`:
-  - Split success message: 5000ms → 2500ms
-  - Delete success message: 5000ms → 2500ms
+  - Split success message: 5000ms -> 2500ms
+  - Delete success message: 5000ms -> 2500ms
 
 **Impact**: Feedback is now faster and feels more responsive, especially during rapid successive splits without cluttering the UI.
 
@@ -1097,9 +1097,9 @@ Added to `.github/copilot-instructions.md`:
    - Opens in new tab (`target="_blank" rel="noopener noreferrer"`)
    - Added hover effect (`opacity-80` on hover)
    - Adjusted spacing for compact layout:
-     - Header padding: `py-6` → `py-4`
-     - Image margin-bottom: `mb-4` → `mb-2`
-     - Header margin-bottom: `mb-10` → `mb-6`
+     - Header padding: `py-6` -> `py-4`
+     - Image margin-bottom: `mb-4` -> `mb-2`
+     - Header margin-bottom: `mb-10` -> `mb-6`
 
 3. **Benefits**
    - Personal branding via QR code
@@ -1292,7 +1292,7 @@ it("should support YAML serialization of network plans", async () => {
 2. **.github/copilot-instructions.md**:
    - Updated quality gates to reflect 260 total tests
    - Added new "API Testing Workflow" section for AI agents
-   - Documented step-by-step process: start server → run tests → manual testing
+   - Documented step-by-step process: start server -> run tests -> manual testing
    - Included expected test results and validation criteria
    - Added examples of JSON vs YAML output testing
 
@@ -1345,7 +1345,7 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
    - Format: Controlled by `?format=json` or `?format=yaml` query parameter
 
 2. `GET /api/kubernetes/tiers`
-   - Returns: Information about all deployment tiers (standard → hyperscale)
+   - Returns: Information about all deployment tiers (standard -> hyperscale)
    - Format: Controlled by query parameter
 
 **Format Response Handler** (in `server/routes.ts`):
@@ -1564,11 +1564,11 @@ export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
 ```
 
 **Benefits of Current Implementation**:
-- ✅ Automatic synchronization with `baseCSPDirectives`
-- ✅ No manual maintenance required
-- ✅ Configuration drift eliminated
-- ✅ Environment-aware (development vs production)
-- ✅ Single source of truth
+- [PASS] Automatic synchronization with `baseCSPDirectives`
+- [PASS] No manual maintenance required
+- [PASS] Configuration drift eliminated
+- [PASS] Environment-aware (development vs production)
+- [PASS] Single source of truth
 
 **Historical Context**: This was implemented in commit 811e0ae from an earlier session. The old manual sync comment was already removed.
 

@@ -266,9 +266,9 @@ Before making ANY changes:
 If `npm audit fix` introduces breaking changes:
 1. Review package.json changes
 2. Run `npm install` to sync package-lock.json
-3. Test application: `npm run dev` → verify it starts
-4. Run test suite: `npm run test` → verify tests pass
-5. Build check: `npm run build` → verify production build works
+3. Test application: `npm run dev` -> verify it starts
+4. Run test suite: `npm run test` -> verify tests pass
+5. Build check: `npm run build` -> verify production build works
 6. If issues persist, manually review the changed packages and revert if necessary
 
 ## Application Security Configuration
@@ -337,11 +337,11 @@ export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
 ```
 
 **Benefits:**
-- ✅ Automatic synchronization with `baseCSPDirectives`
-- ✅ No manual maintenance required
-- ✅ Configuration drift eliminated
-- ✅ Environment-aware (development vs production)
-- ✅ Single source of truth
+- [PASS] Automatic synchronization with `baseCSPDirectives`
+- [PASS] No manual maintenance required
+- [PASS] Configuration drift eliminated
+- [PASS] Environment-aware (development vs production)
+- [PASS] Single source of truth
 
 #### CSP Violation Reporting Endpoint (Development Only)
 
@@ -413,12 +413,12 @@ app.post('/__csp-violation', (req: Request, res: Response) => {
 ```
 
 **Key Points:**
-- ✅ Validates W3C CSP violation report format
-- ✅ Extracts nested `"csp-report"` wrapper
-- ✅ Always returns 204 No Content (per W3C spec)
-- ✅ Never exposes schema details in responses
-- ✅ Development-only (not available in production)
-- ✅ Helps catch CSP issues before deployment
+- [PASS] Validates W3C CSP violation report format
+- [PASS] Extracts nested `"csp-report"` wrapper
+- [PASS] Always returns 204 No Content (per W3C spec)
+- [PASS] Never exposes schema details in responses
+- [PASS] Development-only (not available in production)
+- [PASS] Helps catch CSP issues before deployment
 
 **Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
 
@@ -1602,11 +1602,11 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 
 ```bash
 # Enterprise tier (GKE Standard, 50 nodes, 10-50 node range)
-# Pod range: /16 → supports 256 nodes at 110 pods/node = 28K pods 
+# Pod range: /16 -> supports 256 nodes at 110 pods/node = 28K pods 
 
 # Hyperscale tier (GKE Standard, 5,000 nodes max)
-# Pod range: /13 → supports 2,048 nodes at 110 pods/node = 225K pods 
-# Primary: /19 → supports 8,188 nodes 
+# Pod range: /13 -> supports 2,048 nodes at 110 pods/node = 225K pods 
+# Primary: /19 -> supports 8,188 nodes 
 ```
 
 **Best Practices:**
