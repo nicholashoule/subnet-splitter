@@ -907,6 +907,7 @@ export async function registerRoutes(
       ],
       layout: "StandaloneLayout",
       syntaxHighlight: syntaxHighlightConfig,
+      validatorUrl: null,
       onComplete: function() {
         // Function to apply light mode styles
         function applyLightStyles() {

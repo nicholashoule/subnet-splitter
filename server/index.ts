@@ -30,12 +30,13 @@ const isReplit = process.env.REPL_ID !== undefined;
 
 const cspDirectives: Record<string, string[]> = {
   defaultSrc: ["'self'"],
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
+  // Swagger UI requires inline scripts and cdn.jsdelivr.net for its interactive UI
+  scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
   // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
   // and for Tailwind CSS compiled styles that rely on inline style blocks.
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
   imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
