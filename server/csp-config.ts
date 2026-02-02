@@ -41,6 +41,20 @@ export const baseCSPDirectives: CSPDirectives = {
 /**
  * Development-only CSP additions
  * Allows Vite HMR and Replit plugins
+ * 
+ * CSP Reporting Strategy:
+ * - Uses 'report-uri' (deprecated but widely supported) for CSP violation reports
+ * - 'report-to' (modern W3C Reporting API) not used yet due to limited browser support
+ * - Modern browsers that support 'report-to' will ignore it if reporting endpoint not configured
+ * - Keeping 'report-uri' ensures CSP violations are caught in all browsers during development
+ * 
+ * Future migration path:
+ * When browser support for Reporting API becomes widespread (>95%), consider:
+ * 1. Add 'report-to' directive with Reporting-Endpoints header
+ * 2. Keep 'report-uri' for older browser support (gradual phase-out)
+ * 3. Eventually remove 'report-uri' when legacy browser support no longer needed
+ * 
+ * Reference: https://w3c.github.io/reporting/
  */
 export const developmentCSPAdditions: CSPDirectives = {
   scriptSrc: ["'unsafe-inline'"],
