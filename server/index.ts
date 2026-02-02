@@ -50,9 +50,11 @@ const cspDirectives: Record<string, string[]> = {
 
 // In development, allow inline scripts and WebSocket for Vite HMR
 // Vite injects inline scripts for Fast Refresh and HMR
+// Also enable CSP violation reporting so we catch issues before production
 if (isDevelopment) {
   cspDirectives.scriptSrc.push("'unsafe-inline'");
   cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
+  cspDirectives.reportUri = ["/__csp-violation"];
 }
 
 // In Replit development environment, allow additional origins for Replit plugins
@@ -106,6 +108,27 @@ if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
 app.use(express.json());
 
 app.use(express.urlencoded({ extended: false }));
+
+// CSP violation reporting endpoint (development only)
+// Browsers send CSP violation reports here when content is blocked
+// This helps catch CSP issues early before pushing to production
+if (isDevelopment) {
+  app.post('/__csp-violation', (req: Request, res: Response) => {
+    const violation = req.body;
+    if (violation && violation['blocked-uri']) {
+      logger.warn('CSP Violation Detected in Development', {
+        blockedUri: violation['blocked-uri'],
+        violatedDirective: violation['violated-directive'],
+        originalPolicy: violation['original-policy'],
+        sourceFile: violation['source-file'],
+        lineNumber: violation['line-number'],
+        columnNumber: violation['column-number'],
+        documentUri: violation['document-uri'],
+      });
+    }
+    res.status(204).end();
+  });
+}
 
 // Deprecated: Legacy log function - use structured logger instead
 // Kept for backward compatibility during transition
