@@ -16,6 +16,7 @@ import { generateKubernetesNetworkPlan, getDeploymentTierInfo, KubernetesNetwork
 import YAML from "yaml";
 import { logger } from "./logger";
 import { openApiSpec } from "./openapi";
+import { buildSwaggerUICSP } from "./csp-config";
 
 /**
  * Format response as JSON or YAML based on format parameter or Accept header
@@ -170,37 +171,16 @@ export async function registerRoutes(
   });
 
   // Swagger UI CSP override middleware
-  // IMPORTANT: This completely replaces the global CSP policy, not extends it.
+  // IMPORTANT: This completely replaces the global CSP policy to allow 'unsafe-inline' for scripts.
   // 
-  // Rationale: Swagger UI requires 'unsafe-inline' for script execution, which cannot
-  // be safely added to the global CSP without affecting all endpoints. Route-specific
-  // override allows Swagger UI exception while keeping rest of app fully protected.
+  // Swagger UI requires inline script execution, which cannot be safely added to global CSP
+  // without affecting all endpoints. Route-specific override allows Swagger UI exception
+  // while keeping the rest of the application fully protected.
   //
-  // Maintenance Requirement: Changes to the global CSP in server/index.ts must be
-  // manually synchronized here. This is a known limitation. Future improvement: extract
-  // CSP directives to a shared config module to prevent drift.
-  //
-  // Why route-specific override (despite maintenance cost):
-  // 1. Nonces: Would require per-request generation and script tag injection; SwaggerUIBundle doesn't support this
-  // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; library doesn't support externalization
-  // 3. Hashes: Requires maintaining SHA-256 hashes per script version; fragile with library updates
+  // The CSP directives are defined in server/csp-config.ts (buildSwaggerUICSP function)
+  // and are kept in sync with baseCSPDirectives via that shared module.
   const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    // NOTE: These directives mirror the global CSP in server/index.ts with additions for Swagger UI
-    // Keep in sync with: cspDirectives in server/index.ts, specifically:
-    // - Add 'unsafe-inline' to script-src for Swagger UI inline scripts
-    // - Add https://cdn.jsdelivr.net to connect-src for source map fetching
-    const swaggerCSP = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
-      "img-src 'self' data:",
-      "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "frame-ancestors 'self'",
-      "font-src 'self' https://fonts.gstatic.com"
-    ].join("; ");
-    res.setHeader('Content-Security-Policy', swaggerCSP);
+    res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
     next();
   };
 

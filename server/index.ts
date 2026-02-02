@@ -19,6 +19,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { logger } from "./logger";
+import { baseCSPDirectives, developmentCSPAdditions, replitCSPAdditions } from "./csp-config";
 
 const app = express();
 
@@ -28,41 +29,25 @@ const app = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
 const isReplit = process.env.REPL_ID !== undefined;
 
-const cspDirectives: Record<string, string[]> = {
-  defaultSrc: ["'self'"],
-  // Strict global CSP: no inline scripts allowed on any endpoint
-  // Swagger UI endpoint gets route-specific CSP override (see server/routes.ts swaggerCSPMiddleware)
-  // Route-specific override chosen over alternatives for these reasons:
-  // - Nonces: Would require recalculating hashes on every request, adding complexity without security benefit
-  // - External scripts: Swagger UI's inline initialization is inherent to the library and not trivial to externalize
-  // - Per-route CSP override: Cleanest architectural solution - keeps global CSP strict while allowing targeted exceptions
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-  // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
-  // and for Tailwind CSS compiled styles that rely on inline style blocks.
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
-  imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-  objectSrc: ["'none'"],
-  baseUri: ["'self'"],
-  frameAncestors: ["'self'"],
-  fontSrc: ["'self'", "https://fonts.gstatic.com"],
-};
+// Build CSP directives from shared configuration
+// Start with base directives, then add environment-specific additions
+const cspDirectives: Record<string, string[]> = { ...baseCSPDirectives };
 
-// In development, allow inline scripts and WebSocket for Vite HMR
-// Vite injects inline scripts for Fast Refresh and HMR
-// Also enable CSP violation reporting so we catch issues before production
+// In development, add relaxed CSP for Vite HMR, CSP violation reporting, and Replit tooling
 if (isDevelopment) {
-  cspDirectives.scriptSrc.push("'unsafe-inline'");
-  cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
-  cspDirectives.reportUri = ["/__csp-violation"];
-}
+  // Vite injects inline scripts for Fast Refresh and HMR
+  cspDirectives.scriptSrc = [...(cspDirectives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
+  // Enable CSP violation reporting so we catch issues before production
+  cspDirectives.connectSrc = [...(cspDirectives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
+  cspDirectives.reportUri = developmentCSPAdditions.reportUri;
 
-// In Replit development environment, allow additional origins for Replit plugins
-// These plugins inject runtime error overlays, cartographer, and dev banner
-if (isDevelopment && isReplit) {
-  cspDirectives.scriptSrc.push("https://*.replit.com", "https://*.replit.dev");
-  cspDirectives.connectSrc.push("https://*.replit.com", "https://*.replit.dev", "wss://*.replit.com", "wss://*.replit.dev");
-  cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
+  // In Replit development environment, allow additional origins for Replit plugins
+  // These plugins inject runtime error overlays, cartographer, and dev banner
+  if (isReplit) {
+    cspDirectives.scriptSrc = [...(cspDirectives.scriptSrc || []), ...replitCSPAdditions.scriptSrc];
+    cspDirectives.connectSrc = [...(cspDirectives.connectSrc || []), ...replitCSPAdditions.connectSrc];
+    cspDirectives.imgSrc = [...(cspDirectives.imgSrc || []), ...replitCSPAdditions.imgSrc];
+  }
 }
 
 // Security middleware with strict CSP configuration
