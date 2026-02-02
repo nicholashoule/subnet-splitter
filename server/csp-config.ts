@@ -93,8 +93,8 @@ export const replitCSPAdditions: CSPDirectives = {
  * - Only /api/docs/ui gets cdn.jsdelivr.net in connectSrc (NOT in base policy)
  * - Follows principle of least privilege: other endpoints can't connect to external CDNs
  * - Prevents data exfiltration if another route is compromised
- * - Production: maintains strict CSP (`script-src 'self'`) to prevent XSS attacks
- * - Development: allows 'unsafe-inline' for Swagger UI HMR without compromising production security
+ * - Swagger UI requires 'unsafe-inline': SwaggerUIBundle initialization uses inline scripts
+ * - Safe because route-specific: main application and API endpoints maintain strict CSP
  * - CDN connection only for source maps (non-injectable resource type, safe for debugging)
  * 
  * Why cdn.jsdelivr.net in connectSrc (not just scriptSrc/styleSrc)?
@@ -105,13 +105,11 @@ export const replitCSPAdditions: CSPDirectives = {
  * Benefits of programmatic approach:
  * - Automatic synchronization: Changes to baseCSPDirectives automatically inherited
  * - No manual sync required: Eliminates risk of configuration drift
- * - Environment-aware: Security posture matches deployment environment
  * - Single source of truth: All CSP policies derive from baseCSPDirectives
  * 
- * @param isDevelopment - Whether running in development mode (process.env.NODE_ENV === 'development')
  * @returns CSP header string for the Swagger UI route
  */
-export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
+export function buildSwaggerUICSP(): string {
   // Helper: Convert camelCase directive names to kebab-case (e.g., scriptSrc -> script-src)
   const toKebabCase = (str: string): string => {
     return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();

@@ -42,7 +42,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
     // Swagger UI route with development CSP middleware
     developmentApp.get("/api/docs/ui", (req, res, next) => {
-      res.setHeader('Content-Security-Policy', buildSwaggerUICSP(true));
+      res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
       next();
     }, (req, res) => {
       res.setHeader('Content-Type', 'text/html');
@@ -71,7 +71,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
     // Swagger UI route with production CSP middleware
     productionApp.get("/api/docs/ui", (req, res, next) => {
-      res.setHeader('Content-Security-Policy', buildSwaggerUICSP(false));
+      res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
       next();
     }, (req, res) => {
       res.setHeader('Content-Type', 'text/html');
@@ -186,7 +186,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
       expect(cspHeader).toMatch(/script-src[^;]*'unsafe-inline'/);
     });
 
-    it("should NOT include 'unsafe-inline' in script-src for production mode", async () => {
+    it("should include 'unsafe-inline' in script-src for Swagger UI (required)", async () => {
       const response = await fetch(`${productionBaseUrl}/api/docs/ui`);
       const cspHeader = response.headers.get("content-security-policy");
 
@@ -197,11 +197,11 @@ describe("Swagger UI CSP Middleware Integration", () => {
       expect(scriptSrcMatch).toBeTruthy();
       
       const scriptSrcDirective = scriptSrcMatch![0];
-      // Should NOT contain 'unsafe-inline'
-      expect(scriptSrcDirective).not.toContain("'unsafe-inline'");
+      // Swagger UI requires 'unsafe-inline' for SwaggerUIBundle initialization
+      expect(scriptSrcDirective).toContain("'unsafe-inline'");
     });
 
-    it("should have different CSP between development and production", async () => {
+    it("should have consistent CSP for Swagger UI route", async () => {
       const devResponse = await fetch(`${developmentBaseUrl}/api/docs/ui`);
       const prodResponse = await fetch(`${productionBaseUrl}/api/docs/ui`);
 
