@@ -29,6 +29,52 @@ export class KubernetesNetworkGenerationError extends Error {
 }
 
 /**
+ * Check if an IP address is in a private RFC 1918 range
+ * Private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ * @returns true if IP is private, false if public
+ */
+function isPrivateIP(ip: string): boolean {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+
+  const first = parseInt(parts[0], 10);
+  const second = parseInt(parts[1], 10);
+
+  // Class A private: 10.0.0.0/8
+  if (first === 10) return true;
+
+  // Class B private: 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+  if (first === 172 && second >= 16 && second <= 31) return true;
+
+  // Class C private: 192.168.0.0/16
+  if (first === 192 && second === 168) return true;
+
+  return false;
+}
+
+/**
+ * Validate that a CIDR uses private IP space (RFC 1918)
+ * Kubernetes deployments MUST use private IPs for security
+ * Public IPs expose the cluster to the internet (security anti-pattern)
+ */
+function validatePrivateCIDR(cidr: string): void {
+  try {
+    const ipPart = cidr.split("/")[0];
+    if (!isPrivateIP(ipPart)) {
+      throw new KubernetesNetworkGenerationError(
+        `VPC CIDR "${cidr}" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: ` +
+        `10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. ` +
+        `Public IPs expose nodes to the internet (critical security risk). ` +
+        `Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.`
+      );
+    }
+  } catch (error) {
+    if (error instanceof KubernetesNetworkGenerationError) throw error;
+    throw new KubernetesNetworkGenerationError(`Invalid CIDR format: ${cidr}`);
+  }
+}
+
+/**
  * Generate a random RFC 1918 private address space
  * Returns one of: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
  */
@@ -58,12 +104,18 @@ function generateRandomRFC1918VPC(): string {
 /**
  * Calculate the network address from a CIDR
  * Ensures we're working with proper subnet boundaries
+ * Validates that CIDR uses private RFC 1918 IP space
  */
 function normalizeVpcCidr(vpcCidr: string): string {
   try {
+    // Validate it's a private CIDR first (security requirement)
+    validatePrivateCIDR(vpcCidr);
+    
+    // Then normalize to network address
     const subnet = calculateSubnet(vpcCidr);
     return subnet.cidr;
   } catch (error) {
+    if (error instanceof KubernetesNetworkGenerationError) throw error;
     throw new KubernetesNetworkGenerationError(
       `Invalid VPC CIDR "${vpcCidr}": ${error instanceof Error ? error.message : "Unknown error"}`
     );

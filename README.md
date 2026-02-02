@@ -75,7 +75,7 @@ This application follows a **security by design** approach with multiple layers 
 │   └── src/
 │       ├── components/ui/  # shadcn/ui components
 │       ├── hooks/          # Custom React hooks
-│       ├── lib/            # Utilities (subnet-utils)
+│       ├── lib/            # Utilities (subnet-utils, kubernetes-network-generator)
 │       └── pages/          # Route components
 ├── server/                 # Express backend
 │   ├── index.ts            # Entry point with Helmet + security configuration
@@ -83,11 +83,22 @@ This application follows a **security by design** approach with multiple layers 
 │   ├── vite.ts             # Vite dev server setup with SPA fallback
 │   └── static.ts           # Static file serving with rate limiting
 ├── tests/                  # Comprehensive unit and integration test suite
-│   ├── unit/               # Unit tests (subnet-utils.test.ts)
-│   ├── integration/        # Integration tests (styles, config, etc.)
+│   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
+│   ├── integration/        # Integration tests (styles, API, config, security)
+│   ├── manual/             # PowerShell manual testing scripts
 │   └── README.md           # Testing documentation
+├── scripts/                # Build and utility tools
+│   ├── build.ts            # Production build orchestration
+│   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
+├── docs/                   # Reference documentation
+│   ├── API.md              # Kubernetes Network Planning API reference
+│   └── compliance/         # Platform-specific compliance audits
+│       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
+│       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
+│       └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
 ├── shared/                 # Shared code
-│   └── schema.ts           # TypeScript types and Zod schemas
+│   ├── schema.ts           # TypeScript types and Zod schemas
+│   └── kubernetes-schema.ts # Kubernetes API schemas
 └── package.json
 ```
 
@@ -113,12 +124,37 @@ cd subnet-cidr-splitter
 npm install
 ```
 
+#### Security Audit (Required)
+
+Always verify the project has no security vulnerabilities before running any code:
+
+```bash
+npm audit
+```
+
+If vulnerabilities are found, fix them:
+```bash
+npm audit fix
+```
+
+If issues persist, use `--force` (may install breaking changes):
+```bash
+npm audit fix --force
+```
+
+**Note:** Do not run `npm run dev`, `npm run test`, or `npm run build` without addressing security vulnerabilities first.
+
 **Start development server:**
 ```bash
 npm run dev
 ```
 
 The application will be available at `http://localhost:5000` or `http://127.0.0.1:5000`.
+
+**Access the application:**
+- Web UI: Open `http://127.0.0.1:5000` in your browser
+- API endpoint: `POST http://127.0.0.1:5000/api/kubernetes/network-plan`
+- Tier info: `GET http://127.0.0.1:5000/api/kubernetes/tiers`
 
 #### Windows-Specific Setup
 
@@ -167,29 +203,81 @@ npm.cmd run test -- --run
 # Run specific test file
 npm run test -- tests/unit/subnet-utils.test.ts
 npm run test -- tests/integration/styles.test.ts
+
+# Run API tests specifically (JSON/YAML validation)
+npm run test -- tests/integration/kubernetes-network-api.test.ts --run
+
+# Run only JSON/YAML format tests
+npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+
+# Run emoji detection tests
+npm run test:emoji
+
+# Check for emoji in codebase
+npm run emoji:check
+
+# Auto-fix emoji in codebase
+npm run emoji:fix
 ```
 
-The project includes a comprehensive test suite with **144 tests** (100% passing) covering:
+#### Testing the API Endpoints
 
-**Unit Tests (53):**
-- IP address conversion and validation
-- CIDR prefix/mask calculations for all prefix lengths (0-32)
-- Subnet splitting and calculations
-- Network class identification (Classes A-E including multicast and reserved)
-- Edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4)
-- RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- Error handling and validation with clear error messages
-- Subnet tree operations (countSubnetNodes)
+**Prerequisites**: Start the development server first:
+```bash
+npm run dev
+```
 
-**Integration Tests (91):**
-- CSS variable definitions (light and dark modes)
-- WCAG accessibility compliance (contrast ratio validation)
-- Color palette consistency
-- Tailwind CSS integration
-- Design system documentation validation
-- Header styling and layout
-- Footer styling and layout
-- Configuration validation
+**Test JSON output** (default format):
+```bash
+curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+```
+
+**Test YAML output** (add `?format=yaml` query parameter):
+```bash
+curl -X POST "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+```
+
+**Test tier information endpoint**:
+```bash
+# JSON format
+curl http://127.0.0.1:5000/api/kubernetes/tiers
+
+# YAML format
+curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
+```
+
+**PowerShell Testing** (Windows):
+```powershell
+# JSON output
+Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"deploymentSize":"professional","provider":"eks"}' | ConvertTo-Json -Depth 10
+
+# YAML output
+Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
+```
+
+The project includes a comprehensive test suite with **260 tests** (100% passing) covering:
+
+**Unit Tests (113):**
+- **Subnet calculations (53 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
+- **Kubernetes network generation (49 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
+- **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
+
+**Integration Tests (147):**
+- **API endpoints (33 tests)**: Kubernetes Network Planning API with JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Design system (27 tests)**: CSS variable definitions (light and dark modes), WCAG accessibility compliance (contrast ratio validation), color palette consistency, Tailwind CSS integration
+- **UI components (56 tests)**: Header styling and layout (29 tests), footer styling and layout (27 tests)
+- **Configuration (8 tests)**: Build configuration validation, environment setup
+- **Security (23 tests)**: Rate limiting middleware, CSP enforcement, Helmet configuration
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation.
 
@@ -218,6 +306,8 @@ All development tools and commands work identically on Windows, macOS, and Linux
 
 The application provides production-ready REST endpoints for generating optimized network configurations across EKS, GKE, AKS, and self-hosted Kubernetes.
 
+**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/API.md) for details.
+
 #### Endpoint 1: Generate Network Plan
 
 **POST `/api/kubernetes/network-plan`**
@@ -227,7 +317,7 @@ Generate an optimized network plan with subnet allocation, pod CIDR, and service
 **Request Parameters:**
 ```json
 {
-  "deploymentSize": "standard|professional|enterprise|hyperscale",
+  "deploymentSize": "micro|standard|professional|enterprise|hyperscale",
   "provider": "eks|gke|kubernetes",
   "vpcCidr": "10.0.0.0/16",
   "deploymentName": "my-cluster"
@@ -236,8 +326,15 @@ Generate an optimized network plan with subnet allocation, pod CIDR, and service
 
 - `deploymentSize` (required): Deployment tier for cluster size
 - `provider` (optional): Cloud provider (`eks`, `gke`, `kubernetes`). Defaults to `kubernetes`
-- `vpcCidr` (optional): Custom VPC CIDR. If omitted, generates random RFC 1918 range
+- `vpcCidr` (optional): **Private RFC 1918 CIDR only** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). If omitted, generates random RFC 1918 range
 - `deploymentName` (optional): Reference name for deployment tracking
+
+**Accepted Private IP Ranges:**
+- [PASS] Class A: `10.0.0.0/8` (any /16 or larger subnet within this range)
+- [PASS] Class B: `172.16.0.0/12` (172.16.0.0 - 172.31.255.255)
+- [PASS] Class C: `192.168.0.0/16` (any subnet within this range)
+
+**Rejected Public IPs:** All non-RFC 1918 ranges are rejected (e.g., `8.8.8.0/16`, `1.1.1.0/16`, `200.0.0.0/16`)
 
 **Example Request:**
 ```bash
@@ -313,6 +410,14 @@ curl http://localhost:5000/api/kubernetes/tiers
 **Response:**
 ```json
 {
+  "micro": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 25,
+    "podsPrefix": 18,
+    "servicesPrefix": 16,
+    "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
+  },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
@@ -354,6 +459,14 @@ curl http://localhost:5000/api/kubernetes/tiers
 ```json
 {
   "error": "Invalid deployment size: unknown",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**400 Bad Request** - Public IP rejected (security enforcement):
+```json
+{
+  "error": "VPC CIDR \"8.8.8.0/16\" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. Public IPs expose nodes to the internet (critical security risk). Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.",
   "code": "NETWORK_GENERATION_ERROR"
 }
 ```

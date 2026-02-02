@@ -408,4 +408,170 @@ describe("Kubernetes Network Generator", () => {
       expect(new Set(vpcs).size).toBeGreaterThan(1);
     });
   });
+
+  describe("Private IP Validation (Security Requirements)", () => {
+    describe("RFC 1918 Private Ranges (REQUIRED for Kubernetes)", () => {
+      it("should accept Class A private range (10.0.0.0/8)", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          vpcCidr: "10.0.0.0/16"
+        });
+
+        expect(plan.vpc.cidr).toBe("10.0.0.0/16");
+      });
+
+      it("should accept Class B private range (172.16.0.0/12)", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          vpcCidr: "172.16.0.0/16"
+        });
+
+        expect(plan.vpc.cidr).toBe("172.16.0.0/16");
+      });
+
+      it("should accept Class C private range (192.168.0.0/16)", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          vpcCidr: "192.168.0.0/16"
+        });
+
+        expect(plan.vpc.cidr).toBe("192.168.0.0/16");
+      });
+
+      it("should accept various Class A private subnets", async () => {
+        const subnets = ["10.1.0.0/16", "10.100.0.0/16", "10.255.0.0/16"];
+
+        for (const subnet of subnets) {
+          const plan = await generateKubernetesNetworkPlan({
+            deploymentSize: "standard",
+            vpcCidr: subnet
+          });
+          expect(plan.vpc.cidr).toBe(subnet);
+        }
+      });
+
+      it("should accept various Class B private subnets (172.16-31.x.x)", async () => {
+        const subnets = ["172.16.0.0/16", "172.20.0.0/16", "172.31.0.0/16"];
+
+        for (const subnet of subnets) {
+          const plan = await generateKubernetesNetworkPlan({
+            deploymentSize: "standard",
+            vpcCidr: subnet
+          });
+          expect(plan.vpc.cidr).toBe(subnet);
+        }
+      });
+
+      it("should accept various Class C private subnets (192.168.x.x)", async () => {
+        const subnets = ["192.168.0.0/16", "192.168.100.0/16", "192.168.200.0/16"];
+
+        for (const subnet of subnets) {
+          const plan = await generateKubernetesNetworkPlan({
+            deploymentSize: "standard",
+            vpcCidr: subnet
+          });
+          // CIDR is normalized to network address
+          expect(plan.vpc.cidr).toBe("192.168.0.0/16");
+        }
+      });
+    });
+
+    describe("Public IP Rejection (Security Anti-Pattern)", () => {
+      it("should reject public Class A ranges (1-9, 11-126)", async () => {
+        const publicRanges = ["1.0.0.0/16", "8.0.0.0/16", "11.0.0.0/16", "126.0.0.0/16"];
+
+        for (const range of publicRanges) {
+          await expect(
+            generateKubernetesNetworkPlan({
+              deploymentSize: "professional",
+              vpcCidr: range
+            })
+          ).rejects.toThrow(KubernetesNetworkGenerationError);
+        }
+      });
+
+      it("should reject public Class B ranges (except 172.16-31)", async () => {
+        const publicRanges = ["172.15.0.0/16", "172.32.0.0/16", "172.100.0.0/16"];
+
+        for (const range of publicRanges) {
+          await expect(
+            generateKubernetesNetworkPlan({
+              deploymentSize: "professional",
+              vpcCidr: range
+            })
+          ).rejects.toThrow(KubernetesNetworkGenerationError);
+        }
+      });
+
+      it("should reject public Class C ranges (except 192.168.0.0/16)", async () => {
+        const publicRanges = ["192.167.0.0/16", "192.169.0.0/16", "200.0.0.0/16"];
+
+        for (const range of publicRanges) {
+          await expect(
+            generateKubernetesNetworkPlan({
+              deploymentSize: "professional",
+              vpcCidr: range
+            })
+          ).rejects.toThrow(KubernetesNetworkGenerationError);
+        }
+      });
+
+      it("should reject Class D multicast (224-239)", async () => {
+        const multicastRanges = ["224.0.0.0/16", "230.0.0.0/16", "239.0.0.0/16"];
+
+        for (const range of multicastRanges) {
+          await expect(
+            generateKubernetesNetworkPlan({
+              deploymentSize: "professional",
+              vpcCidr: range
+            })
+          ).rejects.toThrow(KubernetesNetworkGenerationError);
+        }
+      });
+
+      it("should reject Class E reserved (240-255)", async () => {
+        const reservedRanges = ["240.0.0.0/16", "250.0.0.0/16", "255.0.0.0/16"];
+
+        for (const range of reservedRanges) {
+          await expect(
+            generateKubernetesNetworkPlan({
+              deploymentSize: "professional",
+              vpcCidr: range
+            })
+          ).rejects.toThrow(KubernetesNetworkGenerationError);
+        }
+      });
+
+      it("should provide security guidance in error message", async () => {
+        try {
+          await generateKubernetesNetworkPlan({
+            deploymentSize: "professional",
+            vpcCidr: "8.8.8.0/24"
+          });
+          throw new Error("Should have thrown error");
+        } catch (error) {
+          expect(error).toBeInstanceOf(KubernetesNetworkGenerationError);
+          const message = (error as Error).message;
+          expect(message).toContain("private");
+          expect(message).toContain("RFC 1918");
+          expect(message).toContain("security");
+        }
+      });
+    });
+
+    describe("Generated VPCs Always Private", () => {
+      it("should generate only private IPs when CIDR not specified", async () => {
+        const plans = await Promise.all([
+          generateKubernetesNetworkPlan({ deploymentSize: "standard" }),
+          generateKubernetesNetworkPlan({ deploymentSize: "professional" }),
+          generateKubernetesNetworkPlan({ deploymentSize: "enterprise" })
+        ]);
+
+        for (const plan of plans) {
+          const firstOctet = parseInt(plan.vpc.cidr.split(".")[0], 10);
+          expect([10, 172, 192]).toContain(firstOctet);
+        }
+      });
+    });
+  });
 });

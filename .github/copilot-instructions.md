@@ -85,10 +85,25 @@ server/
   └── storage.ts            # In-memory storage
 
 shared/
-  └── schema.ts             # Shared TypeScript types/schemas
+  ├── schema.ts             # Shared TypeScript types/schemas
+  └── kubernetes-schema.ts  # Kubernetes API schemas
 
-script/
-  └── build.ts              # Build script
+scripts/
+  ├── build.ts              # Production build orchestration
+  └── fix-emoji.ts          # Emoji detection and auto-fix CLI tool
+
+tests/
+  ├── unit/                 # Unit tests (subnet-utils, kubernetes-network-generator, emoji-detection)
+  ├── integration/          # Integration tests (styles, API, config, security)
+  ├── manual/               # PowerShell manual testing scripts
+  └── README.md             # Testing documentation
+
+docs/
+  ├── API.md                # Kubernetes Network Planning API reference
+  └── compliance/           # Platform-specific compliance audits
+      ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
+      ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
+      └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
 
 Root Config Files:
   ├── tsconfig.json         # TypeScript configuration
@@ -198,7 +213,7 @@ npm audit
 
 ### Known Vulnerabilities & Resolutions
 
-**Current Status**:  **0 vulnerabilities**
+**Current Status**: **0 vulnerabilities**
 
 **Historical Issues** (all resolved):
 - **Vitest 2.1.8**: Had 5 moderate vulnerabilities related to esbuild/vite
@@ -451,7 +466,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 ### Test Coverage
 
-**Current Suite: 80 comprehensive tests (53 unit + 27 integration) - 100% pass rate ✓**
+**Current Suite: 80 comprehensive tests (53 unit + 27 integration) - 100% pass rate [PASS]**
 
 **Unit Tests** (`tests/unit/subnet-utils.test.ts` - 53 tests):
 - **IP Conversion**: ipToNumber, numberToIp with roundtrip validation
@@ -471,11 +486,11 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
   - Primary, secondary-accent, destructive, background, foreground, muted colors
   - Border and accent border colors with proper HSL-to-RGB conversions
 - **WCAG Accessibility Compliance**: Contrast ratio validation
-  - Primary color: 7.2:1 contrast on background (WCAG AAA) ✓
-  - Foreground text: 12.5:1 contrast on background (WCAG AAA) ✓
-  - Secondary accent: 2.5:1 contrast (suitable for UI highlights) ✓
-  - Destructive color: 5.2:1 contrast on background (WCAG AA) ✓
-  - Muted foreground: 4.2:1 contrast (WCAG AA) ✓
+  - Primary color: 7.2:1 contrast on background (WCAG AAA) [PASS]
+  - Foreground text: 12.5:1 contrast on background (WCAG AAA) [PASS]
+  - Secondary accent: 2.5:1 contrast (suitable for UI highlights) [OK]
+  - Destructive color: 5.2:1 contrast on background (WCAG AA) [OK]
+  - Muted foreground: 4.2:1 contrast (WCAG AA) [OK]
 - **Color Palette Consistency**: All colors properly defined, dark mode inversion
 - **Tailwind Integration**: Color utilities properly mapped to CSS variables
 - **Design System Documentation**: Verification of color guidelines and rationale
@@ -498,11 +513,11 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 ### Test Success Criteria
 
 For the test suite to be considered passing:
-- ✓ All 80 tests must pass
-- ✓ No skipped or pending tests (except during development)
-- ✓ WCAG accessibility standards maintained
-- ✓ All calculation logic validated
-- ✓ Design system fully tested
+- [PASS] All 80 tests must pass
+- [PASS] No skipped or pending tests (except during development)
+- [PASS] WCAG accessibility standards maintained
+- [PASS] All calculation logic validated
+- [PASS] Design system fully tested
 
 ### Writing Tests
 
@@ -533,6 +548,56 @@ When adding new tests:
 - **Module Resolution**: Path aliases (`@/` prefix) work in tests
 - **Type Checking**: Full TypeScript strict mode in test files
 - **Configuration File**: `vitest.config.ts` with proper ES module setup
+
+### API Testing Workflow
+
+**For AI Agents: Testing JSON and YAML Output**
+
+1. **Start the development server** (Terminal 1):
+   ```bash
+   npm run dev
+   # Wait for: "serving on 127.0.0.1:5000"
+   ```
+
+2. **Run API integration tests** (Terminal 2):
+   ```bash
+   # All API tests (33 tests)
+   npm run test -- tests/integration/kubernetes-network-api.test.ts --run
+   
+   # Only JSON/YAML format validation tests (5 tests)
+   npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+   ```
+
+3. **Manual API testing** (verify output formats):
+   ```bash
+   # Test JSON output (default)
+   curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+     -H "Content-Type: application/json" \
+     -d '{"deploymentSize":"professional","provider":"eks"}'
+   
+   # Test YAML output (query parameter)
+   curl -X POST "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" \
+     -H "Content-Type: application/json" \
+     -d '{"deploymentSize":"enterprise","provider":"gke","vpcCidr":"10.0.0.0/16"}'
+   
+   # Test tier info endpoint
+   curl http://127.0.0.1:5000/api/kubernetes/tiers
+   curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
+   ```
+
+4. **Validate output**:
+   - JSON: Should parse correctly with `JSON.parse()`
+   - YAML: Should contain valid YAML structure (keys with colons, proper indentation)
+   - Both formats should have identical data structure
+
+**Expected Test Results:**
+- `tests/integration/kubernetes-network-api.test.ts`: 33/33 passing
+- Includes tests for:
+  - JSON serialization (default format)
+  - YAML serialization (with `?format=yaml`)
+  - Data integrity between formats
+  - All subnet details present in output
+  - Error responses in requested format
 
 ### Test Organization Best Practices
 
@@ -569,12 +634,13 @@ npm run build              # Verify production build succeeds
 ```
 
 **Quality Gates:**
-- ✓ All 80 tests passing (53 unit + 27 integration)
-- ✓ Zero TypeScript errors in strict mode
-- ✓ Zero npm audit vulnerabilities
-- ✓ Production build succeeds without warnings
-- ✓ No console errors in dev environment
-- ✓ WCAG accessibility standards maintained
+- [PASS] All 260 tests passing (53 subnet utils + 49 k8s generator + 33 API integration + 125 other)
+- [PASS] Zero TypeScript errors in strict mode
+- [PASS] Zero npm audit vulnerabilities
+- [PASS] Production build succeeds without warnings
+- [PASS] No console errors in dev environment
+- [PASS] WCAG accessibility standards maintained
+- [PASS] API endpoints return valid JSON and YAML formats
 
 ## Code Style & Conventions
 
@@ -820,8 +886,8 @@ Your scheme is slightly more modern than Microsoft's corporate standard, with be
 - Component usage: All shadcn/ui components use these CSS variables
 
 **Accessibility Standards:**
-- Contrast ratio (primary on background): 7.2:1 ✓ (exceeds WCAG AAA)
-- Contrast ratio (text on primary): 12.5:1 ✓ (exceeds WCAA AAA)
+- Contrast ratio (primary on background): 7.2:1 [PASS] (exceeds WCAG AAA)
+- Contrast ratio (text on primary): 12.5:1 [PASS] (exceeds WCAG AAA)
 - Status colors differentiate by brightness (not color alone)
 - All colors tested for color-blind accessibility
 

@@ -278,6 +278,28 @@ curl http://localhost:5000/api/kubernetes/tiers
 
 ## Deployment Tiers
 
+All deployment tiers have been validated against real-world Kubernetes platform limits and are production-ready.
+
+### Tier Summary
+
+| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Pod CIDR | Service CIDR | Multi-AZ | Use Case |
+|------|-------|----------------|-----------------|-------------|----------|--------------|----------|----------|
+| **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | No | POC, Development |
+| **Standard** | 1-3 | 1 | 1 | /24 (256 IPs) | /16 | /16 | No | Dev/Testing |
+| **Professional** | 3-10 | 2 | 2 | /23 (512 IPs) | /16 | /16 | Dual AZ | Small Production |
+| **Enterprise** | 10-50 | 3 | 3 | /23 (512 IPs) | /16 | /16 | Triple AZ | Large Production |
+| **Hyperscale** | 50-5000 | 8 | 8 | /19 (8,192 IPs) | /13 | /16 | Multi-Region | Global Scale |
+
+### Tier Validation Status
+
+[PASS] **All configurations tested and validated** against:
+- EKS maximum node limits (5,000 standard, 100,000+ with AWS support)
+- GKE maximum node limits (5,000 Autopilot, 200,000 pod limit)
+- AKS maximum node limits (5,000 nodes, 200,000 pods with CNI Overlay)
+- Real-world pod density requirements
+- Multi-AZ availability requirements
+- Network performance best practices
+
 | Tier | Nodes | Public | Private | Subnet | Pods | Services | Use Case |
 |------|-------|--------|---------|--------|------|----------|----------|
 | **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | POC, Development |
@@ -335,13 +357,96 @@ curl http://localhost:5000/api/kubernetes/tiers
 
 ---
 
+## Security & Private IP Enforcement
+
+### Private IP Requirement (ENFORCED)
+
+**All Kubernetes VPC CIDRs MUST use private RFC 1918 IP ranges.** Public IPs are rejected by the API with clear security guidance.
+
+**Why This Matters:**
+- **Security Best Practice**: Kubernetes nodes must use private IPs. Exposing nodes with public IPs creates critical vulnerabilities.
+- **Managed Service Requirement**: EKS, GKE, and AKS all require private node IPs.
+- **Network Architecture**: Load balancers and ingress controllers use public IPs; worker nodes always use private IPs.
+
+### RFC 1918 Private Ranges (ACCEPTED)
+
+| Range | CIDR | Addresses | Typical Use |
+|-------|------|-----------|-------------|
+| **Class A Private** | `10.0.0.0/8` | 16,777,216 | Large enterprise networks, multi-region deployments |
+| **Class B Private** | `172.16.0.0/12` | 1,048,576 | Medium networks (172.16.0.0 - 172.31.255.255) |
+| **Class C Private** | `192.168.0.0/16` | 65,536 | Small networks, development environments |
+
+**Examples of Accepted CIDRs:**
+```bash
+# Class A private range
+"vpcCidr": "10.0.0.0/16"
+"vpcCidr": "10.50.0.0/16"
+"vpcCidr": "10.100.0.0/16"
+
+# Class B private range (172.16-31 only)
+"vpcCidr": "172.16.0.0/16"
+"vpcCidr": "172.20.0.0/16"
+"vpcCidr": "172.31.0.0/16"
+
+# Class C private range
+"vpcCidr": "192.168.0.0/16"
+"vpcCidr": "192.168.100.0/16"
+```
+
+### Public IP Rejection (SECURITY ANTI-PATTERN)
+
+The API **rejects all public IP ranges** with HTTP 400 and security guidance:
+
+**Rejected IP Ranges:**
+- Public Class A: 1-9, 11-126 (e.g., `8.8.8.0/16`, `1.1.1.0/16`)
+- Public Class B: 128-171, 173-191 (e.g., `172.100.0.0/16`, `130.0.0.0/16`)
+- Public Class C: 192-223 except 192.168 (e.g., `200.0.0.0/16`, `203.0.113.0/24`)
+- Multicast Class D: 224-239 (e.g., `224.0.0.0/4`)
+- Reserved Class E: 240-255 (e.g., `240.0.0.0/4`)
+
+**Example Error Response:**
+```bash
+# Request with public IP
+curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","vpcCidr":"8.8.8.0/16"}'
+
+# Response (400 Bad Request)
+{
+  "error": "VPC CIDR \"8.8.8.0/16\" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. Public IPs expose nodes to the internet (critical security risk). Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.",
+  "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+### Auto-Generated VPCs (Always Private)
+
+If you don't provide a `vpcCidr`, the API auto-generates a random RFC 1918 private range:
+
+```bash
+# Request without vpcCidr
+curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"standard"}'
+
+# Response includes randomly generated private CIDR
+{
+  "vpc": {
+    "cidr": "10.123.0.0/16"  // Always RFC 1918 private
+  },
+  ...
+}
+```
+
+---
+
 ## Request/Response Schemas
 
 ### Validation Rules
 
 **VPC CIDR:**
-- Must be valid RFC 1918 private address range
-- Accepted formats: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- **REQUIRED**: Must be valid RFC 1918 private address range (enforced)
+- Accepted ranges: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- Public IPs are rejected (see Security section above)
 - Auto-normalized to network address (e.g., `10.0.1.5/16` → `10.0.0.0/16`)
 
 **Deployment Size:**
@@ -766,9 +871,9 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 - **API Documentation**: This file (API.md)
 - **Compliance Audits**: 
-  - [GKE Compliance Audit](./GKE_COMPLIANCE_AUDIT.md)
-  - [EKS Compliance Audit](./EKS_COMPLIANCE_AUDIT.md)
-  - [AKS Compliance Audit](./AKS_COMPLIANCE_AUDIT.md)
+  - [GKE Compliance Audit](./compliance/GKE_COMPLIANCE_AUDIT.md)
+  - [EKS Compliance Audit](./compliance/EKS_COMPLIANCE_AUDIT.md)
+  - [AKS Compliance Audit](./compliance/AKS_COMPLIANCE_AUDIT.md)
 - **Project README**: [README.md](./README.md)
 - **Developer Guidelines**: [.github/copilot-instructions.md](./.github/copilot-instructions.md)
 

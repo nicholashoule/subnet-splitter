@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download } from "lucide-react";
+import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -97,6 +97,7 @@ function SubnetRow({
           className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={() => copyToClipboard(value, fieldName)}
           data-testid={`button-copy-${fieldName.toLowerCase().replace(' ', '-')}-${subnet.id}`}
+          aria-label={`Copy ${fieldName}: ${value}`}
         >
           {copiedField === fieldName ? (
             <Check className="h-2.5 w-2.5 text-green-500" />
@@ -121,6 +122,7 @@ function SubnetRow({
             checked={selectedIds.has(subnet.id)}
             onCheckedChange={(checked) => onSelectChange(subnet.id, checked === true)}
             data-testid={`checkbox-select-${subnet.id}`}
+            aria-label={`Select subnet ${subnet.cidr}`}
           />
         </TableCell>
         <TableCell className="py-2 px-2">
@@ -135,6 +137,8 @@ function SubnetRow({
                 className="h-6 w-6"
                 onClick={() => onToggle(subnet.id)}
                 data-testid={`button-toggle-${subnet.id}`}
+                aria-label={subnet.isExpanded ? `Collapse subnet ${subnet.cidr}` : `Expand subnet ${subnet.cidr}`}
+                aria-expanded={subnet.isExpanded}
               >
                 {subnet.isExpanded ? (
                   <ChevronDown className="h-4 w-4" />
@@ -175,6 +179,7 @@ function SubnetRow({
                     variant="ghost"
                     onClick={() => onSplit(subnet.id)}
                     data-testid={`button-split-${subnet.id}`}
+                    aria-label={`Split ${subnet.cidr} into two /${subnet.prefix + 1} subnets`}
                   >
                     <Split className="h-4 w-4" />
                   </Button>
@@ -192,6 +197,7 @@ function SubnetRow({
                     variant="ghost"
                     onClick={() => onDelete(subnet.id)}
                     data-testid={`button-delete-${subnet.id}`}
+                    aria-label={`Remove split for ${subnet.cidr}`}
                   >
                     <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
@@ -266,6 +272,8 @@ export default function Calculator() {
   const [rootSubnet, setRootSubnet] = useState<SubnetInfo | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
   // Initialize theme from localStorage, default to light mode
@@ -278,6 +286,22 @@ export default function Calculator() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    
+    // Listen for theme changes from other tabs/windows (e.g., Swagger UI)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'theme' && e.newValue) {
+        const isDark = e.newValue === 'dark';
+        setIsDark(isDark);
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -302,6 +326,7 @@ export default function Calculator() {
   });
 
   const onSubmit = (data: CidrInput) => {
+    setIsCalculating(true);
     try {
       const subnet = calculateSubnet(data.cidr);
       setRootSubnet(subnet);
@@ -320,6 +345,8 @@ export default function Calculator() {
         description: message,
         variant: "destructive",
       });
+    } finally {
+      setIsCalculating(false);
     }
   };
 
@@ -391,7 +418,7 @@ export default function Calculator() {
         });
       });
 
-      setStatusMessage(`✓ Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
+      setStatusMessage(`[PASS] Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
       setTimeout(() => setStatusMessage(null), 2500);
     } catch (error) {
       const message = error instanceof SubnetCalculationError 
@@ -443,7 +470,7 @@ export default function Calculator() {
       return deleteFromChildren(prev);
     });
 
-    setStatusMessage("✓ Subnet split removed - parent restored");
+    setStatusMessage("[PASS] Subnet split removed - parent restored");
     setTimeout(() => setStatusMessage(null), 2500);
   }, [rootSubnet]);
 
@@ -496,42 +523,48 @@ export default function Calculator() {
       return;
     }
 
-    const allSubnets = collectAllSubnets(rootSubnet);
-    const selectedSubnets = allSubnets.filter(s => selectedIds.has(s.id));
+    setIsExporting(true);
 
-    const headers = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
-    const rows = selectedSubnets.map(s => [
-      s.cidr,
-      s.networkAddress,
-      s.broadcastAddress,
-      s.firstHost,
-      s.lastHost,
-      s.usableHosts.toString(),
-      s.totalHosts.toString(),
-      s.subnetMask,
-      s.wildcardMask,
-      `/${s.prefix}`
-    ]);
+    try {
+      const allSubnets = collectAllSubnets(rootSubnet);
+      const selectedSubnets = allSubnets.filter(s => selectedIds.has(s.id));
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n");
+      const headers = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
+      const rows = selectedSubnets.map(s => [
+        s.cidr,
+        s.networkAddress,
+        s.broadcastAddress,
+        s.firstHost,
+        s.lastHost,
+        s.usableHosts.toString(),
+        s.totalHosts.toString(),
+        s.subnetMask,
+        s.wildcardMask,
+        `/${s.prefix}`
+      ]);
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `subnet-export-${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+      ].join("\n");
 
-    toast({
-      title: "CSV exported",
-      description: `Exported ${selectedSubnets.length} subnet${selectedSubnets.length > 1 ? 's' : ''} to CSV`,
-    });
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `subnet-export-${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "CSV exported",
+        description: `Exported ${selectedSubnets.length} subnet${selectedSubnets.length > 1 ? 's' : ''} to CSV`,
+      });
+    } finally {
+      setIsExporting(false);
+    }
   }, [rootSubnet, selectedIds, collectAllSubnets, toast]);
 
   const loadExample = (cidr: string) => {
@@ -607,8 +640,15 @@ export default function Calculator() {
                   )}
                 />
                 <div className="flex gap-2">
-                  <Button type="submit" size="lg" data-testid="button-calculate">
-                    Calculate
+                  <Button type="submit" size="lg" data-testid="button-calculate" aria-label="Calculate subnet details" disabled={isCalculating}>
+                    {isCalculating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Calculating...
+                      </>
+                    ) : (
+                      "Calculate"
+                    )}
                   </Button>
                   {rootSubnet && (
                     <Button 
@@ -617,6 +657,7 @@ export default function Calculator() {
                       size="lg"
                       onClick={handleReset}
                       data-testid="button-reset"
+                      aria-label="Reset calculator and clear results"
                     >
                       Reset
                     </Button>
@@ -655,11 +696,21 @@ export default function Calculator() {
                       variant="outline"
                       size="sm"
                       onClick={handleExportCSV}
-                      disabled={selectedIds.size === 0}
+                      disabled={selectedIds.size === 0 || isExporting}
                       data-testid="button-export-csv"
+                      aria-label={`Export ${selectedIds.size} selected subnets to CSV`}
                     >
-                      <Download className="h-4 w-4 mr-2" />
-                      Export CSV ({selectedIds.size})
+                      {isExporting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4 mr-2" />
+                          Export CSV ({selectedIds.size})
+                        </>
+                      )}
                     </Button>
                     <Badge variant="outline" className="font-normal">
                       Click <Split className="h-3 w-3 inline mx-1" /> to split a subnet
@@ -687,6 +738,7 @@ export default function Calculator() {
                             checked={rootSubnet ? selectedIds.size === collectAllSubnets(rootSubnet).length && selectedIds.size > 0 : false}
                             onCheckedChange={(checked) => handleSelectAll(checked === true)}
                             data-testid="checkbox-select-all"
+                            aria-label="Select all subnets"
                           />
                         </TableHead>
                         <TableHead className="min-w-[180px] text-xs py-2 px-2">CIDR</TableHead>
