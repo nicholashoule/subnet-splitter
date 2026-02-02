@@ -118,10 +118,12 @@ if (isDevelopment) {
       
       if (!validationResult.success) {
         // Log validation error with details for debugging (development only)
+        // Guard against null/primitive req.body values (express.json() can parse "null" as null)
+        const bodyKeys = req.body && typeof req.body === 'object' ? Object.keys(req.body) : [];
         logger.warn('Invalid CSP violation report received', {
           error: 'Request body does not match CSP violation report schema',
           issues: validationResult.error.issues.length,
-          bodyKeys: Object.keys(req.body),
+          bodyKeys,
           firstIssue: validationResult.error.issues[0],
         });
         // Return 204 No Content regardless (don't leak schema info to potential attackers)
