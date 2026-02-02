@@ -275,18 +275,26 @@ If `npm audit fix` introduces breaking changes:
 
 ### Helmet & Content Security Policy (CSP)
 
-**File**: `server/index.ts`
+**Files**: `server/index.ts`, `server/csp-config.ts`, `server/routes.ts`
 
 The application uses Helmet.js middleware to enforce strict security headers. The CSP is environment-aware to balance security with developer experience.
+
+#### Base CSP Configuration (`server/csp-config.ts`)
+
+**Centralized Configuration Design:**
+- All CSP directives defined in `server/csp-config.ts` to prevent configuration drift
+- `baseCSPDirectives` applies globally to all endpoints
+- Route-specific overrides (Swagger UI) built programmatically from base directives
+- Single source of truth eliminates manual synchronization
 
 **Production CSP (Strict)**:
 ```typescript
 {
-  scriptSrc: ["'self'"],           // Only scripts from this origin
-  styleSrc: ["'self'", "'unsafe-inline'"],  // Needed for dynamic styles
-  connectSrc: ["'self'", ...],     // Only API calls to self
+  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],  // Self + Swagger UI CDN
+  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],  // Dynamic styles + Swagger CSS
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],  // API + fonts
   imgSrc: ["'self'", "data:"],     // Images from self and data URIs
-  // Other directives...
+  // Note: cdn.jsdelivr.net NOT in base connectSrc (route-specific permission)
 }
 ```
 
@@ -295,8 +303,124 @@ The application uses Helmet.js middleware to enforce strict security headers. Th
 if (isDevelopment) {
   cspDirectives.scriptSrc.push("'unsafe-inline'");  // Vite HMR & Fast Refresh
   cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");  // WebSocket HMR
+  cspDirectives.reportUri = ["/__csp-violation"];  // CSP violation reporting endpoint
 }
 ```
+
+#### Route-Specific CSP (Swagger UI)
+
+**Security Architecture - Principle of Least Privilege:**
+- Only `/api/docs/ui` gets `cdn.jsdelivr.net` in `connectSrc` (NOT in base policy)
+- Other endpoints cannot connect to external CDNs (defense in depth)
+- Prevents data exfiltration if another route is compromised
+
+**Why Different Directives?**
+- `scriptSrc` / `styleSrc`: Loads Swagger UI assets (global policy has `cdn.jsdelivr.net`)
+- `connectSrc`: Fetch/XHR for source maps (Swagger UI route only gets `cdn.jsdelivr.net`)
+
+**Programmatic CSP Builder** (`buildSwaggerUICSP()` in `server/csp-config.ts`):
+```typescript
+export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
+  // Start with copy of baseCSPDirectives (automatic synchronization)
+  const swaggerDirectives = { ...baseCSPDirectives };
+  
+  // Development-only: Add 'unsafe-inline' for SwaggerUIBundle
+  if (isDevelopment) {
+    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  }
+  
+  // Always add CDN for source maps (route-specific permission)
+  swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
+  
+  return convertToCSPString(swaggerDirectives);
+}
+```
+
+**Benefits:**
+- ✅ Automatic synchronization with `baseCSPDirectives`
+- ✅ No manual maintenance required
+- ✅ Configuration drift eliminated
+- ✅ Environment-aware (development vs production)
+- ✅ Single source of truth
+
+#### CSP Violation Reporting Endpoint (Development Only)
+
+**Files**: `server/index.ts`, `shared/schema.ts`
+
+The application includes a CSP violation reporting endpoint for development debugging.
+
+**Endpoint**: `POST /__csp-violation` (development only)
+
+**CRITICAL**: Browsers send CSP violation reports wrapped in a `"csp-report"` key per W3C spec:
+```json
+{
+  "csp-report": {
+    "blocked-uri": "https://malicious.com/script.js",
+    "violated-directive": "script-src",
+    "original-policy": "script-src 'self'",
+    "document-uri": "http://localhost:5000",
+    "disposition": "enforce"
+  }
+}
+```
+
+**Schema Validation** (`shared/schema.ts`):
+```typescript
+// Internal violation fields
+const cspViolationFields = z.object({
+  'blocked-uri': z.string().optional(),
+  'violated-directive': z.string().optional(),
+  'original-policy': z.string().optional(),
+  'source-file': z.string().optional(),
+  'line-number': z.number().optional(),
+  'column-number': z.number().optional(),
+  'document-uri': z.string().optional(),
+  disposition: z.enum(['enforce', 'report']).optional(),
+  status: z.number().optional(),
+}).strict().optional();
+
+// Wrapper schema for browser payload
+export const cspViolationReportSchema = z.object({
+  'csp-report': cspViolationFields,
+}).strict();
+```
+
+**Processing** (`server/index.ts`):
+```typescript
+app.post('/__csp-violation', (req: Request, res: Response) => {
+  // Validate wrapper structure
+  const validationResult = cspViolationReportSchema.safeParse(req.body);
+  
+  if (!validationResult.success) {
+    logger.warn('Invalid CSP violation report received');
+    res.status(204).end();  // W3C spec requires 204 No Content
+    return;
+  }
+  
+  // Extract actual violation data from wrapper
+  const violation = validationResult.data['csp-report'];
+  
+  if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+    logger.warn('CSP Violation Detected', {
+      blockedUri: violation['blocked-uri'],
+      violatedDirective: violation['violated-directive'],
+      // ... log other fields
+    });
+  }
+  
+  res.status(204).end();
+});
+```
+
+**Key Points:**
+- ✅ Validates W3C CSP violation report format
+- ✅ Extracts nested `"csp-report"` wrapper
+- ✅ Always returns 204 No Content (per W3C spec)
+- ✅ Never exposes schema details in responses
+- ✅ Development-only (not available in production)
+- ✅ Helps catch CSP issues before deployment
+
+**Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
 
 **Security Features Enabled with Helmet v8**:
 - `contentSecurityPolicy` - Enforces the CSP directives configured above
@@ -309,11 +433,16 @@ if (isDevelopment) {
 - `noSniff` - This functionality is now always enabled by default in Helmet v8
 - **Important**: These options are not supported in Helmet v8 and will cause configuration errors if used
 **When Modifying CSP**:
-1. **Test in both light and dark modes** - Ensure styles load
-2. **Test Vite HMR** - Dev server must stay responsive
-3. **Verify no console errors** - Check browser DevTools for blocked resources
-4. **Run `npm run dev`** - Confirm development experience works
-5. **Check production build** - Run `npm run build && npm start`
+1. **Update base directives in `server/csp-config.ts`** - All CSP changes should start with `baseCSPDirectives`
+2. **Route-specific overrides use programmatic builder** - Use `buildSwaggerUICSP()` pattern for route-specific needs
+3. **Never edit CSP strings directly** - Always use the centralized configuration to prevent drift
+4. **Test in both light and dark modes** - Ensure styles load correctly
+5. **Test Vite HMR** - Dev server must stay responsive with inline scripts
+6. **Verify no console errors** - Check browser DevTools for blocked resources
+7. **Test CSP violation endpoint** - Verify violations are logged correctly in development
+8. **Run `npm run dev`** - Confirm development experience works
+9. **Check production build** - Run `npm run build && npm start`
+10. **Test in multiple browsers** - Chrome/Edge/Firefox have different CSP enforcement
 
 ### Rate Limiting Strategy
 
@@ -438,6 +567,19 @@ This means:
 - **Root Cause**: Catch-all middleware running before file extension check
 - **Resolution**: Skip fallback for requests with file extensions
 - **Files Modified**: `server/vite.ts`
+
+**Issue 4: CSP Violation Report Wrapper Not Handled (CRITICAL FIX - February 2026)**
+- **Problem**: CSP violation endpoint was validating `req.body` directly instead of extracting the W3C-mandated `"csp-report"` wrapper
+- **Impact**: All real browser CSP violation reports were being silently rejected with "Invalid CSP violation report received"
+- **Root Cause**: Browsers send CSP violations wrapped as `{"csp-report": {...}}` per W3C spec, but code validated inner fields directly
+- **Resolution**: 
+  - Updated `cspViolationReportSchema` in `shared/schema.ts` to expect wrapper structure
+  - Modified endpoint in `server/index.ts` to extract `req.body['csp-report']` after wrapper validation
+  - Updated all 12 test cases to use correct W3C format
+- **Key Learning**: Always follow W3C specifications exactly when implementing browser standards
+- **Files Modified**: `shared/schema.ts`, `server/index.ts`, `tests/integration/csp-violation-endpoint.test.ts`
+- **Commit**: e6f0f11
+- **Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
 
 ## Testing & Test Coverage
 
