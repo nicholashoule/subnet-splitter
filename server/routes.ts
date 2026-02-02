@@ -10,12 +10,13 @@
  * - Include input validation using Zod schemas from shared/schema.ts
  */
 
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { generateKubernetesNetworkPlan, getDeploymentTierInfo, KubernetesNetworkGenerationError } from "../client/src/lib/kubernetes-network-generator";
 import YAML from "yaml";
 import { logger } from "./logger";
 import { openApiSpec } from "./openapi";
+import { buildSwaggerUICSP } from "./csp-config";
 
 /**
  * Format response as JSON or YAML based on format parameter or Accept header
@@ -169,8 +170,25 @@ export async function registerRoutes(
     res.type(contentType).send(body);
   });
 
+  // Swagger UI CSP override middleware
+  // IMPORTANT: This completely replaces the global CSP policy to allow 'unsafe-inline' for scripts.
+  // 
+  // Swagger UI requires inline script execution in development (for HMR), which cannot be safely 
+  // added to global CSP without affecting all endpoints. Route-specific override allows Swagger UI 
+  // exception only in development while keeping production fully protected with strict CSP.
+  //
+  // The CSP directives are defined in server/csp-config.ts (buildSwaggerUICSP function)
+  // and are kept in sync with baseCSPDirectives via that shared module.
+  // - Development: 'unsafe-inline' allowed (supports HMR + Swagger UI scripting)
+  // - Production: Strict CSP enforced (prevents XSS attacks on /api/docs/ui)
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Content-Security-Policy', buildSwaggerUICSP(isDevelopment));
+    next();
+  };
+
   // Swagger UI HTML (minimal implementation)
-  app.get("/api/docs/ui", (req, res) => {
+  app.get("/api/docs/ui", swaggerCSPMiddleware, (req, res) => {
     // Prevent caching to ensure UI updates work properly
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -229,6 +247,13 @@ export async function registerRoutes(
     .swagger-ui .parameter__name, .swagger-ui .parameter__type {
       color: hsl(222, 47%, 11%) !important;
     }
+    /* Layout title with badges on the right */
+    .swagger-ui .info .title {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 1rem !important;
+    }
     /* General spans - but not badge spans */
     .swagger-ui span:not(.info .title small) {
       color: hsl(222, 47%, 11%) !important;
@@ -240,6 +265,7 @@ export async function registerRoutes(
       padding: 2px 8px !important;
       border-radius: 3px !important;
       display: inline-block !important;
+      flex-shrink: 0 !important;
     }
     .swagger-ui .info .title small.version-stamp {
       background-color: hsl(221, 83%, 53%) !important;
@@ -525,6 +551,7 @@ export async function registerRoutes(
       padding: 2px 8px !important;
       border-radius: 3px !important;
       display: inline-block !important;
+      flex-shrink: 0 !important;
     }
     html.dark .swagger-ui .info .title small.version-stamp {
       background-color: hsl(160, 60%, 22%) !important;
@@ -540,6 +567,13 @@ export async function registerRoutes(
       border-radius: 0.5rem !important;
       padding: 1.5rem !important;
       margin-bottom: 1.5rem !important;
+    }
+    /* Dark mode - Layout title with badges on the right */
+    html.dark .swagger-ui .info .title {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 1rem !important;
     }
     html.dark .swagger-ui .info .title,
     html.dark .swagger-ui .info p,
@@ -907,6 +941,15 @@ export async function registerRoutes(
       ],
       layout: "StandaloneLayout",
       syntaxHighlight: syntaxHighlightConfig,
+      // Disable Swagger validator badge (standard practice for production deployments)
+      // The validator badge normally appears in the top-right and sends the OpenAPI spec to validator.swagger.io
+      // for validation. Disabling this prevents:
+      // 1. CORS errors when the validator service is unavailable or misconfigured
+      // 2. Validation errors for valid but non-standard spec extensions
+      // 3. External requests for privacy and offline support
+      // This is standard practice in Swagger UI deployments. Spec validation should be performed during
+      // development and CI/CD pipelines (e.g., with openapi-spec-validator) rather than at runtime.
+      validatorUrl: null,
       onComplete: function() {
         // Function to apply light mode styles
         function applyLightStyles() {

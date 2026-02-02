@@ -266,21 +266,21 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite with **260 tests** (100% passing) covering:
+The project includes a comprehensive test suite with **315 tests** (100% passing) covering:
 
-**Unit Tests (113):**
+**Unit Tests (121):**
 - **Subnet calculations (53 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
-- **Kubernetes network generation (49 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
+- **Kubernetes network generation (57 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
 - **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
 
-**Integration Tests (147):**
-- **API endpoints (33 tests)**: Kubernetes Network Planning API with JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
-- **Design system (27 tests)**: CSS variable definitions (light and dark modes), WCAG accessibility compliance (contrast ratio validation), color palette consistency, Tailwind CSS integration
-- **UI components (56 tests)**: Header styling and layout (29 tests), footer styling and layout (27 tests)
+**Integration Tests (194):**
+- **API endpoints (38 tests)**: API infrastructure, health checks, OpenAPI spec, Swagger UI
+- **Kubernetes Network Planning API (33 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Security (65 tests)**: Rate limiting middleware, CSP enforcement, CSP violation endpoint, Swagger UI CSP middleware
+- **UI components (50 tests)**: Calculator UI behavior, WCAG accessibility compliance
 - **Configuration (8 tests)**: Build configuration validation, environment setup
-- **Security (23 tests)**: Rate limiting middleware, CSP enforcement, Helmet configuration
 
-See [tests/README.md](tests/README.md) for comprehensive testing documentation.
+See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/TEST_AUDIT.md](docs/TEST_AUDIT.md) for detailed test suite analysis.
 
 ## Windows Compatibility
 

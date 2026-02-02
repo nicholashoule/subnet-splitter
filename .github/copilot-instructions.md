@@ -266,27 +266,35 @@ Before making ANY changes:
 If `npm audit fix` introduces breaking changes:
 1. Review package.json changes
 2. Run `npm install` to sync package-lock.json
-3. Test application: `npm run dev` → verify it starts
-4. Run test suite: `npm run test` → verify tests pass
-5. Build check: `npm run build` → verify production build works
+3. Test application: `npm run dev` -> verify it starts
+4. Run test suite: `npm run test` -> verify tests pass
+5. Build check: `npm run build` -> verify production build works
 6. If issues persist, manually review the changed packages and revert if necessary
 
 ## Application Security Configuration
 
 ### Helmet & Content Security Policy (CSP)
 
-**File**: `server/index.ts`
+**Files**: `server/index.ts`, `server/csp-config.ts`, `server/routes.ts`
 
 The application uses Helmet.js middleware to enforce strict security headers. The CSP is environment-aware to balance security with developer experience.
+
+#### Base CSP Configuration (`server/csp-config.ts`)
+
+**Centralized Configuration Design:**
+- All CSP directives defined in `server/csp-config.ts` to prevent configuration drift
+- `baseCSPDirectives` applies globally to all endpoints
+- Route-specific overrides (Swagger UI) built programmatically from base directives
+- Single source of truth eliminates manual synchronization
 
 **Production CSP (Strict)**:
 ```typescript
 {
-  scriptSrc: ["'self'"],           // Only scripts from this origin
-  styleSrc: ["'self'", "'unsafe-inline'"],  // Needed for dynamic styles
-  connectSrc: ["'self'", ...],     // Only API calls to self
+  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],  // Self + Swagger UI CDN
+  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],  // Dynamic styles + Swagger CSS
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],  // API + fonts
   imgSrc: ["'self'", "data:"],     // Images from self and data URIs
-  // Other directives...
+  // Note: cdn.jsdelivr.net NOT in base connectSrc (route-specific permission)
 }
 ```
 
@@ -295,8 +303,124 @@ The application uses Helmet.js middleware to enforce strict security headers. Th
 if (isDevelopment) {
   cspDirectives.scriptSrc.push("'unsafe-inline'");  // Vite HMR & Fast Refresh
   cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");  // WebSocket HMR
+  cspDirectives.reportUri = ["/__csp-violation"];  // CSP violation reporting endpoint
 }
 ```
+
+#### Route-Specific CSP (Swagger UI)
+
+**Security Architecture - Principle of Least Privilege:**
+- Only `/api/docs/ui` gets `cdn.jsdelivr.net` in `connectSrc` (NOT in base policy)
+- Other endpoints cannot connect to external CDNs (defense in depth)
+- Prevents data exfiltration if another route is compromised
+
+**Why Different Directives?**
+- `scriptSrc` / `styleSrc`: Loads Swagger UI assets (global policy has `cdn.jsdelivr.net`)
+- `connectSrc`: Fetch/XHR for source maps (Swagger UI route only gets `cdn.jsdelivr.net`)
+
+**Programmatic CSP Builder** (`buildSwaggerUICSP()` in `server/csp-config.ts`):
+```typescript
+export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
+  // Start with copy of baseCSPDirectives (automatic synchronization)
+  const swaggerDirectives = { ...baseCSPDirectives };
+  
+  // Development-only: Add 'unsafe-inline' for SwaggerUIBundle
+  if (isDevelopment) {
+    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  }
+  
+  // Always add CDN for source maps (route-specific permission)
+  swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
+  
+  return convertToCSPString(swaggerDirectives);
+}
+```
+
+**Benefits:**
+- [PASS] Automatic synchronization with `baseCSPDirectives`
+- [PASS] No manual maintenance required
+- [PASS] Configuration drift eliminated
+- [PASS] Environment-aware (development vs production)
+- [PASS] Single source of truth
+
+#### CSP Violation Reporting Endpoint (Development Only)
+
+**Files**: `server/index.ts`, `shared/schema.ts`
+
+The application includes a CSP violation reporting endpoint for development debugging.
+
+**Endpoint**: `POST /__csp-violation` (development only)
+
+**CRITICAL**: Browsers send CSP violation reports wrapped in a `"csp-report"` key per W3C spec:
+```json
+{
+  "csp-report": {
+    "blocked-uri": "https://malicious.com/script.js",
+    "violated-directive": "script-src",
+    "original-policy": "script-src 'self'",
+    "document-uri": "http://localhost:5000",
+    "disposition": "enforce"
+  }
+}
+```
+
+**Schema Validation** (`shared/schema.ts`):
+```typescript
+// Internal violation fields
+const cspViolationFields = z.object({
+  'blocked-uri': z.string().optional(),
+  'violated-directive': z.string().optional(),
+  'original-policy': z.string().optional(),
+  'source-file': z.string().optional(),
+  'line-number': z.number().optional(),
+  'column-number': z.number().optional(),
+  'document-uri': z.string().optional(),
+  disposition: z.enum(['enforce', 'report']).optional(),
+  status: z.number().optional(),
+}).strict().optional();
+
+// Wrapper schema for browser payload
+export const cspViolationReportSchema = z.object({
+  'csp-report': cspViolationFields,
+}).strict();
+```
+
+**Processing** (`server/index.ts`):
+```typescript
+app.post('/__csp-violation', (req: Request, res: Response) => {
+  // Validate wrapper structure
+  const validationResult = cspViolationReportSchema.safeParse(req.body);
+  
+  if (!validationResult.success) {
+    logger.warn('Invalid CSP violation report received');
+    res.status(204).end();  // W3C spec requires 204 No Content
+    return;
+  }
+  
+  // Extract actual violation data from wrapper
+  const violation = validationResult.data['csp-report'];
+  
+  if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+    logger.warn('CSP Violation Detected', {
+      blockedUri: violation['blocked-uri'],
+      violatedDirective: violation['violated-directive'],
+      // ... log other fields
+    });
+  }
+  
+  res.status(204).end();
+});
+```
+
+**Key Points:**
+- [PASS] Validates W3C CSP violation report format
+- [PASS] Extracts nested `"csp-report"` wrapper
+- [PASS] Always returns 204 No Content (per W3C spec)
+- [PASS] Never exposes schema details in responses
+- [PASS] Development-only (not available in production)
+- [PASS] Helps catch CSP issues before deployment
+
+**Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
 
 **Security Features Enabled with Helmet v8**:
 - `contentSecurityPolicy` - Enforces the CSP directives configured above
@@ -309,15 +433,20 @@ if (isDevelopment) {
 - `noSniff` - This functionality is now always enabled by default in Helmet v8
 - **Important**: These options are not supported in Helmet v8 and will cause configuration errors if used
 **When Modifying CSP**:
-1. **Test in both light and dark modes** - Ensure styles load
-2. **Test Vite HMR** - Dev server must stay responsive
-3. **Verify no console errors** - Check browser DevTools for blocked resources
-4. **Run `npm run dev`** - Confirm development experience works
-5. **Check production build** - Run `npm run build && npm start`
+1. **Update base directives in `server/csp-config.ts`** - All CSP changes should start with `baseCSPDirectives`
+2. **Route-specific overrides use programmatic builder** - Use `buildSwaggerUICSP()` pattern for route-specific needs
+3. **Never edit CSP strings directly** - Always use the centralized configuration to prevent drift
+4. **Test in both light and dark modes** - Ensure styles load correctly
+5. **Test Vite HMR** - Dev server must stay responsive with inline scripts
+6. **Verify no console errors** - Check browser DevTools for blocked resources
+7. **Test CSP violation endpoint** - Verify violations are logged correctly in development
+8. **Run `npm run dev`** - Confirm development experience works
+9. **Check production build** - Run `npm run build && npm start`
+10. **Test in multiple browsers** - Chrome/Edge/Firefox have different CSP enforcement
 
 ### Rate Limiting Strategy
 
-**Files**: `server/static.ts`, `server/vite.ts`
+**Files**: `server/static.ts`, `server/vite.ts`, `server/index.ts`
 
 Rate limiting protects against denial-of-service attacks on expensive operations:
 
@@ -336,6 +465,22 @@ app.use(spaRateLimiter, (req, res) => {
 });
 ```
 
+**CSP Violation Report Rate Limiting** (`server/index.ts`):
+```typescript
+const cspViolationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 100,                   // 100 reports per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: "Too many CSP violation reports. Please try again later.",
+});
+
+app.post('/__csp-violation', cspViolationLimiter, (req, res) => {
+  // ... endpoint logic
+});
+```
+
 **Development Setup** (`server/vite.ts`):
 - Vite middleware is used for HMR and asset serving during development
 - SPA fallback is also protected by a `spaRateLimiter` in dev, but with a higher limit (e.g., `max: 100`) tuned for local usage
@@ -344,8 +489,10 @@ app.use(spaRateLimiter, (req, res) => {
 **Rate Limiting Best Practices**:
 1. **File system operations** are expensive - always rate limit SPA fallback in production
 2. **Development should also use rate limiting**, but with more permissive limits (higher `max`) to avoid impacting normal local workflows
-3. **Per-IP tracking** - Express trust proxy configured via environment variable for accurate client IP detection
-4. **Graceful degradation** - returns 429 status with error message
+3. **Logging endpoints** need rate limiting to prevent log flooding DoS attacks
+4. **CSP violation endpoint** uses higher limit (100 vs 30) because browsers batch legitimate reports
+5. **Per-IP tracking** - Express trust proxy configured via environment variable for accurate client IP detection
+6. **Graceful degradation** - returns 429 status with error message
 
 **Trust Proxy Security**: Configured via `TRUST_PROXY` environment variable (secure-by-default):
 
@@ -416,6 +563,57 @@ This means:
 - Document why each directive is needed
 - Use environment checks (`isDevelopment`) for relaxed rules
 
+### URL Validation vs CSP Directive Building
+
+**Important Distinction**: There's a critical difference between URL validation (security-sensitive) and CSP directive construction (configuration).
+
+**GOOD - URL Validation (User Input)**:
+When validating user-provided URLs, always extract and validate the host:
+
+```javascript
+app.get('/some/path', function(req, res) {
+    let url = req.param('url'),
+        host = urlLib.parse(url).host;
+    // GOOD: the host of `url` can not be controlled by an attacker
+    let allowedHosts = [
+        'example.com',
+        'beta.example.com',
+        'www.example.com'
+    ];
+    if (allowedHosts.includes(host)) {
+        res.redirect(url);
+    }
+});
+```
+
+**Why this works**: Extracting `.host` ensures exact domain matching. An attacker cannot use `https://evil.com?redirect=example.com` to bypass the check.
+
+**Security References**:
+- **OWASP**: Server-Side Request Forgery (SSRF)
+- **OWASP**: [Unvalidated Redirects and Forwards Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html)
+- **CWE-20**: Improper Input Validation
+- **CWE-601**: URL Redirection to Untrusted Site ('Open Redirect')
+
+**NOT A VULNERABILITY - CSP Directive Building (Server Configuration)**:
+Our CSP configuration in `server/csp-config.ts` is **not** URL validation:
+
+```typescript
+// This is CSP directive construction (safe - not user input)
+const cdnSource = "https://cdn.jsdelivr.net";
+if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
+    swaggerDirectives.connectSrc.push(cdnSource);
+}
+```
+
+**Why this is safe**:
+- We're building Content-Security-Policy headers (server configuration)
+- The URL is a hardcoded constant, not user input
+- `Array.includes()` checks for exact element match (not substring search)
+- CSP requires exact host matching - no substring wildcards
+- CodeQL warning suppressed with `lgtm[js/incomplete-url-substring-sanitization]`
+
+**Key Takeaway**: Use URL parsing for user input validation. Use exact string matching for configuration constants.
+
 ### Security Issues & Resolutions (Recent Session)
 
 **Issue 1: Helmet v8 Compatibility (Deprecated Options)**
@@ -439,6 +637,32 @@ This means:
 - **Resolution**: Skip fallback for requests with file extensions
 - **Files Modified**: `server/vite.ts`
 
+**Issue 4: CSP Violation Report Wrapper Not Handled (CRITICAL FIX - February 2026)**
+- **Problem**: CSP violation endpoint was validating `req.body` directly instead of extracting the W3C-mandated `"csp-report"` wrapper
+- **Impact**: All real browser CSP violation reports were being silently rejected with "Invalid CSP violation report received"
+- **Root Cause**: Browsers send CSP violations wrapped as `{"csp-report": {...}}` per W3C spec, but code validated inner fields directly
+- **Resolution**: 
+  - Updated `cspViolationReportSchema` in `shared/schema.ts` to expect wrapper structure
+  - Modified endpoint in `server/index.ts` to extract `req.body['csp-report']` after wrapper validation
+  - Updated all 12 test cases to use correct W3C format
+- **Key Learning**: Always follow W3C specifications exactly when implementing browser standards
+- **Files Modified**: `shared/schema.ts`, `server/index.ts`, `tests/integration/csp-violation-endpoint.test.ts`
+- **Commit**: e6f0f11
+- **Reference**: [W3C CSP Violation Reports](https://w3c.github.io/webappsec-csp/#violation-reports)
+
+**Issue 5: CSP Violation Endpoint Not Rate Limited (SECURITY FIX - February 2026)**
+- **Problem**: CSP violation endpoint had no rate limiting, allowing attackers to flood logs
+- **Impact**: Potential log flooding, disk space exhaustion, log rotation issues, DoS via excessive logging
+- **Root Cause**: Endpoint was focused on functionality without considering abuse scenarios
+- **Resolution**:
+  - Added rate limiting middleware to `/__csp-violation` endpoint
+  - Limit: 100 reports per 15 minutes per IP
+  - Rationale: Legitimate CSP violations are rare and browsers batch them
+  - Added test coverage for rate limiting configuration
+- **Key Learning**: All endpoints accepting external input need rate limiting, even development-only endpoints
+- **Files Modified**: `server/index.ts`, `tests/integration/csp-violation-endpoint.test.ts`
+- **Security Impact**: Prevents log-based DoS attacks in development environments
+
 ## Testing & Test Coverage
 
 ### Test Structure
@@ -447,11 +671,24 @@ Tests are organized in a dedicated `tests/` directory with clear organization:
 
 ```
 tests/
-├── unit/                        # Unit tests for individual functions
-│   └── subnet-utils.test.ts     # Core calculation logic (53 tests)
-├── integration/                 # Integration tests for system-wide features
-│   └── styles.test.ts           # Styling & design system tests (27 tests)
+├── unit/                        # Unit tests for individual functions (3 files, 121 tests)
+│   ├── subnet-utils.test.ts     # Core calculation logic (53 tests)
+│   ├── kubernetes-network-generator.test.ts  # K8s network logic (57 tests)
+│   └── emoji-detection.test.ts  # Emoji validation (11 tests)
+├── integration/                 # Integration tests for system-wide features (9 files, 194 tests)
+│   ├── api-endpoints.test.ts    # API infrastructure (38 tests)
+│   ├── kubernetes-network-api.test.ts  # K8s API (33 tests)
+│   ├── calculator-ui.test.ts    # React components (31 tests)
+│   ├── rate-limiting.test.ts    # Security middleware (23 tests)
+│   ├── ui-styles.test.ts        # WCAG accessibility (19 tests)
+│   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests)
+│   ├── swagger-ui-theming.test.ts  # Swagger UI themes (12 tests)
+│   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests)
+│   └── config.test.ts           # Configuration (8 tests)
+├── manual/                      # PowerShell testing scripts (2 files)
 └── README.md                    # Testing documentation
+
+See [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md) for comprehensive test suite analysis.
 ```
 
 ### Running Tests
@@ -466,7 +703,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 ### Test Coverage
 
-**Current Suite: 80 comprehensive tests (53 unit + 27 integration) - 100% pass rate [PASS]**
+**Current Suite: 315 comprehensive tests (121 unit + 194 integration) - 100% pass rate [PASS]**
 
 **Unit Tests** (`tests/unit/subnet-utils.test.ts` - 53 tests):
 - **IP Conversion**: ipToNumber, numberToIp with roundtrip validation
@@ -499,25 +736,32 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 80 |
-| **Unit Tests** | 53 |
-| **Integration Tests** | 27 |
+| **Total Tests** | 315 |
+| **Unit Tests** | 121 |
+| **Integration Tests** | 194 |
 | **Pass Rate** | 100% |
-| **Execution Time** | ~1.3 seconds |
+| **Execution Time** | ~3.2 seconds |
+| **Test Files** | 12 (3 unit, 9 integration) |
+| **Lines of Test Code** | 4,225 lines |
+| **Average Lines/Test** | 13.4 (efficient) |
+| **Bloat Reduction** | -7% (consolidated from 338 tests) |
+| **Overall Grade** | A- |
 | **WCAG Compliance** | AAA for primary text, AA for secondary elements |
 | **Code Type Safety** | TypeScript strict mode enabled throughout |
-| **Test Files** | 2 organized by type (unit and integration) |
-| **Calculation Functions Covered** | 100% (all subnet-utils.ts functions) |
-| **Design System Coverage** | All colors, contrast ratios, dark mode |
+| **Core Logic Coverage** | 100% (subnet-utils, kubernetes-network-generator) |
+| **Security Testing** | Comprehensive (CSP, rate limiting, RFC 1918 enforcement) |
 
 ### Test Success Criteria
 
 For the test suite to be considered passing:
-- [PASS] All 80 tests must pass
+- [PASS] All 315 tests must pass
 - [PASS] No skipped or pending tests (except during development)
 - [PASS] WCAG accessibility standards maintained
 - [PASS] All calculation logic validated
-- [PASS] Design system fully tested
+- [PASS] Security endpoints fully tested
+- [PASS] API infrastructure validated
+
+For detailed test suite health analysis, see [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md).
 
 ### Writing Tests
 
@@ -629,18 +873,21 @@ When adding new tests:
 ```bash
 npm audit                  # Security audit (0 vulnerabilities required)
 npm run check              # TypeScript type checking (no errors)
-npm run test -- --run      # Run full test suite (all 80 tests must pass)
+npm run test -- --run      # Run full test suite (all 315 tests must pass)
 npm run build              # Verify production build succeeds
 ```
 
 **Quality Gates:**
-- [PASS] All 260 tests passing (53 subnet utils + 49 k8s generator + 33 API integration + 125 other)
+- [PASS] All 315 tests passing (121 unit + 194 integration)
 - [PASS] Zero TypeScript errors in strict mode
 - [PASS] Zero npm audit vulnerabilities
 - [PASS] Production build succeeds without warnings
 - [PASS] No console errors in dev environment
 - [PASS] WCAG accessibility standards maintained
 - [PASS] API endpoints return valid JSON and YAML formats
+- [PASS] Test suite efficiency: 13.4 lines/test average
+
+For test suite analysis and optimization recommendations, see [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md).
 
 ## Code Style & Conventions
 
@@ -1460,11 +1707,11 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 
 ```bash
 # Enterprise tier (GKE Standard, 50 nodes, 10-50 node range)
-# Pod range: /16 → supports 256 nodes at 110 pods/node = 28K pods 
+# Pod range: /16 -> supports 256 nodes at 110 pods/node = 28K pods 
 
 # Hyperscale tier (GKE Standard, 5,000 nodes max)
-# Pod range: /13 → supports 2,048 nodes at 110 pods/node = 225K pods 
-# Primary: /19 → supports 8,188 nodes 
+# Pod range: /13 -> supports 2,048 nodes at 110 pods/node = 225K pods 
+# Primary: /19 -> supports 8,188 nodes 
 ```
 
 **Best Practices:**

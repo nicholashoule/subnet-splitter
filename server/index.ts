@@ -15,10 +15,13 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { logger } from "./logger";
+import { baseCSPDirectives, developmentCSPAdditions, replitCSPAdditions } from "./csp-config";
+import { cspViolationReportSchema } from "../shared/schema";
 
 const app = express();
 
@@ -28,33 +31,25 @@ const app = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
 const isReplit = process.env.REPL_ID !== undefined;
 
-const cspDirectives: Record<string, string[]> = {
-  defaultSrc: ["'self'"],
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-  // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
-  // and for Tailwind CSS compiled styles that rely on inline style blocks.
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
-  imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-  objectSrc: ["'none'"],
-  baseUri: ["'self'"],
-  frameAncestors: ["'self'"],
-  fontSrc: ["'self'", "https://fonts.gstatic.com"],
-};
+// Build CSP directives from shared configuration
+// Start with base directives, then add environment-specific additions
+const cspDirectives: Record<string, string[]> = { ...baseCSPDirectives };
 
-// In development, allow inline scripts and WebSocket for Vite HMR
-// Vite injects inline scripts for Fast Refresh and HMR
+// In development, add relaxed CSP for Vite HMR, CSP violation reporting, and Replit tooling
 if (isDevelopment) {
-  cspDirectives.scriptSrc.push("'unsafe-inline'");
-  cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");
-}
+  // Vite injects inline scripts for Fast Refresh and HMR
+  cspDirectives.scriptSrc = [...(cspDirectives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
+  // Enable CSP violation reporting so we catch issues before production
+  cspDirectives.connectSrc = [...(cspDirectives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
+  cspDirectives.reportUri = developmentCSPAdditions.reportUri;
 
-// In Replit development environment, allow additional origins for Replit plugins
-// These plugins inject runtime error overlays, cartographer, and dev banner
-if (isDevelopment && isReplit) {
-  cspDirectives.scriptSrc.push("https://*.replit.com", "https://*.replit.dev");
-  cspDirectives.connectSrc.push("https://*.replit.com", "https://*.replit.dev", "wss://*.replit.com", "wss://*.replit.dev");
-  cspDirectives.imgSrc.push("https://*.replit.com", "https://*.replit.dev");
+  // In Replit development environment, allow additional origins for Replit plugins
+  // These plugins inject runtime error overlays, cartographer, and dev banner
+  if (isReplit) {
+    cspDirectives.scriptSrc = [...(cspDirectives.scriptSrc || []), ...replitCSPAdditions.scriptSrc];
+    cspDirectives.connectSrc = [...(cspDirectives.connectSrc || []), ...replitCSPAdditions.connectSrc];
+    cspDirectives.imgSrc = [...(cspDirectives.imgSrc || []), ...replitCSPAdditions.imgSrc];
+  }
 }
 
 // Security middleware with strict CSP configuration
@@ -100,6 +95,71 @@ if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
 app.use(express.json());
 
 app.use(express.urlencoded({ extended: false }));
+
+// CSP violation reporting endpoint (development only)
+// Browsers send CSP violation reports here when content is blocked
+// This helps catch CSP issues early before pushing to production
+if (isDevelopment) {
+  // Rate limit CSP violation reports to prevent log flooding attacks
+  // Legitimate CSP violations are rare and browsers batch them
+  const cspViolationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 reports per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false, // Count all requests, even successful ones
+    message: "Too many CSP violation reports. Please try again later.",
+  });
+
+  app.post('/__csp-violation', cspViolationLimiter, (req: Request, res: Response) => {
+    try {
+      // Validate the wrapper structure (browsers send { "csp-report": {...} })
+      const validationResult = cspViolationReportSchema.safeParse(req.body);
+      
+      if (!validationResult.success) {
+        // Log validation error but don't expose schema details
+        logger.warn('Invalid CSP violation report received', {
+          error: 'Request body does not match CSP violation report schema',
+          issues: validationResult.error.issues.length,
+        });
+        // Return 204 No Content regardless (don't leak schema info to potential attackers)
+        res.status(204).end();
+        return;
+      }
+      
+      // Extract the actual violation data from the csp-report wrapper
+      const violation = validationResult.data['csp-report'];
+      
+      // Only log if we have actual violation data (at least one expected field)
+      if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+        logger.warn('CSP Violation Detected in Development', {
+          blockedUri: violation['blocked-uri'],
+          violatedDirective: violation['violated-directive'],
+          originalPolicy: violation['original-policy'],
+          sourceFile: violation['source-file'],
+          lineNumber: violation['line-number'],
+          columnNumber: violation['column-number'],
+          documentUri: violation['document-uri'],
+          disposition: violation.disposition,
+        });
+      } else {
+        // Empty or minimal report - still log but at debug level
+        logger.debug('CSP violation report received with minimal data', {
+          bodyFields: Object.keys(req.body).length,
+        });
+      }
+    } catch (error) {
+      // Handle unexpected errors gracefully
+      logger.error('Error processing CSP violation report', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+    
+    // Always return 204 No Content per CSP spec
+    // This acknowledges receipt without exposing details
+    res.status(204).end();
+  });
+}
 
 // Deprecated: Legacy log function - use structured logger instead
 // Kept for backward compatibility during transition

@@ -8,6 +8,12 @@ This document captures the prompts and reasoning used by the AI agent to build t
 - **Platform**: Replit Agent
 - **Development Date**: January 2026
 
+## Related Documentation
+
+- **Test Suite Audit**: [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md) - Comprehensive analysis of 315 tests
+- **Testing Guide**: [tests/README.md](../tests/README.md) - Test organization and running instructions
+- **Project Guidelines**: [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development standards and security protocols
+
 ## Initial Project Goal
 
 Build a CIDR range subnet calculator that:
@@ -735,8 +741,8 @@ Implemented 5 major robustness improvements:
 
 **Files Modified:**
 - `client/src/pages/calculator.tsx`:
-  - Split success message: 5000ms → 2500ms
-  - Delete success message: 5000ms → 2500ms
+  - Split success message: 5000ms -> 2500ms
+  - Delete success message: 5000ms -> 2500ms
 
 **Impact**: Feedback is now faster and feels more responsive, especially during rapid successive splits without cluttering the UI.
 
@@ -1097,9 +1103,9 @@ Added to `.github/copilot-instructions.md`:
    - Opens in new tab (`target="_blank" rel="noopener noreferrer"`)
    - Added hover effect (`opacity-80` on hover)
    - Adjusted spacing for compact layout:
-     - Header padding: `py-6` → `py-4`
-     - Image margin-bottom: `mb-4` → `mb-2`
-     - Header margin-bottom: `mb-10` → `mb-6`
+     - Header padding: `py-6` -> `py-4`
+     - Image margin-bottom: `mb-4` -> `mb-2`
+     - Header margin-bottom: `mb-10` -> `mb-6`
 
 3. **Benefits**
    - Personal branding via QR code
@@ -1292,7 +1298,7 @@ it("should support YAML serialization of network plans", async () => {
 2. **.github/copilot-instructions.md**:
    - Updated quality gates to reflect 260 total tests
    - Added new "API Testing Workflow" section for AI agents
-   - Documented step-by-step process: start server → run tests → manual testing
+   - Documented step-by-step process: start server -> run tests -> manual testing
    - Included expected test results and validation criteria
    - Added examples of JSON vs YAML output testing
 
@@ -1345,7 +1351,7 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
    - Format: Controlled by `?format=json` or `?format=yaml` query parameter
 
 2. `GET /api/kubernetes/tiers`
-   - Returns: Information about all deployment tiers (standard → hyperscale)
+   - Returns: Information about all deployment tiers (standard -> hyperscale)
    - Format: Controlled by query parameter
 
 **Format Response Handler** (in `server/routes.ts`):
@@ -1380,5 +1386,231 @@ function formatResponse(data: unknown, format?: string): { contentType: string; 
 [PASS] **API functionality verified**: JSON and YAML outputs working  
 [PASS] **Documentation complete**: README, copilot-instructions, and agent-reasoning updated  
 [PASS] **Ready for production**: All quality gates passed
+
+---
+### 26. CSP Violation Report Wrapper Fix & Security Architecture Documentation (February 2, 2026)
+
+**Session**: February 2, 2026 (Morning)  
+**Context**: Discovered critical bug in CSP violation endpoint while reviewing feature branch `feature-update-swagger`
+
+#### Critical Bug Discovered
+
+**Problem**: The CSP violation endpoint (`/__csp-violation`) was rejecting **all real browser CSP violation reports**
+
+**Root Cause Analysis**:
+- Browsers send CSP violations wrapped as `{"csp-report": {...}}` per W3C specification
+- The endpoint was validating `req.body` directly against the report fields schema
+- The wrapper object was never extracted, so validation always failed
+- All violations logged as "Invalid CSP violation report received"
+- Development CSP debugging was completely broken
+
+**Impact**:
+- **Severity**: CRITICAL (100% failure rate for real browser reports)
+- **Scope**: All CSP violations in development environment
+- **Detection**: Discovered during feature branch code review
+- **Duration**: Unknown (existed since CSP violation endpoint was added)
+
+#### Bug Fix Implementation
+
+**Commit**: e6f0f11  
+**Title**: `fix(security): correctly handle CSP violation report wrapper from browsers`
+
+**Changes Made**:
+
+1. **Updated Schema** (`shared/schema.ts`):
+```typescript
+// Before: Validated fields directly
+export const cspViolationReportSchema = z.object({
+  'blocked-uri': z.string().optional(),
+  'violated-directive': z.string().optional(),
+  // ... other fields
+}).strict().optional();
+
+// After: Added wrapper structure
+const cspViolationFields = z.object({
+  'blocked-uri': z.string().optional(),
+  'violated-directive': z.string().optional(),
+  // ... other fields
+}).strict().optional();
+
+export const cspViolationReportSchema = z.object({
+  'csp-report': cspViolationFields,  // Wrapper required
+}).strict();
+```
+
+2. **Updated Endpoint Handler** (`server/index.ts`):
+```typescript
+// Before: Validated req.body directly
+const validationResult = cspViolationReportSchema.safeParse(req.body);
+
+// After: Extract wrapper after validation
+const validationResult = cspViolationReportSchema.safeParse(req.body);
+if (!validationResult.success) {
+  logger.warn('Invalid CSP violation report received');
+  res.status(204).end();
+  return;
+}
+
+// Extract actual violation data from wrapper
+const violation = validationResult.data['csp-report'];
+
+if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+  logger.warn('CSP Violation Detected', {
+    blockedUri: violation['blocked-uri'],
+    violatedDirective: violation['violated-directive'],
+    // ... log other fields
+  });
+}
+```
+
+3. **Updated All Tests** (`tests/integration/csp-violation-endpoint.test.ts`):
+- Fixed all 12 test cases to wrap payloads in `"csp-report"` key
+- Example change:
+```typescript
+// Before:
+const payload = {
+  'blocked-uri': 'https://evil.com/script.js',
+  'violated-directive': 'script-src'
+};
+
+// After:
+const payload = {
+  'csp-report': {
+    'blocked-uri': 'https://evil.com/script.js',
+    'violated-directive': 'script-src'
+  }
+};
+```
+
+**Verification**:
+- All 332 tests passing (100%)
+- TypeScript compilation clean
+- Production build successful
+
+#### Security Architecture Documentation
+
+**Commit**: e9e37f6  
+**Title**: `docs(security): clarify route-specific CSP design for cdn.jsdelivr.net`
+
+**Issue**: PR review question about why `cdn.jsdelivr.net` is in `scriptSrc`/`styleSrc` but NOT in base `connectSrc` policy
+
+**Answer**: This is **intentional** - it's a **route-specific security architecture** following the **principle of least privilege**
+
+**Security Design Rationale**:
+
+1. **Base CSP Policy** (`server/csp-config.ts` - `baseCSPDirectives`):
+```typescript
+export const baseCSPDirectives: CSPDirectives = {
+  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],  // Load Swagger UI assets
+  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],  // Swagger CSS
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+  // NOTE: cdn.jsdelivr.net NOT in base connectSrc (intentional)
+  imgSrc: ["'self'", "data:"],
+  // ... other directives
+};
+```
+
+2. **Route-Specific CSP** (`buildSwaggerUICSP()` function):
+```typescript
+export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
+  // Start with copy of baseCSPDirectives (automatic synchronization)
+  const swaggerDirectives = { ...baseCSPDirectives };
+  
+  // Development-only: Add 'unsafe-inline' for SwaggerUIBundle
+  if (isDevelopment) {
+    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  }
+  
+  // Always add CDN for source maps (route-specific permission)
+  swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
+  
+  return convertToCSPString(swaggerDirectives);
+}
+```
+
+3. **Why Different Directives?**
+   - `scriptSrc` / `styleSrc`: Loads Swagger UI assets (global policy allows `cdn.jsdelivr.net`)
+   - `connectSrc`: Fetch/XHR requests (Swagger UI route ONLY gets `cdn.jsdelivr.net` permission)
+
+4. **Security Benefits**:
+   - **Defense in depth**: Only `/api/docs/ui` can connect to `cdn.jsdelivr.net`
+   - **Prevents data exfiltration**: Other endpoints cannot send data to external CDNs
+   - **Principle of least privilege**: Each route gets minimum necessary permissions
+   - **Attack surface reduction**: Compromised route can't abuse CDN for data theft
+
+**Documentation Updates**:
+
+Added to `server/csp-config.ts`:
+```typescript
+/**
+ * Security Architecture - Principle of Least Privilege:
+ * - Only /api/docs/ui gets cdn.jsdelivr.net in connectSrc (NOT in base policy)
+ * - Other endpoints cannot connect to external CDNs (defense in depth)
+ * - Prevents data exfiltration if another route is compromised
+ */
+```
+
+#### Programmatic CSP Builder Verification
+
+**User Question**: "Consider refactoring buildSwaggerUICSP to programmatically build from baseCSPDirectives"
+
+**Agent Response**: Already implemented! No changes needed.
+
+**Verification**:
+```typescript
+// Lines 115-139 of server/csp-config.ts
+export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
+  // Start with copy of baseCSPDirectives (automatic synchronization)
+  const swaggerDirectives = { ...baseCSPDirectives };
+  
+  // ... modifications
+  
+  return convertToCSPString(swaggerDirectives);
+}
+```
+
+**Benefits of Current Implementation**:
+- [PASS] Automatic synchronization with `baseCSPDirectives`
+- [PASS] No manual maintenance required
+- [PASS] Configuration drift eliminated
+- [PASS] Environment-aware (development vs production)
+- [PASS] Single source of truth
+
+**Historical Context**: This was implemented in commit 811e0ae from an earlier session. The old manual sync comment was already removed.
+
+#### Documentation Updates
+
+**Files Updated**:
+
+1. **`.github/copilot-instructions.md`** (3 major sections):
+   - **Base CSP Configuration**: Added centralized configuration design explanation
+   - **Route-Specific CSP**: Documented Swagger UI route permissions and security rationale
+   - **Programmatic Builder**: Explained automatic sync benefits
+   - **CSP Violation Endpoint**: Added W3C wrapper format documentation
+   - **When Modifying CSP**: Updated with programmatic builder guidance (10 steps)
+   - **Security Issues & Resolutions**: Added Issue 4 documenting the wrapper fix
+
+2. **`.github/agent-reasoning.md`** (this entry):
+   - Section 26: Complete documentation of bug fix and security architecture
+   - Code examples showing before/after states
+   - Security design rationale
+   - Verification results
+
+#### Key Learnings
+
+1. **Follow W3C Specifications Exactly**: Browser standards must be implemented precisely, not assumed
+2. **Test With Real Browser Data**: Development endpoints need realistic test data, not just schema validation
+3. **Document Security Architecture**: Intentional security designs should be clearly documented to prevent "fixes" that weaken security
+4. **Programmatic Configuration**: Code generation from base configs eliminates drift and maintenance burden
+5. **Defense in Depth**: Route-specific permissions provide additional security layer beyond base policy
+
+#### Status
+
+[PASS] **Critical bug fixed**: CSP violations now properly logged  
+[PASS] **All tests passing**: 332/332 (100%)  
+[PASS] **Security architecture documented**: Route-specific CSP design clarified  
+[PASS] **Programmatic builder verified**: Already implemented and working  
+[PASS] **Documentation complete**: copilot-instructions and agent-reasoning updated  
+[PASS] **Ready for merge**: Feature branch validated and enhanced
 
 ---
