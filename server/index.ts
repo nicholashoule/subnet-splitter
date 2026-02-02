@@ -117,10 +117,12 @@ if (isDevelopment) {
       const validationResult = cspViolationReportSchema.safeParse(req.body);
       
       if (!validationResult.success) {
-        // Log validation error but don't expose schema details
+        // Log validation error with details for debugging (development only)
         logger.warn('Invalid CSP violation report received', {
           error: 'Request body does not match CSP violation report schema',
           issues: validationResult.error.issues.length,
+          bodyKeys: Object.keys(req.body),
+          firstIssue: validationResult.error.issues[0],
         });
         // Return 204 No Content regardless (don't leak schema info to potential attackers)
         res.status(204).end();
