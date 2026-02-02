@@ -101,7 +101,7 @@ app.use(express.urlencoded({ extended: false }));
 if (isDevelopment) {
   app.post('/__csp-violation', (req: Request, res: Response) => {
     try {
-      // Validate and parse the request body using CSP violation report schema
+      // Validate the wrapper structure (browsers send { "csp-report": {...} })
       const validationResult = cspViolationReportSchema.safeParse(req.body);
       
       if (!validationResult.success) {
@@ -115,7 +115,8 @@ if (isDevelopment) {
         return;
       }
       
-      const violation = validationResult.data;
+      // Extract the actual violation data from the csp-report wrapper
+      const violation = validationResult.data['csp-report'];
       
       // Only log if we have actual violation data (at least one expected field)
       if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {

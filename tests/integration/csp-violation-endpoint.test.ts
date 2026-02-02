@@ -29,28 +29,33 @@ describe("CSP Violation Endpoint", () => {
    * 
    * Tests that a properly formatted browser CSP violation report
    * is accepted and returns 204 No Content.
+   * 
+   * Note: Browsers send reports wrapped in a "csp-report" key per W3C spec.
    */
   it("should accept valid CSP violation report and return 204", () => {
-    // Mock valid CSP violation report from browser
+    // Mock valid CSP violation report from browser (nested under "csp-report")
     const validViolationReport = {
-      "blocked-uri": "https://malicious.com/script.js",
-      "violated-directive": "script-src",
-      "original-policy": "script-src 'self'; object-src 'none'",
-      "document-uri": "http://localhost:5000/api/docs",
-      disposition: "enforce",
+      "csp-report": {
+        "blocked-uri": "https://malicious.com/script.js",
+        "violated-directive": "script-src",
+        "original-policy": "script-src 'self'; object-src 'none'",
+        "document-uri": "http://localhost:5000/api/docs",
+        disposition: "enforce",
+      }
     };
 
     // Verify it matches expected schema structure
-    expect(validViolationReport).toHaveProperty("blocked-uri");
-    expect(validViolationReport).toHaveProperty("violated-directive");
-    expect(validViolationReport).toHaveProperty("original-policy");
-    expect(validViolationReport).toHaveProperty("document-uri");
-    expect(validViolationReport).toHaveProperty("disposition");
+    expect(validViolationReport).toHaveProperty("csp-report");
+    expect(validViolationReport["csp-report"]).toHaveProperty("blocked-uri");
+    expect(validViolationReport["csp-report"]).toHaveProperty("violated-directive");
+    expect(validViolationReport["csp-report"]).toHaveProperty("original-policy");
+    expect(validViolationReport["csp-report"]).toHaveProperty("document-uri");
+    expect(validViolationReport["csp-report"]).toHaveProperty("disposition");
 
     // All fields are strings or enums as expected
-    expect(typeof validViolationReport["blocked-uri"]).toBe("string");
-    expect(typeof validViolationReport["violated-directive"]).toBe("string");
-    expect(validViolationReport.disposition).toBe("enforce");
+    expect(typeof validViolationReport["csp-report"]["blocked-uri"]).toBe("string");
+    expect(typeof validViolationReport["csp-report"]["violated-directive"]).toBe("string");
+    expect(validViolationReport["csp-report"].disposition).toBe("enforce");
   });
 
   /**
@@ -60,23 +65,25 @@ describe("CSP Violation Endpoint", () => {
    * Tests that these additional fields are accepted.
    */
   it("should accept CSP violation report with source location details", () => {
-    // CSP reports may include source file location
+    // CSP reports may include source file location (wrapped in csp-report key)
     const violationWithSourceLocation = {
-      "blocked-uri": "https://unsafe-script.js",
-      "violated-directive": "script-src",
-      "original-policy": "script-src 'self'",
-      "source-file": "http://localhost:5000/api/docs",
-      "line-number": 42,
-      "column-number": 15,
-      "document-uri": "http://localhost:5000/api/docs",
-      disposition: "report",
+      "csp-report": {
+        "blocked-uri": "https://unsafe-script.js",
+        "violated-directive": "script-src",
+        "original-policy": "script-src 'self'",
+        "source-file": "http://localhost:5000/api/docs",
+        "line-number": 42,
+        "column-number": 15,
+        "document-uri": "http://localhost:5000/api/docs",
+        disposition: "report",
+      }
     };
 
-    expect(violationWithSourceLocation).toHaveProperty("source-file");
-    expect(violationWithSourceLocation).toHaveProperty("line-number");
-    expect(violationWithSourceLocation).toHaveProperty("column-number");
-    expect(typeof violationWithSourceLocation["line-number"]).toBe("number");
-    expect(typeof violationWithSourceLocation["column-number"]).toBe("number");
+    expect(violationWithSourceLocation["csp-report"]).toHaveProperty("source-file");
+    expect(violationWithSourceLocation["csp-report"]).toHaveProperty("line-number");
+    expect(violationWithSourceLocation["csp-report"]).toHaveProperty("column-number");
+    expect(typeof violationWithSourceLocation["csp-report"]["line-number"]).toBe("number");
+    expect(typeof violationWithSourceLocation["csp-report"]["column-number"]).toBe("number");
   });
 
   /**
@@ -86,13 +93,15 @@ describe("CSP Violation Endpoint", () => {
    * Tests that sparse reports are still accepted.
    */
   it("should accept minimal CSP violation report with only required fields", () => {
-    // Minimal valid report - only blocked-uri
+    // Minimal valid report - only blocked-uri (wrapped in csp-report key)
     const minimalViolation = {
-      "blocked-uri": "data:text/javascript,...",
+      "csp-report": {
+        "blocked-uri": "data:text/javascript,...",
+      }
     };
 
-    expect(minimalViolation).toHaveProperty("blocked-uri");
-    expect(minimalViolation["blocked-uri"]).toBeTruthy();
+    expect(minimalViolation["csp-report"]).toHaveProperty("blocked-uri");
+    expect(minimalViolation["csp-report"]["blocked-uri"]).toBeTruthy();
   });
 
   /**
@@ -102,25 +111,27 @@ describe("CSP Violation Endpoint", () => {
    * without schema validation errors.
    */
   it("should accept CSP violation report with all optional fields", () => {
-    // Complete CSP violation report with all W3C fields
+    // Complete CSP violation report with all W3C fields (wrapped in csp-report key)
     const completeViolation = {
-      "blocked-uri": "https://bad-script.js",
-      "violated-directive": "script-src 'self'",
-      "original-policy": "script-src 'self' https://cdn.example.com; style-src 'unsafe-inline'",
-      "source-file": "https://localhost:5000/api/docs",
-      "line-number": 123,
-      "column-number": 45,
-      "document-uri": "https://localhost:5000/api/docs",
-      disposition: "enforce",
-      status: 200,
+      "csp-report": {
+        "blocked-uri": "https://bad-script.js",
+        "violated-directive": "script-src 'self'",
+        "original-policy": "script-src 'self' https://cdn.example.com; style-src 'unsafe-inline'",
+        "source-file": "https://localhost:5000/api/docs",
+        "line-number": 123,
+        "column-number": 45,
+        "document-uri": "https://localhost:5000/api/docs",
+        disposition: "enforce",
+        status: 200,
+      }
     };
 
     // All fields should exist and have correct types
-    expect(completeViolation["blocked-uri"]).toBeTruthy();
-    expect(completeViolation["violated-directive"]).toBeTruthy();
-    expect(completeViolation["line-number"]).toBe(123);
-    expect(completeViolation["column-number"]).toBe(45);
-    expect(completeViolation.status).toBe(200);
+    expect(completeViolation["csp-report"]["blocked-uri"]).toBeTruthy();
+    expect(completeViolation["csp-report"]["violated-directive"]).toBeTruthy();
+    expect(completeViolation["csp-report"]["line-number"]).toBe(123);
+    expect(completeViolation["csp-report"]["column-number"]).toBe(45);
+    expect(completeViolation["csp-report"].status).toBe(200);
   });
 
   /**
@@ -130,14 +141,16 @@ describe("CSP Violation Endpoint", () => {
    * without exposing schema details.
    */
   it("should reject invalid CSP report with wrong field types", () => {
-    // Invalid: line-number should be number, not string
+    // Invalid: line-number should be number, not string (wrapped in csp-report)
     const invalidReport = {
-      "blocked-uri": "https://bad-script.js",
-      "line-number": "not-a-number", // INVALID: should be number
+      "csp-report": {
+        "blocked-uri": "https://bad-script.js",
+        "line-number": "not-a-number", // INVALID: should be number
+      }
     };
 
     // This should fail schema validation
-    expect(typeof invalidReport["line-number"]).not.toBe("number");
+    expect(typeof invalidReport["csp-report"]["line-number"]).not.toBe("number");
   });
 
   /**
@@ -147,17 +160,19 @@ describe("CSP Violation Endpoint", () => {
    * Schema uses .strict() to prevent additional properties.
    */
   it("should reject CSP report with unexpected extra fields", () => {
-    // Invalid: contains field not in CSP violation spec
+    // Invalid: contains field not in CSP violation spec (inside csp-report)
     const reportWithExtra = {
-      "blocked-uri": "https://bad-script.js",
-      "violated-directive": "script-src",
-      "malicious-field": "should-not-be-here", // INVALID: not in spec
-      "another-extra": 12345,
+      "csp-report": {
+        "blocked-uri": "https://bad-script.js",
+        "violated-directive": "script-src",
+        "malicious-field": "should-not-be-here", // INVALID: not in spec
+        "another-extra": 12345,
+      }
     };
 
     // Extra fields should be present but marked as invalid by strict schema
-    expect(reportWithExtra).toHaveProperty("malicious-field");
-    expect(reportWithExtra).toHaveProperty("another-extra");
+    expect(reportWithExtra["csp-report"]).toHaveProperty("malicious-field");
+    expect(reportWithExtra["csp-report"]).toHaveProperty("another-extra");
   });
 
   /**
@@ -169,9 +184,8 @@ describe("CSP Violation Endpoint", () => {
   it("should handle empty CSP violation report payload", () => {
     const emptyReport = {};
 
-    // Empty object should not have expected CSP fields
-    expect(emptyReport).not.toHaveProperty("blocked-uri");
-    expect(emptyReport).not.toHaveProperty("violated-directive");
+    // Empty object should not have the required csp-report wrapper
+    expect(emptyReport).not.toHaveProperty("csp-report");
   });
 
   /**
@@ -180,25 +194,31 @@ describe("CSP Violation Endpoint", () => {
    * Tests that disposition field only accepts valid enum values.
    */
   it("should only accept valid disposition enum values", () => {
-    // Valid values
+    // Valid values (wrapped in csp-report)
     const validEnforce = {
-      "blocked-uri": "https://bad.js",
-      disposition: "enforce",
+      "csp-report": {
+        "blocked-uri": "https://bad.js",
+        disposition: "enforce",
+      }
     };
-    expect(validEnforce.disposition).toBe("enforce");
+    expect(validEnforce["csp-report"].disposition).toBe("enforce");
 
     const validReport = {
-      "blocked-uri": "https://bad.js",
-      disposition: "report",
+      "csp-report": {
+        "blocked-uri": "https://bad.js",
+        disposition: "report",
+      }
     };
-    expect(validReport.disposition).toBe("report");
+    expect(validReport["csp-report"].disposition).toBe("report");
 
     // Invalid value should not pass
     const invalidDisposition = {
-      "blocked-uri": "https://bad.js",
-      disposition: "invalid-value", // NOT in enum
+      "csp-report": {
+        "blocked-uri": "https://bad.js",
+        disposition: "invalid-value", // NOT in enum
+      }
     };
-    expect(["enforce", "report"]).not.toContain(invalidDisposition.disposition);
+    expect(["enforce", "report"]).not.toContain(invalidDisposition["csp-report"].disposition);
   });
 
   /**
