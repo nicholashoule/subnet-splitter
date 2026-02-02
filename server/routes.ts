@@ -922,6 +922,14 @@ export async function registerRoutes(
       ],
       layout: "StandaloneLayout",
       syntaxHighlight: syntaxHighlightConfig,
+      // Disable Swagger validator badge by setting validatorUrl to null
+      // The validator badge normally appears in the top-right and sends the OpenAPI spec to validator.swagger.io
+      // for validation against OpenAPI standards. We disable this to prevent:
+      // 1. CORS errors when the validator service is unavailable or misconfigured
+      // 2. Validation errors for valid but non-standard spec extensions
+      // 3. External requests for privacy and offline support
+      // This is a permanent solution since the spec validation is not critical for API documentation viewing.
+      // Developers should validate the spec locally during development (e.g., with openapi-spec-validator or similar tools).
       validatorUrl: null,
       onComplete: function() {
         // Function to apply light mode styles
