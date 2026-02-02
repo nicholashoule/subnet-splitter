@@ -32,14 +32,18 @@ export class KubernetesNetworkGenerationError extends Error {
 /**
  * Check if an IP address is in a private RFC 1918 range
  * Private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
- * @returns true if IP is private, false if public
+ * @returns true if IP is private, false if public or invalid
  */
 function isPrivateIP(ip: string): boolean {
   const parts = ip.split(".");
   if (parts.length !== 4) return false;
 
-  const first = parseInt(parts[0], 10);
-  const second = parseInt(parts[1], 10);
+  const octets = parts.map(p => parseInt(p, 10));
+
+  // Validate all octets are numbers in range 0-255
+  if (octets.some(o => Number.isNaN(o) || o < 0 || o > 255)) return false;
+
+  const [first, second] = octets;
 
   // Class A private: 10.0.0.0/8
   if (first === 10) return true;

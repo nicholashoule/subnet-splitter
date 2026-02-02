@@ -320,8 +320,6 @@ describe("Copy to Clipboard", () => {
   });
 
   it("should provide user feedback after copy", () => {
-    const subnet = calculateSubnet("192.168.1.0/24");
-    
     // Simulate copy operation
     let copiedField: string | null = null;
     copiedField = "networkAddress";
