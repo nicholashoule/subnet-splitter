@@ -244,6 +244,13 @@ export async function registerRoutes(
     .swagger-ui .parameter__name, .swagger-ui .parameter__type {
       color: hsl(222, 47%, 11%) !important;
     }
+    /* Layout title with badges on the right */
+    .swagger-ui .info .title {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 1rem !important;
+    }
     /* General spans - but not badge spans */
     .swagger-ui span:not(.info .title small) {
       color: hsl(222, 47%, 11%) !important;
@@ -255,6 +262,7 @@ export async function registerRoutes(
       padding: 2px 8px !important;
       border-radius: 3px !important;
       display: inline-block !important;
+      flex-shrink: 0 !important;
     }
     .swagger-ui .info .title small.version-stamp {
       background-color: hsl(221, 83%, 53%) !important;
@@ -540,6 +548,7 @@ export async function registerRoutes(
       padding: 2px 8px !important;
       border-radius: 3px !important;
       display: inline-block !important;
+      flex-shrink: 0 !important;
     }
     html.dark .swagger-ui .info .title small.version-stamp {
       background-color: hsl(160, 60%, 22%) !important;
@@ -555,6 +564,13 @@ export async function registerRoutes(
       border-radius: 0.5rem !important;
       padding: 1.5rem !important;
       margin-bottom: 1.5rem !important;
+    }
+    /* Dark mode - Layout title with badges on the right */
+    html.dark .swagger-ui .info .title {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      gap: 1rem !important;
     }
     html.dark .swagger-ui .info .title,
     html.dark .swagger-ui .info p,
