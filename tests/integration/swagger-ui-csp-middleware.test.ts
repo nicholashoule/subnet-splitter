@@ -211,11 +211,12 @@ describe("Swagger UI CSP Middleware Integration", () => {
       expect(devCSP).toBeTruthy();
       expect(prodCSP).toBeTruthy();
       
-      // CSP should be different between environments
-      expect(devCSP).not.toBe(prodCSP);
+      // CSP should be identical (Swagger UI requires 'unsafe-inline' in both environments)
+      expect(devCSP).toBe(prodCSP);
       
-      // Development is less strict (longer CSP due to 'unsafe-inline')
-      expect(devCSP!.length).toBeGreaterThan(prodCSP!.length);
+      // Both should include 'unsafe-inline' for Swagger UI functionality
+      expect(devCSP).toContain("'unsafe-inline'");
+      expect(prodCSP).toContain("'unsafe-inline'");
     });
   });
 
