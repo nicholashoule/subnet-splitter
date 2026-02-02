@@ -20,6 +20,13 @@ export interface CSPDirectives {
 /**
  * Base CSP directives applied globally to all endpoints.
  * These are strict by default for maximum security.
+ * 
+ * Security Architecture Note:
+ * - scriptSrc/styleSrc include 'https://cdn.jsdelivr.net' for loading Swagger UI assets
+ * - connectSrc does NOT include cdn.jsdelivr.net in base policy (intentional)
+ * - Only /api/docs/ui route gets cdn.jsdelivr.net in connectSrc (via buildSwaggerUICSP)
+ * - This follows principle of least privilege: other routes can't connect to external CDNs
+ * - Prevents compromised endpoints from exfiltrating data to third-party domains
  */
 export const baseCSPDirectives: CSPDirectives = {
   defaultSrc: ["'self'"],
@@ -31,6 +38,7 @@ export const baseCSPDirectives: CSPDirectives = {
   // - Tailwind CSS compiled styles with inline blocks
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
   imgSrc: ["'self'", "data:"],
+  // Note: cdn.jsdelivr.net NOT in base connectSrc (route-specific permission for Swagger UI only)
   connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
@@ -79,12 +87,20 @@ export const replitCSPAdditions: CSPDirectives = {
  * 1. Starting with baseCSPDirectives (ensures consistency with global policy)
  * 2. In DEVELOPMENT: Adding 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
  * 3. In PRODUCTION: Keeping strict CSP without 'unsafe-inline' to maintain security posture
- * 4. Always adding 'https://cdn.jsdelivr.net' to connect-src for source map fetching
+ * 4. Always adding 'https://cdn.jsdelivr.net' to connect-src for Swagger UI source map fetching
  * 
- * Security Rationale:
- * - Production environments must maintain strict CSP (`script-src 'self'`) to prevent XSS attacks
- * - Development-only 'unsafe-inline' allows Swagger UI HMR without compromising production security
- * - The CDN connection for source maps is always permitted (non-injectable resource type)
+ * Security Rationale - Route-Specific CSP:
+ * - Only /api/docs/ui gets cdn.jsdelivr.net in connectSrc (NOT in base policy)
+ * - Follows principle of least privilege: other endpoints can't connect to external CDNs
+ * - Prevents data exfiltration if another route is compromised
+ * - Production: maintains strict CSP (`script-src 'self'`) to prevent XSS attacks
+ * - Development: allows 'unsafe-inline' for Swagger UI HMR without compromising production security
+ * - CDN connection only for source maps (non-injectable resource type, safe for debugging)
+ * 
+ * Why cdn.jsdelivr.net in connectSrc (not just scriptSrc/styleSrc)?
+ * - scriptSrc: Loads Swagger UI bundle JavaScript (global policy has this)
+ * - styleSrc: Loads Swagger UI CSS (global policy has this)
+ * - connectSrc: Fetch/XHR for source maps when DevTools open (Swagger UI route only)
  * 
  * Benefits of programmatic approach:
  * - Automatic synchronization: Changes to baseCSPDirectives automatically inherited
