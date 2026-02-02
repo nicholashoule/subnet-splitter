@@ -30,13 +30,18 @@ const isReplit = process.env.REPL_ID !== undefined;
 
 const cspDirectives: Record<string, string[]> = {
   defaultSrc: ["'self'"],
-  // Swagger UI requires inline scripts and cdn.jsdelivr.net for its interactive UI
-  scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+  // Strict global CSP: no inline scripts allowed on any endpoint
+  // Swagger UI endpoint gets route-specific CSP override (see server/routes.ts swaggerCSPMiddleware)
+  // Route-specific override chosen over alternatives for these reasons:
+  // - Nonces: Would require recalculating hashes on every request, adding complexity without security benefit
+  // - External scripts: Swagger UI's inline initialization is inherent to the library and not trivial to externalize
+  // - Per-route CSP override: Cleanest architectural solution - keeps global CSP strict while allowing targeted exceptions
+  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
   // 'unsafe-inline' required for dynamic chart inline styles (see client/src/components/ui/chart.tsx)
   // and for Tailwind CSS compiled styles that rely on inline style blocks.
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
   imgSrc: ["'self'", "data:"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
+  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],

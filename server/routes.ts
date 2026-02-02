@@ -169,8 +169,34 @@ export async function registerRoutes(
     res.type(contentType).send(body);
   });
 
+  // Swagger UI CSP override middleware
+  // Route-specific override approach provides defense-in-depth security:
+  // - Global CSP (server/index.ts) enforces strict 'script-src': ['self', cdn.jsdelivr.net] on all endpoints
+  // - This middleware overrides CSP only for /api/docs/ui endpoint to allow Swagger UI's inline scripts
+  // - Rest of application remains protected by strict CSP
+  // Why route-specific override over alternatives:
+  // 1. Nonces: SwaggerUIBundle doesn't support CSP nonces; would require extensive refactoring of library
+  // 2. External scripts: Swagger UI's initialization and event handlers are inline by design; moving to external scripts would require maintaining a fork
+  // 3. Hashes: Swagger UI bundle changes with library updates; maintaining hash list is fragile and adds CI/CD complexity
+  // Design decision: Route-specific CSP override is the cleanest, most maintainable solution that preserves security elsewhere
+  const swaggerCSPMiddleware = (req: any, res: any, next: any) => {
+    const swaggerCSP = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+      "img-src 'self' data:",
+      "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+      "font-src 'self' https://fonts.gstatic.com"
+    ].join("; ");
+    res.setHeader('Content-Security-Policy', swaggerCSP);
+    next();
+  };
+
   // Swagger UI HTML (minimal implementation)
-  app.get("/api/docs/ui", (req, res) => {
+  app.get("/api/docs/ui", swaggerCSPMiddleware, (req, res) => {
     // Prevent caching to ensure UI updates work properly
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
