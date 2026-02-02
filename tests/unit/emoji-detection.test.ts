@@ -207,7 +207,7 @@ describe("Emoji Detection", () => {
       violations,
       `Found emoji in markdown files:\n${violations
         .map((v) => `  ${v.file}:${v.line} - ${v.content}`)
-        .join("\n")}`
+        .join("\n")}\n\nTo fix automatically, run:\n  npm run emoji:fix`
     ).toHaveLength(0);
   });
 
@@ -247,7 +247,7 @@ describe("Emoji Detection", () => {
       violations,
       `Found emoji in source code:\n${violations
         .map((v) => `  ${v.file}:${v.line} - ${v.content}`)
-        .join("\n")}`
+        .join("\n")}\n\nTo fix automatically, run:\n  npm run emoji:fix`
     ).toHaveLength(0);
   });
 
@@ -292,7 +292,7 @@ describe("Emoji Detection", () => {
       violations,
       `Found emoji in configuration:\n${violations
         .map((v) => `  ${v.file}:${v.line} - ${v.content}`)
-        .join("\n")}`
+        .join("\n")}\n\nTo fix automatically, run:\n  npm run emoji:fix`
     ).toHaveLength(0);
   });
 
