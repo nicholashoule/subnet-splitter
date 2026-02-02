@@ -17,7 +17,8 @@ import type {
 import {
   DEPLOYMENT_TIER_CONFIGS,
   KubernetesNetworkPlanSchema,
-  KubernetesNetworkPlanRequestSchema
+  KubernetesNetworkPlanRequestSchema,
+  normalizeProvider
 } from "@shared/kubernetes-schema";
 import { ipToNumber, numberToIp, calculateSubnet } from "./subnet-utils";
 
@@ -165,12 +166,14 @@ function getAvailabilityZones(subnetCount: number, provider: Provider): string[]
 /**
  * Split a VPC CIDR into subnets for the given deployment tier
  * Automatically distributes subnets across availability zones
+ * @param offset Number of subnets to skip (for private subnets to start after public)
  */
 function generateSubnets(
   vpcCidr: string,
   config: DeploymentTierConfig,
   subnetType: "public" | "private",
-  provider: Provider
+  provider: Provider,
+  offset: number = 0
 ): SubnetConfig[] {
   const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
   const vpcPrefix = parseInt(vpcCidr.split("/")[1], 10);
@@ -192,9 +195,9 @@ function generateSubnets(
   // Get availability zone assignments
   const azs = getAvailabilityZones(subnetCount, provider);
   
-  // Generate subnets with AZ distribution
+  // Generate subnets with AZ distribution (starting after offset)
   for (let i = 0; i < subnetCount; i++) {
-    const subnetStart = vpcNum + (i * subnetAddresses);
+    const subnetStart = vpcNum + ((offset + i) * subnetAddresses);
     const subnetIp = numberToIp(subnetStart);
     
     subnets.push({
@@ -245,9 +248,11 @@ export async function generateKubernetesNetworkPlan(
   }
 
   // Generate public and private subnets with AZ distribution
-  const provider = validatedRequest.provider;
+  // Normalize provider alias (e.g., "k8s" -> "kubernetes")
+  const provider = normalizeProvider(validatedRequest.provider);
   const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider);
-  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider);
+  // Private subnets start AFTER public subnets to prevent overlap
+  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, tierConfig.publicSubnets);
 
   // Calculate total subnets used for offset
   const totalSubnets = publicSubnets.length + privateSubnets.length;
@@ -260,7 +265,7 @@ export async function generateKubernetesNetworkPlan(
   // Build the network plan
   const plan: KubernetesNetworkPlan = {
     deploymentSize: validatedRequest.deploymentSize,
-    provider: validatedRequest.provider,
+    provider: provider,  // Use normalized provider
     deploymentName: validatedRequest.deploymentName,
     vpc: {
       cidr: vpcCidr

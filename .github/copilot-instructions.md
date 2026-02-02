@@ -1382,7 +1382,7 @@ Reference: In subsequent operations, you know calculateSubnet is at line 45
 
 ### Overview
 
-The Kubernetes Network Planning API generates enterprise-grade network configurations for EKS (AWS), GKE (Google Cloud), and generic Kubernetes deployments. It supports multiple deployment sizes with battle-tested network topologies.
+The Kubernetes Network Planning API generates enterprise-grade network configurations for EKS (AWS), GKE (Google Cloud), AKS (Azure), and generic Kubernetes deployments. It supports multiple deployment sizes with battle-tested network topologies.
 
 ### Deployment Tiers
 
@@ -1683,7 +1683,7 @@ Generate a Kubernetes network plan with optimized subnet allocation.
 ```typescript
 {
   deploymentSize: "standard" | "professional" | "enterprise" | "hyperscale",
-  provider?: "eks" | "gke" | "kubernetes",  // Defaults to "kubernetes"
+  provider?: "eks" | "gke" | "aks" | "kubernetes" | "k8s",  // Defaults to "kubernetes", k8s is alias
   vpcCidr?: "10.0.0.0/16",                  // Optional, generates random RFC 1918 if not provided
   deploymentName?: "my-prod-cluster"        // Optional reference name
 }
@@ -1860,7 +1860,7 @@ Retrieve information about all deployment tiers.
 - Automatic CIDR normalization to network address
 - Full Zod validation on request and response
 - Comprehensive error handling with clear messages
-- Provider-agnostic (works with EKS, GKE, generic Kubernetes)
+- Provider-agnostic (works with EKS, GKE, AKS, generic Kubernetes)
 
 ### Error Handling
 
@@ -1923,7 +1923,7 @@ The Kubernetes Network Planning API includes comprehensive tests:
 
 **Integration Tests** (40+ tests):
 - Full API request/response flow
-- All provider support (EKS, GKE, Kubernetes)
+- All provider support (EKS, GKE, AKS, Kubernetes)
 - Custom and auto-generated VPC CIDRs
 - Multiple successive calls (randomization)
 - Deployment tier information endpoint

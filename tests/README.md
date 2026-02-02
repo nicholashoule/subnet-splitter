@@ -116,7 +116,7 @@ PowerShell scripts for manual API validation and testing.
 - Comprehensive API endpoint validation
 - Tests all deployment tiers (micro, standard, professional, enterprise, hyperscale)
 - Validates JSON and YAML output formats
-- Tests all providers (eks, gke, kubernetes)
+- Tests all providers (eks, gke, aks, kubernetes, k8s)
 - Colored PowerShell output with error handling
 
 **test-api.ps1 (4 test cases):**

@@ -153,8 +153,9 @@ The application will be available at `http://localhost:5000` or `http://127.0.0.
 
 **Access the application:**
 - Web UI: Open `http://127.0.0.1:5000` in your browser
-- API endpoint: `POST http://127.0.0.1:5000/api/kubernetes/network-plan`
-- Tier info: `GET http://127.0.0.1:5000/api/kubernetes/tiers`
+- API endpoint: `POST http://127.0.0.1:5000/api/k8s/plan`
+- Tier info: `GET http://127.0.0.1:5000/api/k8s/tiers`
+- API docs: `http://127.0.0.1:5000/api/docs/ui` (Swagger UI)
 
 #### Windows-Specific Setup
 
@@ -229,14 +230,14 @@ npm run dev
 
 **Test JSON output** (default format):
 ```bash
-curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+curl -X POST http://127.0.0.1:5000/api/k8s/plan \
   -H "Content-Type: application/json" \
   -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
 ```
 
 **Test YAML output** (add `?format=yaml` query parameter):
 ```bash
-curl -X POST "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" \
+curl -X POST "http://127.0.0.1:5000/api/k8s/plan?format=yaml" \
   -H "Content-Type: application/json" \
   -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
 ```
@@ -244,22 +245,22 @@ curl -X POST "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" \
 **Test tier information endpoint**:
 ```bash
 # JSON format
-curl http://127.0.0.1:5000/api/kubernetes/tiers
+curl http://127.0.0.1:5000/api/k8s/tiers
 
 # YAML format
-curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
+curl "http://127.0.0.1:5000/api/k8s/tiers?format=yaml"
 ```
 
 **PowerShell Testing** (Windows):
 ```powershell
 # JSON output
-Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" `
+Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/k8s/plan" `
   -Method POST `
   -ContentType "application/json" `
   -Body '{"deploymentSize":"professional","provider":"eks"}' | ConvertTo-Json -Depth 10
 
 # YAML output
-Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" `
+Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Method POST `
   -ContentType "application/json" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
@@ -310,22 +311,33 @@ The application provides production-ready REST endpoints for generating optimize
 
 #### Endpoint 1: Generate Network Plan
 
-**POST `/api/kubernetes/network-plan`**
+**POST `/api/k8s/plan`**
 
 Generate an optimized network plan with subnet allocation, pod CIDR, and service CIDR ranges.
+
+**Quick Example:**
+```bash
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+```
 
 **Request Parameters:**
 ```json
 {
   "deploymentSize": "micro|standard|professional|enterprise|hyperscale",
-  "provider": "eks|gke|kubernetes",
+  "provider": "eks|gke|aks|kubernetes|k8s",
   "vpcCidr": "10.0.0.0/16",
   "deploymentName": "my-cluster"
 }
 ```
 
 - `deploymentSize` (required): Deployment tier for cluster size
-- `provider` (optional): Cloud provider (`eks`, `gke`, `kubernetes`). Defaults to `kubernetes`
+- `provider` (optional): Cloud provider (`eks`, `gke`, `aks`, `kubernetes`, `k8s`). Defaults to `kubernetes`. Note: `k8s` is an alias for `kubernetes`
 - `vpcCidr` (optional): **Private RFC 1918 CIDR only** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). If omitted, generates random RFC 1918 range
 - `deploymentName` (optional): Reference name for deployment tracking
 
@@ -338,7 +350,7 @@ Generate an optimized network plan with subnet allocation, pod CIDR, and service
 
 **Example Request:**
 ```bash
-curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+curl -X POST http://localhost:5000/api/k8s/plan \
   -H "Content-Type: application/json" \
   -d '{
     "deploymentSize": "professional",
@@ -398,13 +410,13 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 #### Endpoint 2: Get Deployment Tiers
 
-**GET `/api/kubernetes/tiers`**
+**GET `/api/k8s/tiers`**
 
 Retrieve information about all available deployment tiers and their configurations.
 
 **Example Request:**
 ```bash
-curl http://localhost:5000/api/kubernetes/tiers
+curl http://localhost:5000/api/k8s/tiers
 ```
 
 **Response:**
@@ -494,7 +506,7 @@ curl http://localhost:5000/api/kubernetes/tiers
 - **EKS** - AWS Elastic Kubernetes Service with VPC CNI
 - **GKE** - Google Kubernetes Engine with Alias IP ranges
 - **AKS** - Azure Kubernetes Service with Azure CNI Overlay
-- **Kubernetes** - Generic self-hosted or alternative cloud providers
+- **Kubernetes** / **k8s** - Generic self-hosted or alternative cloud providers
 
 ## Supported Network Classes
 

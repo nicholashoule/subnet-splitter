@@ -25,7 +25,39 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 
 ---
 
-## 2. EKS Cluster Scalability Limits
+## 2. Subnet Overlap Validation
+
+### Non-Overlapping Subnet Guarantee
+
+ **VALIDATED** - The API guarantees that public and private subnets never overlap within the VPC CIDR.
+
+**Implementation**:
+- Public subnets are generated first from the VPC base address
+- Private subnets use an offset parameter to start AFTER all public subnets
+- Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
+- Offset for private subnets = number of public subnets
+
+**Example (Professional tier with VPC 10.0.0.0/16, /23 subnets)**:
+```
+Public subnets (offset=0):
+  public-1:  10.0.0.0/23  (10.0.0.0 - 10.0.1.255)
+  public-2:  10.0.2.0/23  (10.0.2.0 - 10.0.3.255)
+
+Private subnets (offset=2):
+  private-1: 10.0.4.0/23  (10.0.4.0 - 10.0.5.255)  [PASS] No overlap
+  private-2: 10.0.6.0/23  (10.0.6.0 - 10.0.7.255)  [PASS] No overlap
+```
+
+**Test Coverage**:
+- [PASS] Unit test: `should ensure public and private subnets do not overlap`
+- [PASS] Unit test: `should validate all subnets fit within VPC CIDR`
+- Validated across all 5 deployment tiers
+
+**EKS Relevance**: Prevents routing conflicts where VPC CNI could assign duplicate IPs to pods and nodes, which would cause network failures.
+
+---
+
+## 3. EKS Cluster Scalability Limits
 
 Based on AWS EKS documentation and best practices:
 
@@ -699,7 +731,7 @@ For automated deployments:
 
 ### No Changes Needed
 
-Unlike GKE audit which optimized Hyperscale /20 → /19, the EKS implementation is already optimal:
+Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation is already optimal:
 - Hyperscale tier with /19 supports full 5,000-node EKS clusters
 - Pod CIDR /13 exceeds requirements
 - Service CIDR /16 provides ample space

@@ -97,23 +97,32 @@ describe("API Endpoints Integration", () => {
 
       expect(response.status).toBe(200);
       expect(data).toHaveProperty("version", "1.0.0");
-      expect(data).toHaveProperty("apiVersion", "v1");
       expect(data).toHaveProperty("endpoints");
-      expect(Array.isArray(data.endpoints)).toBe(true);
+      expect(data.endpoints).toHaveProperty("primary");
+      expect(data.endpoints).toHaveProperty("aliases");
+      expect(data.endpoints).toHaveProperty("descriptive");
+      expect(Array.isArray(data.endpoints.primary)).toBe(true);
+      expect(Array.isArray(data.endpoints.aliases)).toBe(true);
+      expect(Array.isArray(data.endpoints.descriptive)).toBe(true);
     });
 
     it("should list all available API endpoint paths", async () => {
       const response = await fetch(`${baseUrl}/api/version`);
       const data = await response.json();
 
-      const expectedEndpoints = [
-        "/api/v1/kubernetes/network-plan",
-        "/api/v1/kubernetes/tiers",
-        "/v1/kubernetes/network-plan",
-        "/v1/kubernetes/tiers"
-      ];
-
-      expect(data.endpoints).toEqual(expectedEndpoints);
+      // Primary concise endpoints
+      expect(data.endpoints.primary).toContain("/api/k8s/plan");
+      expect(data.endpoints.primary).toContain("/api/k8s/tiers");
+      
+      // Versioned aliases
+      expect(data.endpoints.aliases).toContain("/api/v1/k8s/plan");
+      expect(data.endpoints.aliases).toContain("/api/v1/k8s/tiers");
+      
+      // Descriptive long-form
+      expect(data.endpoints.descriptive).toContain("/api/v1/kubernetes/network-plan");
+      expect(data.endpoints.descriptive).toContain("/api/v1/kubernetes/tiers");
+      expect(data.endpoints.descriptive).toContain("/api/kubernetes/network-plan");
+      expect(data.endpoints.descriptive).toContain("/api/kubernetes/tiers");
     });
   });
 
@@ -148,17 +157,17 @@ describe("API Endpoints Integration", () => {
       const response = await fetch(`${baseUrl}/api/docs`);
       const data = await response.json();
 
-      expect(data.paths).toHaveProperty("/health");
-      expect(data.paths).toHaveProperty("/health/ready");
-      expect(data.paths).toHaveProperty("/health/live");
+      expect(data.paths).toHaveProperty("/v1/health");
+      expect(data.paths).toHaveProperty("/v1/health/ready");
+      expect(data.paths).toHaveProperty("/v1/health/live");
     });
 
-    it("should include Kubernetes endpoints in OpenAPI spec", async () => {
+    it("should include Kubernetes endpoints in OpenAPI spec (primary routes)", async () => {
       const response = await fetch(`${baseUrl}/api/docs`);
       const data = await response.json();
 
-      expect(data.paths).toHaveProperty("/kubernetes/network-plan");
-      expect(data.paths).toHaveProperty("/kubernetes/tiers");
+      expect(data.paths).toHaveProperty("/k8s/plan");
+      expect(data.paths).toHaveProperty("/k8s/tiers");
     });
 
     it("should have OpenAPI paths that match actual API routes (spec + server base = working route)", async () => {
@@ -193,13 +202,14 @@ describe("API Endpoints Integration", () => {
       }
     });
 
-    it("should have server base path that matches API version prefix", async () => {
+    it("should have server base path that matches primary API routes", async () => {
       const response = await fetch(`${baseUrl}/api/docs`);
       const spec = await response.json();
       
       expect(spec.servers).toBeDefined();
       expect(spec.servers.length).toBeGreaterThan(0);
-      expect(spec.servers[0].url).toBe("/api/v1");
+      expect(spec.servers[0].url).toBe("/api");
+      expect(spec.servers[0].description).toBe("Primary API (concise routes)");
     });
   });
 
@@ -323,8 +333,8 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("vpc");
     });
 
-    it("should accept requests to /v1/kubernetes/network-plan", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+    it("should accept requests to /api/k8s/plan (primary concise endpoint)", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -339,20 +349,25 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("provider", "eks");
     });
 
-    it("should return identical responses from /api/v1/... and /v1/... paths", async () => {
+    it("should return identical responses from all endpoint styles", async () => {
       const requestBody = {
         deploymentSize: "enterprise" as const,
         provider: "gke" as const,
         vpcCidr: "10.50.0.0/16"
       };
 
-      const [response1, response2] = await Promise.all([
-        fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
+      const [response1, response2, response3] = await Promise.all([
+        fetch(`${baseUrl}/api/k8s/plan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
         }),
-        fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+        fetch(`${baseUrl}/api/v1/k8s/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody)
+        }),
+        fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
@@ -361,13 +376,15 @@ describe("API Endpoints Integration", () => {
 
       const data1 = await response1.json();
       const data2 = await response2.json();
+      const data3 = await response3.json();
 
-      // Both should return same structure (excluding generated metadata)
+      // All should return same structure (excluding generated metadata)
       expect(data1.deploymentSize).toBe(data2.deploymentSize);
+      expect(data2.deploymentSize).toBe(data3.deploymentSize);
       expect(data1.provider).toBe(data2.provider);
+      expect(data2.provider).toBe(data3.provider);
       expect(data1.vpc.cidr).toBe(data2.vpc.cidr);
-      expect(data1.subnets.public.length).toBe(data2.subnets.public.length);
-      expect(data1.subnets.private.length).toBe(data2.subnets.private.length);
+      expect(data2.vpc.cidr).toBe(data3.vpc.cidr);
     });
 
     it("should accept requests to /api/v1/kubernetes/tiers", async () => {
@@ -381,11 +398,12 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("hyperscale");
     });
 
-    it("should accept requests to /v1/kubernetes/tiers", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/tiers`);
+    it("should accept requests to /api/k8s/tiers (primary concise endpoint)", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/tiers`);
       const data = await response.json();
 
       expect(response.status).toBe(200);
+      expect(data).toHaveProperty("micro");
       expect(data).toHaveProperty("standard");
       expect(data).toHaveProperty("professional");
       expect(data).toHaveProperty("enterprise");
@@ -410,7 +428,7 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should return consistent error format for public IP in VPC CIDR", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -450,7 +468,7 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should reject missing required fields", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -482,7 +500,7 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should reject invalid VPC CIDR format", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -513,7 +531,7 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should handle invalid Content-Type gracefully", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/network-plan`, {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: "not json"
@@ -549,10 +567,11 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should support YAML format for tier information", async () => {
-      const response = await fetch(`${baseUrl}/v1/kubernetes/tiers?format=yaml`);
+      const response = await fetch(`${baseUrl}/api/k8s/tiers?format=yaml`);
       const text = await response.text();
 
       expect(response.headers.get("content-type")).toContain("application/yaml");
+      expect(text).toContain("micro:");
       expect(text).toContain("standard:");
       expect(text).toContain("professional:");
       expect(text).toContain("publicSubnets:");

@@ -1,12 +1,27 @@
-# Kubernetes Network Planning API - Complete Documentation
+# Kubernetes Network Planning API
 
 ## Overview
 
-The CIDR Subnet Calculator provides a production-ready REST API for generating optimized network configurations for Kubernetes deployments across EKS (AWS), GKE (Google Cloud), AKS (Azure), and self-hosted Kubernetes environments.
+Production-ready REST API for generating optimized network configurations for Kubernetes deployments across EKS (AWS), GKE (Google Cloud), AKS (Azure), and self-hosted environments.
 
-**API Base URL:** `http://localhost:5000/api`  
-**API Version:** `1.0`  
-**Status:**  Production-Ready
+**Base URL:** `http://localhost:5000/api`  
+**Version:** `1.0`
+
+### Quick Example
+
+```bash
+# Get available deployment tiers
+curl http://localhost:5000/api/k8s/tiers
+
+# Generate a production-ready network plan for AWS EKS
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "professional",
+    "provider": "eks",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+```
 
 ---
 
@@ -26,16 +41,20 @@ The CIDR Subnet Calculator provides a production-ready REST API for generating o
 
 ## Quick Start
 
-### 1. Get Available Tiers
+### 1. Browse Available Tiers
 
 ```bash
-curl http://localhost:5000/api/kubernetes/tiers
+curl http://localhost:5000/api/k8s/tiers
 ```
 
-### 2. Generate Network Plan
+**Response:** List of all deployment tiers (micro → hyperscale) with subnet configurations
+
+**Alternative paths:** You can also use `/api/v1/k8s/tiers` if your infrastructure requires versioned endpoints.
+
+### 2. Generate Your First Network Plan
 
 ```bash
-curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+curl -X POST http://localhost:5000/api/k8s/plan \
   -H "Content-Type: application/json" \
   -d '{
     "deploymentSize": "standard",
@@ -43,61 +62,186 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   }'
 ```
 
-### 3. Use the Generated Network Plan
+**Alternative paths:** You can also use `/api/v1/k8s/plan` for versioned endpoints.
 
-Export the response to Terraform, cloud CLI tools, or your infrastructure-as-code platform.
+**What This Does:**
+- Generates a complete network topology for a 1-3 node Kubernetes cluster
+- Auto-allocates RFC 1918 private IP space (10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16)
+- Provides separate subnets for nodes, pods, and services
+- Ready to use with Terraform, Pulumi, or cloud CLI tools
+
+### 3. Export to YAML (Infrastructure as Code)
+
+```bash
+curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "gke",
+    "vpcCidr": "10.100.0.0/16",
+    "deploymentName": "prod-gke-cluster"
+  }' > network-plan.yaml
+```
+
+**Use Cases:**
+- Import into Terraform/Pulumi configurations
+- Share network plans with team members
+- Document infrastructure designs
+- Automate cluster provisioning
 
 ---
 
 ## Endpoints
 
-### POST `/api/kubernetes/network-plan`
+### POST `/api/k8s/plan`
 
-**Purpose:** Generate a complete Kubernetes network plan with optimized subnet allocation.
+Generate a complete Kubernetes network plan with optimized subnet allocation.
 
-**Method:** `POST`  
-**Content-Type:** `application/json`
+**URL:** `POST /api/k8s/plan`  
+**Content-Type:** `application/json`  
+**Output Formats:** JSON (default), YAML (`?format=yaml`)
 
 #### Request Body
 
-```typescript
+```json
 {
-  deploymentSize: "micro" | "standard" | "professional" | "enterprise" | "hyperscale",
-  provider?: "eks" | "gke" | "kubernetes",     // Defaults to "kubernetes"
-  vpcCidr?: string,                             // e.g., "10.0.0.0/16" - generates random RFC 1918 if omitted
-  deploymentName?: string                       // Reference name for tracking
+  "deploymentSize": "professional",
+  "provider": "eks",
+  "vpcCidr": "10.0.0.0/16",
+  "deploymentName": "prod-us-east-1"
 }
 ```
 
-#### Request Parameters
+#### Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `deploymentSize` | string | Yes | N/A | Tier: `micro` (1 node), `standard` (1-3), `professional` (3-10), `enterprise` (10-50), `hyperscale` (50-5000) |
-| `provider` | string | No | `"kubernetes"` | Cloud provider: `"eks"`, `"gke"`, `"kubernetes"` |
-| `vpcCidr` | string | No | Auto-generated | Custom VPC CIDR (e.g., `"10.0.0.0/16"`, `"172.16.0.0/12"`, `"192.168.0.0/16"`) |
-| `deploymentName` | string | No | Undefined | Optional cluster name for reference (e.g., `"prod-us-east-1"`) |
+| `deploymentSize` | string | **Yes** | N/A | Tier: `micro`, `standard`, `professional`, `enterprise`, `hyperscale` |
+| `provider` | string | No | `"kubernetes"` | Platform: `eks` (AWS), `gke` (Google), `aks` (Azure), `kubernetes` or `k8s` (generic) |
+| `vpcCidr` | string | No | Auto-generated | Custom VPC CIDR (must be RFC 1918 private) |
+| `deploymentName` | string | No | undefined | Optional cluster identifier |
 
-#### Response Body
+#### Response (JSON)
 
-```typescript
+```json
 {
-  deploymentSize: string,
-  provider: string,
-  deploymentName?: string,
-  vpc: {
-    cidr: string                    // e.g., "10.0.0.0/16"
+  "deploymentSize": "professional",
+  "provider": "eks",
+  "deploymentName": "prod-us-east-1",
+  "vpc": {
+    "cidr": "10.0.0.0/16"
   },
-  subnets: {
-    public: Array<SubnetConfig>,    // Load balancer, NAT gateway, ingress subnets
-    private: Array<SubnetConfig>    // Worker node, pod subnets
+  "subnets": {
+    "public": [
+      {
+        "cidr": "10.0.0.0/24",
+        "name": "public-1",
+        "type": "public",
+        "availabilityZone": "us-east-1a"
+      },
+      {
+        "cidr": "10.0.1.0/24",
+        "name": "public-2",
+        "type": "public",
+        "availabilityZone": "us-east-1b"
+      }
+    ],
+    "private": [
+      {
+        "cidr": "10.0.2.0/23",
+        "name": "private-1",
+        "type": "private",
+        "availabilityZone": "us-east-1a"
+      },
+      {
+        "cidr": "10.0.4.0/23",
+        "name": "private-2",
+        "type": "private",
+        "availabilityZone": "us-east-1b"
+      }
+    ]
   },
-  pods: {
-    cidr: string                    // CNI plugin pod CIDR
+  "pods": {
+    "cidr": "10.1.0.0/16"
   },
-  services: {
-    cidr: string                    // Kubernetes service CIDR (ClusterIP range)
+  "services": {
+    "cidr": "10.2.0.0/16"
   },
+  "metadata": {
+    "generatedAt": "2026-02-01T10:30:00.000Z",
+    "version": "1.0"
+  }
+}
+```
+
+#### What You Get
+
+- **VPC CIDR:** Your primary network range
+- **Public Subnets:** For load balancers, NAT gateways, bastion hosts
+- **Private Subnets:** For worker nodes, internal services
+- **Pod CIDR:** IP space for container networking (AWS VPC CNI, GKE Alias IPs, etc.)
+- **Service CIDR:** ClusterIP range for Kubernetes services
+- **Multi-AZ Support:** Subnets distributed across availability zones
+
+---
+
+### GET `/api/k8s/tiers`
+
+Get information about all deployment tiers and their configurations.
+
+**URL:** `GET /api/k8s/tiers`  
+**Output Formats:** JSON (default), YAML (`?format=yaml`)
+
+#### Response
+
+```json
+{
+  "micro": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 25,
+    "podsPrefix": 18,
+    "servicesPrefix": 16,
+    "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
+  },
+  "standard": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "subnetSize": 24,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
+  },
+  "professional": {
+    "publicSubnets": 2,
+    "privateSubnets": 2,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Small Production: 3-10 nodes, dual AZ ready"
+  },
+  "enterprise": {
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "subnetSize": 23,
+    "podsPrefix": 16,
+    "servicesPrefix": 16,
+    "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
+  },
+  "hyperscale": {
+    "publicSubnets": 8,
+    "privateSubnets": 8,
+    "subnetSize": 19,
+    "podsPrefix": 13,
+    "servicesPrefix": 16,
+    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+  }
+}
+```
+
+---
+
+## Deployment Tiers
   metadata: {
     generatedAt: string,            // ISO 8601 timestamp
     version: string                 // API version
@@ -454,9 +598,10 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 - Case-sensitive
 
 **Provider:**
-- Must be one of: `eks`, `gke`, `kubernetes`
+- Must be one of: `eks`, `gke`, `aks`, `kubernetes`, `k8s`
 - Case-sensitive
 - Defaults to `kubernetes` if omitted
+- Note: `k8s` is an alias for `kubernetes` (normalized in response)
 
 **Deployment Name:**
 - Optional string for tracking

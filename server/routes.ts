@@ -40,7 +40,51 @@ function formatResponse(data: unknown, format?: string): { contentType: string; 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
-): Promise<Server> {
+): Promise<{ server: Server; routes: Array<{ method: string; path: string }> }> {
+  const registeredRoutes: Array<{ method: string; path: string }> = [];
+  
+  // Wrap Express methods to track route registration
+  const originalGet = app.get.bind(app);
+  const originalPost = app.post.bind(app);
+  const originalPut = app.put.bind(app);
+  const originalDelete = app.delete.bind(app);
+  const originalPatch = app.patch.bind(app);
+  
+  app.get = function(path: any, ...handlers: any[]) {
+    if (typeof path === 'string') {
+      registeredRoutes.push({ method: 'GET', path });
+    }
+    return originalGet(path, ...handlers);
+  } as any;
+  
+  app.post = function(path: any, ...handlers: any[]) {
+    if (typeof path === 'string') {
+      registeredRoutes.push({ method: 'POST', path });
+    }
+    return originalPost(path, ...handlers);
+  } as any;
+  
+  app.put = function(path: any, ...handlers: any[]) {
+    if (typeof path === 'string') {
+      registeredRoutes.push({ method: 'PUT', path });
+    }
+    return originalPut(path, ...handlers);
+  } as any;
+  
+  app.delete = function(path: any, ...handlers: any[]) {
+    if (typeof path === 'string') {
+      registeredRoutes.push({ method: 'DELETE', path });
+    }
+    return originalDelete(path, ...handlers);
+  } as any;
+  
+  app.patch = function(path: any, ...handlers: any[]) {
+    if (typeof path === 'string') {
+      registeredRoutes.push({ method: 'PATCH', path });
+    }
+    return originalPatch(path, ...handlers);
+  } as any;
+
   // Health check endpoints for production monitoring
   // Note: These are also available at /api/v1/health for OpenAPI compatibility
   app.get("/health", (req, res) => {
@@ -98,12 +142,23 @@ export async function registerRoutes(
     res.json({
       version: "1.0.0",
       apiVersion: "v1",
-      endpoints: [
-        "/api/v1/kubernetes/network-plan",
-        "/api/v1/kubernetes/tiers",
-        "/v1/kubernetes/network-plan",
-        "/v1/kubernetes/tiers"
-      ]
+      endpoints: {
+        primary: [
+          "/api/k8s/plan",
+          "/api/k8s/tiers"
+        ],
+        aliases: [
+          "/api/v1/k8s/plan",
+          "/api/v1/k8s/tiers"
+        ],
+        descriptive: [
+          "/api/v1/kubernetes/network-plan",
+          "/api/v1/kubernetes/tiers",
+          "/api/kubernetes/network-plan",
+          "/api/kubernetes/tiers"
+        ]
+      },
+      note: "Use primary endpoints for concise paths. Aliases and descriptive paths available for clarity."
     });
   });
 
@@ -906,7 +961,68 @@ export async function registerRoutes(
     res.type("html").send(html);
   });
 
-  // Kubernetes Network Planning API (v1)
+  // Kubernetes Network Planning API
+  // Primary concise endpoint: POST /api/k8s/plan
+  app.post("/api/k8s/plan", async (req, res) => {
+    try {
+      const plan = await generateKubernetesNetworkPlan(req.body);
+      const format = req.query.format as string | undefined;
+      const { contentType, body } = formatResponse(plan, format);
+      
+      res.type(contentType).send(body);
+    } catch (error) {
+      const format = req.query.format as string | undefined;
+      let errorResponse: unknown;
+      
+      if (error instanceof KubernetesNetworkGenerationError) {
+        errorResponse = {
+          error: error.message,
+          code: "NETWORK_GENERATION_ERROR"
+        };
+        const { contentType, body } = formatResponse(errorResponse, format);
+        return res.status(400).type(contentType).send(body);
+      }
+      if (error instanceof SyntaxError || (error as any).code === "INVALID_REQUEST" || (error as any).name === "ZodError") {
+        errorResponse = {
+          error: error instanceof Error ? error.message : "Invalid request",
+          code: "INVALID_REQUEST"
+        };
+        const { contentType, body } = formatResponse(errorResponse, format);
+        return res.status(400).type(contentType).send(body);
+      }
+      logger.error("Kubernetes network plan generation failed", {
+        requestBody: req.body,
+      }, error as Error);
+      errorResponse = {
+        error: "Failed to generate network plan",
+        code: "INTERNAL_ERROR"
+      };
+      const { contentType, body } = formatResponse(errorResponse, format);
+      return res.status(500).type(contentType).send(body);
+    }
+  });
+
+  // Primary concise endpoint: GET /api/k8s/tiers
+  app.get("/api/k8s/tiers", (req, res) => {
+    try {
+      const tierInfo = getDeploymentTierInfo();
+      const format = req.query.format as string | undefined;
+      const { contentType, body } = formatResponse(tierInfo, format);
+      
+      res.type(contentType).send(body);
+    } catch (error) {
+      logger.error("Error fetching tier information", {}, error as Error);
+      const format = req.query.format as string | undefined;
+      const errorResponse = {
+        error: "Failed to fetch tier information",
+        code: "INTERNAL_ERROR"
+      };
+      const { contentType, body } = formatResponse(errorResponse, format);
+      res.status(500).type(contentType).send(body);
+    }
+  });
+
+  // Long-form descriptive endpoint: /api/v1/kubernetes/network-plan
   app.post("/api/v1/kubernetes/network-plan", async (req, res) => {
     try {
       const plan = await generateKubernetesNetworkPlan(req.body);
@@ -946,7 +1062,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get deployment tier information (v1)
+  // Long-form descriptive endpoint: /api/v1/kubernetes/tiers
   app.get("/api/v1/kubernetes/tiers", (req, res) => {
     try {
       const tierInfo = getDeploymentTierInfo();
@@ -966,9 +1082,8 @@ export async function registerRoutes(
     }
   });
 
-  // Alternative path without /api/ prefix for convenience
-  // Supports both /api/v1/... and /v1/... patterns
-  app.post("/v1/kubernetes/network-plan", async (req, res) => {
+  // Versioned short-form aliases: /api/v1/k8s/*
+  app.post("/api/v1/k8s/plan", async (req, res) => {
     try {
       const plan = await generateKubernetesNetworkPlan(req.body);
       const format = req.query.format as string | undefined;
@@ -1007,7 +1122,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/v1/kubernetes/tiers", (req, res) => {
+  app.get("/api/v1/k8s/tiers", (req, res) => {
     try {
       const tierInfo = getDeploymentTierInfo();
       const format = req.query.format as string | undefined;
@@ -1026,5 +1141,64 @@ export async function registerRoutes(
     }
   });
 
-  return httpServer;
+  // Additional long-form descriptive endpoints (without version prefix)
+  app.post("/api/kubernetes/network-plan", async (req, res) => {
+    try {
+      const plan = await generateKubernetesNetworkPlan(req.body);
+      const format = req.query.format as string | undefined;
+      const { contentType, body } = formatResponse(plan, format);
+      
+      res.type(contentType).send(body);
+    } catch (error) {
+      const format = req.query.format as string | undefined;
+      let errorResponse: unknown;
+      
+      if (error instanceof KubernetesNetworkGenerationError) {
+        errorResponse = {
+          error: error.message,
+          code: "NETWORK_GENERATION_ERROR"
+        };
+        const { contentType, body } = formatResponse(errorResponse, format);
+        return res.status(400).type(contentType).send(body);
+      }
+      if (error instanceof SyntaxError || (error as any).code === "INVALID_REQUEST" || (error as any).name === "ZodError") {
+        errorResponse = {
+          error: error instanceof Error ? error.message : "Invalid request",
+          code: "INVALID_REQUEST"
+        };
+        const { contentType, body } = formatResponse(errorResponse, format);
+        return res.status(400).type(contentType).send(body);
+      }
+      logger.error("Kubernetes network plan generation failed", {
+        requestBody: req.body,
+      }, error as Error);
+      errorResponse = {
+        error: "Failed to generate network plan",
+        code: "INTERNAL_ERROR"
+      };
+      const { contentType, body } = formatResponse(errorResponse, format);
+      return res.status(500).type(contentType).send(body);
+    }
+  });
+
+  app.get("/api/kubernetes/tiers", (req, res) => {
+    try {
+      const tierInfo = getDeploymentTierInfo();
+      const format = req.query.format as string | undefined;
+      const { contentType, body } = formatResponse(tierInfo, format);
+      
+      res.type(contentType).send(body);
+    } catch (error) {
+      logger.error("Error fetching tier information", {}, error as Error);
+      const format = req.query.format as string | undefined;
+      const errorResponse = {
+        error: "Failed to fetch tier information",
+        code: "INTERNAL_ERROR"
+      };
+      const { contentType, body } = formatResponse(errorResponse, format);
+      res.status(500).type(contentType).send(body);
+    }
+  });
+
+  return { server: httpServer, routes: registeredRoutes };
 }

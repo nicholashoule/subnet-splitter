@@ -150,7 +150,83 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  const { routes } = await registerRoutes(httpServer, app);
+
+  // Categorize routes
+  const healthRoutes = routes.filter(r => r.path.startsWith("/health") && !r.path.startsWith("/api"));
+  const apiHealthRoutes = routes.filter(r => r.path.startsWith("/api/v1/health"));
+  
+  // Primary API endpoints (concise)
+  const primaryApiRoutes = routes.filter(r => 
+    r.path === "/api/k8s/plan" || 
+    r.path === "/api/k8s/tiers" ||
+    r.path === "/api/version" ||
+    r.path === "/api/docs" ||
+    r.path === "/api/docs/ui"
+  );
+  
+  // Versioned short-form aliases
+  const versionedAliases = routes.filter(r => r.path.startsWith("/api/v1/k8s/"));
+  
+  // Descriptive long-form endpoints
+  const descriptiveRoutes = routes.filter(r => 
+    r.path.includes("/kubernetes/") && 
+    (r.path.startsWith("/api/v1/kubernetes/") || r.path.startsWith("/api/kubernetes/"))
+  );
+  
+  // Other routes
+  const otherRoutes = routes.filter(r => 
+    !healthRoutes.includes(r) &&
+    !apiHealthRoutes.includes(r) &&
+    !primaryApiRoutes.includes(r) &&
+    !versionedAliases.includes(r) &&
+    !descriptiveRoutes.includes(r)
+  );
+
+  logger.info(`Registered ${routes.length} routes`, {
+    total: routes.length,
+    health: healthRoutes.length,
+    apiHealth: apiHealthRoutes.length,
+    primary: primaryApiRoutes.length,
+    aliases: versionedAliases.length,
+    descriptive: descriptiveRoutes.length,
+    other: otherRoutes.length
+  });
+
+  if (healthRoutes.length > 0) {
+    logger.info("Health check routes:");
+    healthRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (apiHealthRoutes.length > 0) {
+    logger.info("API health routes:");
+    apiHealthRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (primaryApiRoutes.length > 0) {
+    logger.info("Primary API routes (concise):");
+    primaryApiRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (versionedAliases.length > 0) {
+    logger.info("Versioned short-form aliases:");
+    versionedAliases.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
+
+  if (descriptiveRoutes.length > 0) {
+    logger.info("Descriptive long-form endpoints:");
+    descriptiveRoutes.forEach(r => {
+      logger.info(`  ${r.method.padEnd(6)} ${r.path}`);
+    });
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

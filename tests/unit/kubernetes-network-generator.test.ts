@@ -162,6 +162,67 @@ describe("Kubernetes Network Generator", () => {
           expect(subnet.type).toBe("private");
         });
       });
+
+      it("should ensure public and private subnets do not overlap", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional",
+          vpcCidr: "10.0.0.0/16"
+        });
+
+        // Helper function to convert CIDR to IP range
+        const cidrToRange = (cidr: string): { start: number; end: number } => {
+          const [ip, prefix] = cidr.split("/");
+          const octets = ip.split(".").map(Number);
+          const start = (octets[0] << 24) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
+          const size = Math.pow(2, 32 - parseInt(prefix, 10));
+          return { start, end: start + size - 1 };
+        };
+
+        // Check that no public subnet overlaps with any private subnet
+        for (const publicSubnet of plan.subnets.public) {
+          const publicRange = cidrToRange(publicSubnet.cidr);
+          
+          for (const privateSubnet of plan.subnets.private) {
+            const privateRange = cidrToRange(privateSubnet.cidr);
+            
+            // Check for overlap: ranges overlap if one starts before the other ends
+            const overlaps = 
+              (publicRange.start <= privateRange.end && publicRange.end >= privateRange.start) ||
+              (privateRange.start <= publicRange.end && privateRange.end >= publicRange.start);
+            
+            expect(overlaps).toBe(false);
+          }
+        }
+      });
+
+      it("should validate all subnets fit within VPC CIDR", async () => {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          vpcCidr: "10.0.0.0/16"
+        });
+
+        const vpcRange = (() => {
+          const [ip, prefix] = plan.vpc.cidr.split("/");
+          const octets = ip.split(".").map(Number);
+          const start = (octets[0] << 24) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
+          const size = Math.pow(2, 32 - parseInt(prefix, 10));
+          return { start, end: start + size - 1 };
+        })();
+
+        // Check all public and private subnets fit within VPC CIDR
+        const allSubnets = [...plan.subnets.public, ...plan.subnets.private];
+        
+        for (const subnet of allSubnets) {
+          const [ip, prefix] = subnet.cidr.split("/");
+          const octets = ip.split(".").map(Number);
+          const start = (octets[0] << 24) + (octets[1] << 16) + (octets[2] << 8) + octets[3];
+          const size = Math.pow(2, 32 - parseInt(prefix, 10));
+          const end = start + size - 1;
+
+          expect(start).toBeGreaterThanOrEqual(vpcRange.start);
+          expect(end).toBeLessThanOrEqual(vpcRange.end);
+        }
+      });
     });
 
     describe("Pod and Services CIDR", () => {

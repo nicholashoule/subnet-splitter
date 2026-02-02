@@ -41,12 +41,19 @@ npm run test -- tests/integration/kubernetes-network-api.test.ts --run
 npm run test -- tests/integration/rate-limiting.test.ts --run
 npm run test -- tests/integration/calculator-ui.test.ts --run
 npm run test -- tests/integration/ui-styles.test.ts --run
+npm run test -- tests/integration/swagger-ui-theming.test.ts --run
+
+# Swagger UI tests with running webapp
+## Powershell (Windows)
+$job = Start-Job -ScriptBlock { Set-Location "$HOME\github.com\subnet-splitter"; npm run dev 2>&1 }; Start-Sleep -Seconds 5; npx vitest run tests/integration/swagger-ui-theming.test.ts 2>&1; Stop-Job -Job $job; Remove-Job -Job $job -Forcec
 
 # Emoji detection
 npm run test:emoji
+
+# Emoji Fix
+npm run emoji:fix
 ```
 
-### Development Server
 ### Development Server
 
 ```bash
@@ -105,44 +112,9 @@ npm run dev
 
 ## Improvement Roadmap
 
-### Phase 1 (High Priority - Q1 2026)
-
-#### 1. Consolidate UI Styling Tests
-**Goal**: Reduce redundancy and maintenance burden
-
-**Action**:
-- Merge header.test.ts + footer.test.ts + styles.test.ts → ui-styles.test.ts
-- Reduce from 110 tests to 30-40 tests
-- Focus on WCAG compliance, not CSS properties
-
-**Impact**: -70 tests, -3 hours maintenance/month
-
-#### 2. Add Frontend Component Tests
-**Goal**: Test React UI behavior
-
-**Action**:
-- Create tests/integration/calculator-ui.test.ts
-- Test form submission, validation errors
-- Test subnet split operations, tree expansion
-- Test CSV export, copy-to-clipboard
-
-**Impact**: +25 tests, critical coverage gap filled
-
-#### 3. Expand API Error Testing
-**Goal**: Better production resilience
-
-**Action**:
-- Add 10+ error scenarios to api-endpoints.test.ts
-- Test malformed JSON, missing fields, invalid types
-- Test timeout and concurrent request scenarios
-
-**Impact**: +10 tests, improved error handling
-
-**Phase 1 Total**: 236 tests (-45, +35)
-
 ### Phase 2 (Medium Priority - Q2 2026)
 
-#### 4. Add E2E Smoke Tests
+#### 1. Add E2E Smoke Tests
 **Goal**: Full workflow validation
 
 **Action**:
@@ -152,7 +124,7 @@ npm run dev
 
 **Impact**: +5 tests, high release confidence
 
-#### 5. Performance Regression Tests
+#### 2. Performance Regression Tests
 **Goal**: Prevent performance degradation
 
 **Action**:
@@ -162,7 +134,7 @@ npm run dev
 
 **Impact**: +8 tests, performance safety net
 
-#### 6. Structured Logging Tests
+#### 3. Structured Logging Tests
 **Goal**: Logging reliability
 
 **Action**:
@@ -174,7 +146,7 @@ npm run dev
 
 **Phase 2 Total**: 259 tests (+23)
 
-### Phase 3 (Low Priority - Future)
+### Phase 2 (Low Priority - Future)
 
 #### 7. Visual Regression Testing
 - Replace 27 fragile CSS tests with automated visual diffs

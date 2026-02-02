@@ -39,9 +39,9 @@ const EMOJI_REPLACEMENTS: Record<string, string> = {
   "\u274c": "[FAIL]",
   "\u2717": "[FAIL]",
   "\u2718": "[FAIL]",  // Heavy ballot X ✘
-  "\u274e": "[FAIL]",  // Negative squared cross mark ❎
+  "\u274e": "[FAIL]",  // Negative squared cross mark
   "\u2757": "[ALERT]",
-  "\u2755": "[ALERT]",  // White exclamation mark ❕
+  "\u2755": "[ALERT]",  // White exclamation mark
   "\u203c": "[ALERT]",  // Double exclamation ‼
   "\u203c\ufe0f": "[ALERT]",
   // Favorites and highlights
@@ -64,7 +64,6 @@ const EMOJI_REPLACEMENTS: Record<string, string> = {
   "\ud83d\udcda": "Documentation",
   "\ud83d\udcd6": "Guide",
   "\ud83d\udcdd": "Note",
-  "\u2714": "Checklist",
   "\ud83d\udcc1": "Directory",
   "\ud83d\udcc2": "Folder",
   "\ud83d\udd0d": "Search",
@@ -90,19 +89,12 @@ const EMOJI_REPLACEMENTS: Record<string, string> = {
   "\ud83d\udd04": "Refresh",
   "\u231b": "Loading",
   "\u2b06": "Up",
-  "\u2b06\ufe0f": "Up",
   "\u2b07": "Down",
-  "\u2b07\ufe0f": "Down",
   "\u27a1": "Next",
-  "\u27a1\ufe0f": "Next",
   "\u2b05": "Previous",
-  "\u2b05\ufe0f": "Previous",
   "\ud83d\udc40": "See",
   "\ud83d\udce4": "From",
-  "\u2611": "Selected",
   "\u2611\ufe0f": "Selected",
-  "\u2610": "Unselected",
-};
   
   // Arrows (common in documentation)
   "\u2192": "->",  // Rightwards arrow →
@@ -148,6 +140,7 @@ const EMOJI_REPLACEMENTS: Record<string, string> = {
   "\u2023": ">",    // Triangular bullet ‣
   "\u25e6": "o",    // White bullet ◦
   "\u2219": "*",    // Bullet operator ∙
+};
 
 const EXCLUDE_DIRS = new Set([
   "node_modules",

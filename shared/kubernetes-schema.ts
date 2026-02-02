@@ -21,9 +21,22 @@ export type DeploymentSize = z.infer<typeof DeploymentSizeEnum>;
 
 /**
  * Supported Kubernetes providers
+ * - eks: AWS Elastic Kubernetes Service
+ * - gke: Google Kubernetes Engine
+ * - aks: Azure Kubernetes Service
+ * - kubernetes/k8s: Generic self-hosted Kubernetes
  */
-export const ProviderEnum = z.enum(["eks", "gke", "kubernetes"]);
+export const ProviderEnum = z.enum(["eks", "gke", "aks", "kubernetes", "k8s"]);
 export type Provider = z.infer<typeof ProviderEnum>;
+
+/**
+ * Normalize provider aliases to canonical form
+ * - "k8s" -> "kubernetes"
+ */
+export function normalizeProvider(provider: Provider): "eks" | "gke" | "aks" | "kubernetes" {
+  if (provider === "k8s") return "kubernetes";
+  return provider;
+}
 
 /**
  * Request schema for generating Kubernetes network plans

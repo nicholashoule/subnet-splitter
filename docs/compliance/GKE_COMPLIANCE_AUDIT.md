@@ -18,10 +18,45 @@
 -  **GKE zones** properly assigned (region letter suffixes: a, b, c, etc.)
 - WARNING - Minor optimization opportunity for pod density (addressed below)
 -  Supports all GKE cluster sizes up to 5000 nodes (GKE Autopilot/Standard limit)
+-  **Subnet overlap validation** guarantees non-conflicting IP ranges
 
 ---
 
-## 1. GKE Quotas & Limits Compliance
+## 1. Subnet Overlap Validation
+
+### Non-Overlapping Subnet Guarantee
+
+ **VALIDATED** - The API guarantees that public and private subnets never overlap within the VPC CIDR.
+
+**Implementation**:
+- Public subnets are generated first from the VPC base address
+- Private subnets use an offset parameter to start AFTER all public subnets
+- Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
+- Offset for private subnets = number of public subnets
+
+**Example (Enterprise tier with VPC 10.0.0.0/16, /23 subnets)**:
+```
+Public subnets (offset=0):
+  public-1:  10.0.0.0/23  (10.0.0.0 - 10.0.1.255)
+  public-2:  10.0.2.0/23  (10.0.2.0 - 10.0.3.255)
+  public-3:  10.0.4.0/23  (10.0.4.0 - 10.0.5.255)
+
+Private subnets (offset=3):
+  private-1: 10.0.6.0/23  (10.0.6.0 - 10.0.7.255)   [PASS] No overlap
+  private-2: 10.0.8.0/23  (10.0.8.0 - 10.0.9.255)   [PASS] No overlap
+  private-3: 10.0.10.0/23 (10.0.10.0 - 10.0.11.255) [PASS] No overlap
+```
+
+**Test Coverage**:
+- [PASS] Unit test: `should ensure public and private subnets do not overlap`
+- [PASS] Unit test: `should validate all subnets fit within VPC CIDR`
+- Validated across all 5 deployment tiers
+
+**GKE Relevance**: Critical for VPC-native clusters where alias IP ranges for pods must not conflict with primary subnet addresses. Prevents Google Cloud Router configuration errors.
+
+---
+
+## 2. GKE Quotas & Limits Compliance
 
 ### GKE Cluster Size Limits
 
@@ -109,8 +144,8 @@ Let's verify each tier using GKE's formula (assuming 110 pods per node max for S
   - MP = 8,192 × 32 = 262,144 pods
 
  **Our `/13` pod CIDR supports:**
-- 2,048 nodes at 110 pods/node (Standard mode) → 225K pods
-- 8,192 nodes at 32 pods/node (Autopilot) → 262K pods
+- 2,048 nodes at 110 pods/node (Standard mode) -> 225K pods
+- 8,192 nodes at 32 pods/node (Autopilot) -> 262K pods
 
 This exceeds GKE's 200K pod limit and provides capacity for future growth.
 
@@ -532,7 +567,7 @@ describe("GKE Compliance", () => {
 ### Recommended Updates
 
 **High Priority (1-2 days):**
-1. Update hyperscale `subnetSize: 20` → `19`
+1. Update hyperscale `subnetSize: 20` -> `19`
 2. Add pod density documentation to copilot-instructions.md
 3. Add GKE calculation examples
 
@@ -556,7 +591,7 @@ describe("GKE Compliance", () => {
 
 **Next Steps:**
 1.  Review this audit
-2. ⏳ Apply recommended Priority 1 updates
+2. Pending Apply recommended Priority 1 updates
 3.  Re-run test suite to validate changes
 4.  Update API documentation with GKE examples
 

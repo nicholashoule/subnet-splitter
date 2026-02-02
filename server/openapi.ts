@@ -13,30 +13,30 @@ export const openApiSpec = {
   info: {
     title: "CIDR Subnet Calculator API",
     version: "1.0.0",
-    description: "REST API for subnet calculations and Kubernetes network planning"
+    description: "REST API for subnet calculations and Kubernetes network planning. Generate optimized network configurations for EKS, GKE, AKS, and self-hosted Kubernetes clusters with battle-tested subnet allocations."
   },
   servers: [
     {
-      url: "/api/v1",
-      description: "API v1"
+      url: "/api",
+      description: "Primary API (concise routes)"
     }
   ],
   tags: [
     {
       name: "Health",
-      description: "Health check endpoints for monitoring"
+      description: "Health check endpoints for Kubernetes probes and monitoring"
     },
     {
       name: "Kubernetes",
-      description: "Kubernetes network planning operations"
+      description: "Kubernetes network planning - generate VPC subnets, pod CIDRs, and service ranges for EKS, GKE, AKS, and self-hosted clusters"
     }
   ],
   paths: {
-    "/health": {
+    "/v1/health": {
       get: {
         tags: ["Health"],
         summary: "Health check",
-        description: "Check if the service is healthy and operational",
+        description: "Check if the service is healthy and operational. Use for Kubernetes readiness/liveness probes.",
         responses: {
           "200": {
             description: "Service is healthy",
@@ -57,11 +57,11 @@ export const openApiSpec = {
         }
       }
     },
-    "/health/ready": {
+    "/v1/health/ready": {
       get: {
         tags: ["Health"],
         summary: "Readiness check",
-        description: "Check if the service is ready to accept requests",
+        description: "Kubernetes readiness probe - returns 200 when service can accept traffic",
         responses: {
           "200": {
             description: "Service is ready",
@@ -80,11 +80,11 @@ export const openApiSpec = {
         }
       }
     },
-    "/health/live": {
+    "/v1/health/live": {
       get: {
         tags: ["Health"],
         summary: "Liveness check",
-        description: "Check if the service process is alive",
+        description: "Kubernetes liveness probe - returns 200 when service process is alive",
         responses: {
           "200": {
             description: "Service is alive",
@@ -103,11 +103,11 @@ export const openApiSpec = {
         }
       }
     },
-    "/kubernetes/network-plan": {
+    "/k8s/plan": {
       post: {
         tags: ["Kubernetes"],
         summary: "Generate Kubernetes network plan",
-        description: "Generate optimized network configuration for EKS, GKE, AKS, or generic Kubernetes deployments",
+        description: "Generate optimized VPC and subnet configuration for Kubernetes clusters. Supports deployment tiers from micro (1 node) to hyperscale (5000 nodes). All VPC CIDRs must use private RFC 1918 ranges.",
         requestBody: {
           required: true,
           content: {
@@ -123,9 +123,9 @@ export const openApiSpec = {
                   },
                   provider: {
                     type: "string",
-                    enum: ["eks", "gke", "aks", "kubernetes"],
+                    enum: ["eks", "gke", "aks", "kubernetes", "k8s"],
                     default: "kubernetes",
-                    description: "Cloud provider or generic Kubernetes"
+                    description: "Cloud provider (k8s is alias for kubernetes)"
                   },
                   vpcCidr: {
                     type: "string",
@@ -194,11 +194,11 @@ export const openApiSpec = {
         }
       }
     },
-    "/kubernetes/tiers": {
+    "/k8s/tiers": {
       get: {
         tags: ["Kubernetes"],
         summary: "Get deployment tier information",
-        description: "Retrieve details about all available deployment tiers",
+        description: "Retrieve details about all deployment tiers (micro, standard, professional, enterprise, hyperscale) including node counts, subnet sizes, and pod/service CIDR allocations",
         parameters: [
           {
             name: "format",
