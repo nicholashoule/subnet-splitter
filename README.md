@@ -266,16 +266,16 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite with **315 tests** (100% passing) covering:
+The project includes a comprehensive test suite with **371 tests** (100% passing) covering:
 
 **Unit Tests (121):**
 - **Subnet calculations (53 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
 - **Kubernetes network generation (57 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
 - **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
 
-**Integration Tests (194):**
+**Integration Tests (250):**
 - **API endpoints (38 tests)**: API infrastructure, health checks, OpenAPI spec, Swagger UI
-- **Kubernetes Network Planning API (33 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Kubernetes Network Planning API (89 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers, differentiated subnet sizing
 - **Security (65 tests)**: Rate limiting middleware, CSP enforcement, CSP violation endpoint, Swagger UI CSP middleware
 - **UI components (50 tests)**: Calculator UI behavior, WCAG accessibility compliance
 - **Configuration (8 tests)**: Build configuration validation, environment setup
@@ -425,7 +425,9 @@ curl http://localhost:5000/api/k8s/tiers
   "micro": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 25,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
+    "minVpcPrefix": 24,
     "podsPrefix": 18,
     "servicesPrefix": 16,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
@@ -433,7 +435,9 @@ curl http://localhost:5000/api/k8s/tiers
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
+    "minVpcPrefix": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
@@ -441,7 +445,9 @@ curl http://localhost:5000/api/k8s/tiers
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
+    "minVpcPrefix": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
@@ -449,18 +455,22 @@ curl http://localhost:5000/api/k8s/tiers
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
+    "minVpcPrefix": 18,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 8,
-    "privateSubnets": 8,
-    "subnetSize": 19,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
+    "minVpcPrefix": 18,
     "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
   }
 }
 ```
@@ -493,13 +503,13 @@ curl http://localhost:5000/api/k8s/tiers
 
 #### Deployment Tiers Overview
 
-| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Use Case |
-|------|-------|---|---|---|---|
-| **Micro** | 1 | 1 | 1 | /25 | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /24 | Dev/Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 | Small Production (HA-ready) |
-| **Enterprise** | 10-50 | 3 | 3 | /23 | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 8 | 8 | /19 | Global Scale (EKS/GKE max) |
+| Tier | Nodes | Public Subnets | Private Subnets | Public Size | Private Size | Use Case |
+|------|-------|---|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /26 | /25 | POC, Development |
+| **Standard** | 1-3 | 1 | 1 | /25 | /24 | Dev/Testing |
+| **Professional** | 3-10 | 2 | 2 | /25 | /23 | Small Production (HA-ready) |
+| **Enterprise** | 10-50 | 3 | 3 | /24 | /21 | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 3 | 3 | /23 | /20 | Global Scale (EKS/GKE max) |
 
 #### Supported Providers
 

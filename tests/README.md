@@ -4,11 +4,11 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Total Tests**: 315 tests across 12 test files  
-**Pass Rate**: 100% (315/315 passing)  
-**Execution Time**: ~3.2 seconds  
-**Test Distribution**: 121 unit tests (38%), 194 integration tests (62%)  
-**Overall Grade**: A- (Bloat reduced from 338 tests)
+**Total Tests**: 371 tests across 13 test files  
+**Pass Rate**: 100% (371/371 passing)  
+**Execution Time**: ~3.5 seconds  
+**Test Distribution**: 121 unit tests (33%), 250 integration tests (67%)  
+**Overall Grade**: A (Comprehensive tier configuration testing)
 
 ## Test Categories
 
@@ -28,9 +28,9 @@ tests/
 │   ├── subnet-utils.test.ts      # Subnet calculation utilities (53 tests)
 │   ├── kubernetes-network-generator.test.ts  # K8s network generation (57 tests)
 │   └── emoji-detection.test.ts   # Emoji validation (11 tests)
-├── integration/                   # Integration tests (217 total) - Self-contained with test servers
+├── integration/                   # Integration tests (250 total) - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure (38 tests) - Starts own server
-│   ├── kubernetes-network-api.test.ts  # K8s API (33 tests) - Starts own server
+│   ├── kubernetes-network-api.test.ts  # K8s API (89 tests) - Starts own server
 │   ├── rate-limiting.test.ts     # Rate limiting (23 tests) - Starts own server
 │   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests) - Starts own server
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests) - Starts own server

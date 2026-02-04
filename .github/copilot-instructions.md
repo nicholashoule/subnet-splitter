@@ -703,7 +703,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 ### Test Coverage
 
-**Current Suite: 315 comprehensive tests (121 unit + 194 integration) - 100% pass rate [PASS]**
+**Current Suite: 371 comprehensive tests (121 unit + 250 integration) - 100% pass rate [PASS]**
 
 **Unit Tests** (`tests/unit/subnet-utils.test.ts` - 53 tests):
 - **IP Conversion**: ipToNumber, numberToIp with roundtrip validation
@@ -736,9 +736,9 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 315 |
+| **Total Tests** | 371 |
 | **Unit Tests** | 121 |
-| **Integration Tests** | 194 |
+| **Integration Tests** | 250 |
 | **Pass Rate** | 100% |
 | **Execution Time** | ~3.2 seconds |
 | **Test Files** | 12 (3 unit, 9 integration) |
@@ -754,7 +754,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 ### Test Success Criteria
 
 For the test suite to be considered passing:
-- [PASS] All 315 tests must pass
+- [PASS] All 371 tests must pass
 - [PASS] No skipped or pending tests (except during development)
 - [PASS] WCAG accessibility standards maintained
 - [PASS] All calculation logic validated
@@ -873,12 +873,12 @@ When adding new tests:
 ```bash
 npm audit                  # Security audit (0 vulnerabilities required)
 npm run check              # TypeScript type checking (no errors)
-npm run test -- --run      # Run full test suite (all 315 tests must pass)
+npm run test -- --run      # Run full test suite (all 371 tests must pass)
 npm run build              # Verify production build succeeds
 ```
 
 **Quality Gates:**
-- [PASS] All 315 tests passing (121 unit + 194 integration)
+- [PASS] All 371 tests passing (121 unit + 250 integration)
 - [PASS] Zero TypeScript errors in strict mode
 - [PASS] Zero npm audit vulnerabilities
 - [PASS] Production build succeeds without warnings
@@ -1633,13 +1633,13 @@ The Kubernetes Network Planning API generates enterprise-grade network configura
 
 ### Deployment Tiers
 
-| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Pod Space | Services | Use Case |
-|------|-------|---|---|---|---|---|---|
-| **Micro** | 1 | 1 | 1 | /25 | /18 | /16 | POC/Development |
-| **Standard** | 1-3 | 1 | 1 | /24 | /16 | /16 | Development/Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 | /16 | /16 | Small Production |
-| **Enterprise** | 10-50 | 3 | 3 | /23 | /16 | /16 | Large Production |
-| **Hyperscale** | 50-5000 | 8 | 8 | /20 | /13 | /16 | Global Scale/EKS/GKE Max |
+| Tier | Nodes | Public Subnets | Private Subnets | Public Size | Private Size | Pod Space | Services | Use Case |
+|------|-------|---|---|---|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /26 | /25 | /18 | /16 | POC/Development |
+| **Standard** | 1-3 | 1 | 1 | /25 | /24 | /16 | /16 | Development/Testing |
+| **Professional** | 3-10 | 2 | 2 | /25 | /23 | /16 | /16 | Small Production |
+| **Enterprise** | 10-50 | 3 | 3 | /24 | /21 | /16 | /16 | Large Production |
+| **Hyperscale** | 50-5000 | 3 | 3 | /23 | /20 | /13 | /16 | Global Scale/High Pod Density |
 
 ### API Endpoints
 
@@ -1680,8 +1680,8 @@ N = 2^(32-S) - 4
 Where S = primary subnet prefix
 
 For 5,000 nodes:
-  S = 32 - ⌈log₂(5004)⌉ = /19
-  N = 2^13 - 4 = 8,188 nodes 
+  S = 32 - ⌈log₂(5004)⌉ = /20 (4,092 nodes per subnet, 3 subnets = 12,276 total capacity)
+  N = 2^(32-20) - 4 = 4,092 nodes per subnet 
 ```
 
 **GKE Compliance:**
@@ -1694,7 +1694,7 @@ For 5,000 nodes:
 | **Pod limits** | 200,000 max | Supported per tier |  |
 | **Service range** | /20 recommended | /16 provided (over-provisioned) |  |
 | **Pod density** | Standard: 110 max, Autopilot: 32 default | Formula uses 110 assumption | WARNING -  |
-| **Multi-AZ** | Multiple subnets per tier | Yes, 2-8 subnets per type |  |
+| **Multi-AZ** | Multiple subnets per tier | Yes, 1-3 subnets per type |  |
 
 **Pod Density Variation:**
 
@@ -1709,9 +1709,9 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 # Enterprise tier (GKE Standard, 50 nodes, 10-50 node range)
 # Pod range: /16 -> supports 256 nodes at 110 pods/node = 28K pods 
 
-# Hyperscale tier (GKE Standard, 5,000 nodes max)
-# Pod range: /13 -> supports 2,048 nodes at 110 pods/node = 225K pods 
-# Primary: /19 -> supports 8,188 nodes 
+# Hyperscale tier (EKS/GKE, 5,000 nodes max, high pod density)
+# Pod range: /13 -> supports 524K pods
+# Primary: /18 -> supports 16,380 nodes per subnet 
 ```
 
 **Best Practices:**
@@ -1746,7 +1746,7 @@ Maximum pods per node: 50-110 (instance type dependent)
 **Node Primary Subnet Formula:**
 ```
 Node_Capacity = 2^(32 - subnet_prefix) - 4
-Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+Example: /18 subnet = 2^14 - 4 = 16,380 nodes capacity
 ```
 
 **EKS Scalability Thresholds:**
@@ -1758,17 +1758,17 @@ Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
 | **Large** | 1000-5000 | 50K-200K | Contact AWS support |
 | **Extreme** | 5000-100K | 200K+ | AWS onboarding required |
 
-Our Hyperscale tier supports up to 5,000 nodes in standard configuration (8,188 with optimized /19 primary subnet).
+Our Hyperscale tier supports up to 5,000 nodes in standard configuration (3 × /20 private subnets with 4,092 IPs each).
 
 **EKS Tier Compliance Matrix:**
 
-| Tier | Primary | Pod CIDR | Node Capacity | Actual Nodes | Status |
+| Tier | Private | Pod CIDR | Node Capacity | Actual Nodes | Status |
 |---|---|---|---|---|---|
 | Micro | /25 | /18 | 124 | 1 |  |
 | Standard | /24 | /16 | 252 | 1-3 |  |
 | Professional | /23 | /16 | 508 | 3-10 |  |
-| Enterprise | /23 | /16 | 508 | 10-50 |  |
-| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** |  |
+| Enterprise | /21 | /16 | 2,044 | 10-50 |  |
+| **Hyperscale** | **/20** | **/13** | **4,092** | **50-5000** |  |
 
 **IP Prefix Delegation Requirements:**
 - Requires AWS Nitro-based instance types (c5+, m5+, r5+, t3+, etc.)
@@ -1836,7 +1836,7 @@ Azure Kubernetes Service (AKS) uses Azure Virtual Network integration with Azure
 **Node Capacity Formula:**
 ```
 Node_Capacity = 2^(32 - subnet_prefix) - 4
-Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+Example: /18 subnet = 2^14 - 4 = 16,380 nodes capacity
 ```
 
 **Pod CIDR Capacity (Overlay Model):**
@@ -1858,17 +1858,17 @@ Actual Limit: Minimum of calculated or 200,000 pods per cluster
 | **Large** | 1000-5000 | 50K-200K | Contact Azure support |
 | **At Limit** | 5000 | 200K (overlay) | Cannot upgrade (no surge capacity) |
 
-Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Overlay).
+Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Overlay, 3 × /20 private subnets).
 
 **AKS Tier Compliance Matrix:**
 
-| Tier | Primary | Pod CIDR | Node Cap | Actual Nodes | Node Pools | Status |
+| Tier | Private | Pod CIDR | Node Cap | Actual Nodes | Node Pools | Status |
 |---|---|---|---|---|---|---|
 | Micro | /25 | /18 | 124 | 1 | 1 |  |
 | Standard | /24 | /16 | 252 | 1-3 | 1 |  |
 | Professional | /23 | /16 | 508 | 3-10 | 1 |  |
-| Enterprise | /23 | /16 | 508 | 10-50 | 1-2 |  |
-| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** | **5-10** |  |
+| Enterprise | /21 | /16 | 2,044 | 10-50 | 1-2 |  |
+| **Hyperscale** | **/20** | **/13** | **4,092** | **50-5000** | **5-10** |  |
 
 **Multi-Node Pool Requirements:**
 - AKS limit: 1,000 nodes per node pool
@@ -2043,10 +2043,22 @@ Retrieve information about all deployment tiers.
 **Response:**
 ```json
 {
+  "micro": {
+    "publicSubnets": 1,
+    "privateSubnets": 1,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
+    "minVpcPrefix": 24,
+    "podsPrefix": 18,
+    "servicesPrefix": 16,
+    "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
+  },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
+    "minVpcPrefix": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
@@ -2054,7 +2066,9 @@ Retrieve information about all deployment tiers.
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
+    "minVpcPrefix": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
@@ -2062,18 +2076,22 @@ Retrieve information about all deployment tiers.
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
+    "minVpcPrefix": 18,
     "podsPrefix": 16,
     "servicesPrefix": 16,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 4,
-    "privateSubnets": 4,
-    "subnetSize": 22,
-    "podsPrefix": 15,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
+    "minVpcPrefix": 18,
+    "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50+ nodes, multi-region ready"
+    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
   }
 }
 ```
@@ -2089,8 +2107,8 @@ Retrieve information about all deployment tiers.
 **IP Addressing Strategy:**
 - Uses RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Subnets don't overlap with pod or service ranges
-- Professional and Enterprise tiers use /23 subnets (512 IPs) for better HA
-- Hyperscale tier uses /22 subnets (1024 IPs) for larger workloads
+- Public and private subnets use differentiated sizes (public smaller for LBs, private larger for nodes)
+- Hyperscale tier uses /23 public (510 IPs) and /20 private (4,092 IPs) subnets
 
 ### Implementation Details
 

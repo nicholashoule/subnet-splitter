@@ -1,5 +1,7 @@
 # EKS Compliance Audit - Kubernetes Network Planning API
 
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+
 **Date**: February 1, 2026  
 **Scope**: AWS EKS (Elastic Kubernetes Service)  
 **Status**:  **FULLY COMPLIANT**
@@ -16,12 +18,229 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 -  IP prefix delegation support confirmed
 -  RFC 1918 private addressing enforced
 -  **Multi-AZ distribution** automatically configured for all tiers
--  **AWS availability zones** properly assigned (region letter suffixes: a, b, c, etc.)
+-  **AWS availability zones** properly assigned using real region names (e.g., `us-east-1a`, `us-east-1b`, `us-east-1c`)
 -  Subnet sizing appropriate for EKS node types
 -  Pod IP space sufficient for maximum density deployments
 -  Service CIDR allocation exceeds EKS recommendations
 
 **Compliance Level**: **PRODUCTION READY**
+
+---
+
+## 1.0.1. AWS Region and Availability Zone Naming Standards
+
+### Region Naming Convention
+
+AWS regions follow the pattern: `<continent>-<direction>-<number>`
+
+**Format**: `{continent}-{direction}-{number}`
+- **continent**: Geographic area (us, eu, ap, sa, af, me, ca)
+- **direction**: Cardinal direction (north, south, east, west, central, northeast, southeast)
+- **number**: Distinguisher when multiple regions exist in same area (1, 2, 3...)
+
+### AWS Regions by Geography
+
+| Geography | Region Code | Region Name | Typical AZs |
+|-----------|-------------|-------------|-------------|
+| **North America** | | | |
+| | `us-east-1` | US East (N. Virginia) | us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1e, us-east-1f |
+| | `us-east-2` | US East (Ohio) | us-east-2a, us-east-2b, us-east-2c |
+| | `us-west-1` | US West (N. California) | us-west-1a, us-west-1c |
+| | `us-west-2` | US West (Oregon) | us-west-2a, us-west-2b, us-west-2c, us-west-2d |
+| | `ca-central-1` | Canada (Central) | ca-central-1a, ca-central-1b, ca-central-1d |
+| | `ca-west-1` | Canada West (Calgary) | ca-west-1a, ca-west-1b |
+| **Europe** | | | |
+| | `eu-west-1` | Europe (Ireland) | eu-west-1a, eu-west-1b, eu-west-1c |
+| | `eu-west-2` | Europe (London) | eu-west-2a, eu-west-2b, eu-west-2c |
+| | `eu-west-3` | Europe (Paris) | eu-west-3a, eu-west-3b, eu-west-3c |
+| | `eu-central-1` | Europe (Frankfurt) | eu-central-1a, eu-central-1b, eu-central-1c |
+| | `eu-central-2` | Europe (Zurich) | eu-central-2a, eu-central-2b, eu-central-2c |
+| | `eu-north-1` | Europe (Stockholm) | eu-north-1a, eu-north-1b, eu-north-1c |
+| | `eu-south-1` | Europe (Milan) | eu-south-1a, eu-south-1b, eu-south-1c |
+| | `eu-south-2` | Europe (Spain) | eu-south-2a, eu-south-2b, eu-south-2c |
+| **Asia Pacific** | | | |
+| | `ap-northeast-1` | Asia Pacific (Tokyo) | ap-northeast-1a, ap-northeast-1c, ap-northeast-1d |
+| | `ap-northeast-2` | Asia Pacific (Seoul) | ap-northeast-2a, ap-northeast-2b, ap-northeast-2c, ap-northeast-2d |
+| | `ap-northeast-3` | Asia Pacific (Osaka) | ap-northeast-3a, ap-northeast-3b, ap-northeast-3c |
+| | `ap-southeast-1` | Asia Pacific (Singapore) | ap-southeast-1a, ap-southeast-1b, ap-southeast-1c |
+| | `ap-southeast-2` | Asia Pacific (Sydney) | ap-southeast-2a, ap-southeast-2b, ap-southeast-2c |
+| | `ap-southeast-3` | Asia Pacific (Jakarta) | ap-southeast-3a, ap-southeast-3b, ap-southeast-3c |
+| | `ap-southeast-4` | Asia Pacific (Melbourne) | ap-southeast-4a, ap-southeast-4b, ap-southeast-4c |
+| | `ap-south-1` | Asia Pacific (Mumbai) | ap-south-1a, ap-south-1b, ap-south-1c |
+| | `ap-south-2` | Asia Pacific (Hyderabad) | ap-south-2a, ap-south-2b, ap-south-2c |
+| | `ap-east-1` | Asia Pacific (Hong Kong) | ap-east-1a, ap-east-1b, ap-east-1c |
+| **South America** | | | |
+| | `sa-east-1` | South America (Sao Paulo) | sa-east-1a, sa-east-1b, sa-east-1c |
+| **Middle East** | | | |
+| | `me-south-1` | Middle East (Bahrain) | me-south-1a, me-south-1b, me-south-1c |
+| | `me-central-1` | Middle East (UAE) | me-central-1a, me-central-1b, me-central-1c |
+| | `il-central-1` | Israel (Tel Aviv) | il-central-1a, il-central-1b, il-central-1c |
+| **Africa** | | | |
+| | `af-south-1` | Africa (Cape Town) | af-south-1a, af-south-1b, af-south-1c |
+
+### Availability Zone Naming Convention
+
+AWS AZs follow the pattern: `<region-code><letter>`
+
+**Format**: `{region}{az-letter}`
+- **region**: Full region code (e.g., `us-east-1`)
+- **az-letter**: Lowercase letter suffix (a, b, c, d, e, f)
+
+**Examples**:
+- `us-east-1a` - First AZ in US East (Virginia)
+- `us-east-1b` - Second AZ in US East (Virginia)
+- `eu-west-1c` - Third AZ in Europe (Ireland)
+
+**Important Notes**:
+1. **AZ letters are randomized per account**: `us-east-1a` for Account A may physically differ from `us-east-1a` for Account B
+2. **Use AZ IDs for cross-account consistency**: `use1-az1`, `use1-az2`, etc.
+3. **Minimum 3 AZs per region**: Most regions have at least 3 AZs (some have 6)
+4. **Not all letters are sequential**: Some regions skip letters (e.g., `us-west-1` has `a` and `c` but no `b`)
+
+### API Implementation
+
+Our API uses real AWS region names for AZ assignment:
+
+```typescript
+// Default region for EKS
+const region = "us-east-1";
+
+// AZ assignment for subnets
+private-1 -> us-east-1a
+private-2 -> us-east-1b
+private-3 -> us-east-1c
+public-1  -> us-east-1a
+public-2  -> us-east-1b
+public-3  -> us-east-1c
+```
+
+**Reference**: [AWS Global Infrastructure - Regions & AZs](https://aws.amazon.com/about-aws/global-infrastructure/regions_az/)
+
+---
+
+## 1.1. IPv4 Address Consumption Model (EKS VPC CNI)
+
+### Network Architecture Overview
+
+AWS EKS uses the **VPC CNI (Container Network Interface)** plugin, where **Pods and Nodes draw from the same VPC CIDR space**. This is fundamentally different from GKE (alias ranges) and AKS (overlay networks).
+
+**CRITICAL INSIGHT**:  Pods do NOT share Node IPs, but they DO pull from the same VPC subnet pool as Nodes, creating IP exhaustion risks for small subnets.
+
+### IP Allocation by Component
+
+#### 1. Node IP Allocation
+
+**Source**: Primary VPC subnet (public or private subnets from our API)
+
+**Allocation Method**:
+- Each Node gets **1 primary IP address** from the VPC subnet
+- Primary ENI (Elastic Network Interface) is created for the Node
+- This IP is used for Node-to-Node communication and external access
+
+**Subnet Sizing Impact**:
+- Node IPs are consumed from the primary VPC subnet
+- Small subnets must accommodate BOTH Node IPs AND Pod secondary IPs
+- Example: `/24` subnet (256 IPs) can only support ~50 Nodes if Pods also need space
+
+#### 2. Pod IP Allocation
+
+**Source**: Same VPC CIDR as Nodes (secondary IPs from Node ENI)
+
+**Allocation Method**:
+- Each Pod gets a **unique secondary private IP address** from the Node's ENI
+- **NOT SHARED**: Pods do NOT share the Node's primary IP
+- **Exception**: Pods with `hostNetwork: true` DO share the Node's IP
+
+**Two Models for Secondary IPs**:
+
+**Traditional Method** (Older or non-Nitro instances):
+- Individual secondary IPs per Pod
+- Limited to ~50 secondary IPs per Node (instance type dependent)
+- **IP Exhaustion Risk**: High for large clusters
+
+**IP Prefix Delegation** (Nitro-based instances - RECOMMENDED):
+- Nodes request `/28` CIDR blocks (16 addresses per prefix) from Pod subnet
+- Multiple prefixes per Node (up to instance type limit)
+- Max 250 pods/node with proper configuration
+- **Requires**: Nitro-based EC2 instances (c5+, m5+, r5+, t3+)
+- **Enable**: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
+
+**Configuration**:
+```bash
+# Enable IP prefix delegation
+kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
+
+# Set warm prefix target for proactive scaling
+kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
+```
+
+#### 3. Service IP Allocation
+
+**Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+
+**Allocation Method**:
+- ClusterIP services get IPs from Service CIDR (e.g., `10.2.0.0/16`)
+- **NOT routable outside cluster**: Internal routing managed by kube-proxy
+- **Does NOT overlap with VPC CIDR**: Completely separate range
+- **Does NOT consume VPC subnet space**: Virtual IPs only
+
+**Key Point**: Service CIDR is NOT part of the VPC CIDR and does NOT contribute to IP exhaustion.
+
+#### 4. LoadBalancer IP Allocation
+
+**Source**: External AWS resources (ALB or NLB)
+
+**Allocation Method**:
+- AWS provisions public or private IPs for the LoadBalancer
+- **Does NOT consume VPC CIDR**: LoadBalancers have their own IP pools
+- LoadBalancers target Node IPs or Pod IPs (depending on configuration)
+- DNS names are provided for external access
+
+**Key Point**: LoadBalancer services do NOT use VPC subnet IPs.
+
+### IP Exhaustion Risk Analysis
+
+ **CRITICAL RISK**: Because Pods and Nodes share the same VPC CIDR space, small subnets can run out of IPs.
+
+**Problem Scenario**:
+```
+VPC Subnet: 10.0.0.0/24 (256 total IPs)
+- 10 Nodes: 10 IPs used
+- 110 Pods/Node: 1,100 Pod secondary IPs needed
+- Total Required: 1,110 IPs
+- Available: 256 IPs
+- Result: IP EXHAUSTION - Cluster cannot scale
+```
+
+**Solution (Our Hyperscale Tier)**:
+```
+VPC Subnet: 10.0.0.0/20 (4,096 total IPs per private subnet, 3 AZs)
+- Total Private Capacity: 3 × 4,096 = 12,288 IPs
+- 5,000 Nodes: 5,000 IPs used (distributed across 3 AZs)
+- 110 Pods/Node (with IP Prefix Delegation): 550,000 Pod IPs potential
+- Pod CIDR: /13 (524,288 IPs) - separate CNI configuration
+- Result: Sufficient IP space for high-density deployments
+```
+
+### Comparison to Other Platforms
+
+| Component | EKS (AWS) | GKE (Google) | AKS (Azure) |
+|-----------|-----------|--------------|-------------|
+| **Node IPs** | VPC primary subnet | VPC primary subnet | VNet primary subnet |
+| **Pod IPs** | VPC CIDR (secondary IPs from Node ENI) | Alias IP ranges (automatic secondary) | Overlay CIDR (separate from VNet) |
+| **Pods & Nodes Share Pool?** | **YES** (IP exhaustion risk) | NO (alias ranges) | NO (overlay) |
+| **IP Exhaustion Risk** | **HIGH** (small subnets) | LOW (Google manages) | **NONE** (overlay decoupled) |
+
+### Key Takeaways for EKS
+
+1.  **Pods and Nodes compete for the same VPC CIDR space** (unique to EKS)
+2.  **Each Pod gets a unique secondary IP** (not shared with Node)
+3.  **Service CIDR is separate** (does not consume VPC space)
+4.  **LoadBalancers are external** (do not consume VPC space)
+5.  **IP Prefix Delegation REQUIRED** for high-density (>100 pods/node)
+6.  **Hyperscale tier uses `/20` private subnets** (4,096 IPs each × 3 AZs = 12,288 total)
+
+**Cross-Reference**: See `docs/compliance/IP_ALLOCATION_CROSS_REFERENCE.md` for detailed cross-provider comparison.
 
 ---
 
@@ -54,6 +273,78 @@ Private subnets (offset=2):
 - Validated across all 5 deployment tiers
 
 **EKS Relevance**: Prevents routing conflicts where VPC CNI could assign duplicate IPs to pods and nodes, which would cause network failures.
+
+---
+
+## 2.1. NAT Gateway & Outbound Internet Connectivity
+
+### Overview
+
+**AWS NAT Gateway** provides outbound internet connectivity for private EKS nodes and pods without exposing them to inbound traffic.
+
+### SNAT Port Allocation Formula
+
+**Adapted from GKE formula**:
+```
+NAT Gateway IPs needed = ((# of instances) × (Ports / Instance)) / 64,512
+```
+
+**AWS NAT Gateway Limits**:
+- **55,000 connections** per unique destination (IP:Port)
+- **2,000,000 packets/second** aggregate
+- **100 Gbps bandwidth** (elastic)
+- **1 Elastic IP per NAT Gateway** (fixed)
+
+### Hyperscale Tier Examples (5,000 Nodes)
+
+**Scenario 1: Low Connections**
+```
+5,000 nodes × 50 connections = 250,000 connections
+Distributed across 100 destinations: 2,500/dest
+NAT Gateways required: 1 (below 55K limit)
+Elastic IPs: 1-2 (for redundancy)
+```
+
+**Scenario 2: High Connections (Single API Destination)**
+```
+5,000 nodes × 500 connections = 2,500,000 connections
+50% to single destination: 1,250,000 connections
+1,250,000 / 55,000 = 23 NAT Gateways
+Elastic IPs: 23-30
+```
+
+**Scenario 3: Port-Based (Conservative)**
+```
+5,000 nodes × 1,024 ports = 5,120,000 ports
+5,120,000 / 64,512 = 80 NAT Gateway IPs
+```
+
+### NAT Gateway Quotas
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| NAT Gateways/AZ | 5 | Soft limit |
+| EIPs/NAT Gateway | 1 | Fixed |
+| Connections/destination | 55,000 | Per IP:Port |
+| Bandwidth | 100 Gbps | Auto-scales |
+
+### Load Balancer IP Consumption
+
+| LB Type | IP Consumption | VPC Impact |
+|---------|----------------|------------|
+| **ALB (Internet-facing)** | AWS-managed public IPs | [FAIL] NO |
+| **ALB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
+| **NLB (Internet-facing)** | 1 EIP/AZ | [FAIL] NO |
+| **NLB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
+
+**Hyperscale Estimate** (5,000 nodes, 3 AZs):
+- NAT Gateways: 3-6 (1-2 per AZ) = 3-6 EIPs (no VPC impact)
+- External ALBs: ~10 services × 3 AZs = AWS IPs (no VPC impact)
+- Internal ALBs: ~5 services × 3 AZs = 15 VPC IPs
+- Internal NLBs: ~3 services × 3 AZs = 9 VPC IPs
+- **Total VPC IPs**: 5,000 (nodes+pods) + 24 (LBs) = **~5,024 IPs**
+
+**Critical**: EKS Pods share VPC CIDR with Nodes. Use `/20` private subnets × 3 AZs for Hyperscale.
 
 ---
 
@@ -254,17 +545,17 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 ### Hyperscale Tier (Global/Extreme Scale)
 
 **Configuration**:
-- Primary Subnet: `/19` (8,192 addresses per subnet)
-- Public Subnets: 8 (65,536 addresses total)
-- Private Subnets: 8 (65,536 addresses total)
+- Public Subnets: 3 × `/23` (512 addresses each) = 1,536 total addresses
+- Private Subnets: 3 × `/20` (4,096 addresses each) = 12,288 total addresses
+- Min VPC Prefix: `/18` (65,536 addresses)
 - Pod CIDR: `/13` (524,288 addresses total)
 - Service CIDR: `/16` (65,536 addresses)
 - Nodes: 50-5,000 (up to 100,000 with AWS support)
 - Max Pods: 55,000-260,000
 
 **EKS Compliance**:
--  `/19` subnets support 8,192 addresses (full 5,000 nodes + buffer)
--  8 subnets support multi-AZ and regional distribution
+-  `/20` private subnets support 4,096 addresses each (12,288 total across 3 AZs)
+-  3 subnets across 3 AZs for zone redundancy
 -  Pod CIDR `/13` provides 524K addresses (52+ addresses per pod at 110 pods/node)
 -  Service CIDR exceeds recommendations by 3x
 -  Supports EKS maximum documented scale (5,000 nodes) without AWS onboarding
@@ -282,14 +573,15 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 
 **Subnet Configuration**:
 ```
-Primary VPC: 10.0.0.0/16 (65,536 addresses)
-├─ Public Subnets (8):  
-│  ├─ 10.0.0.0/19   (8,192 addresses)
-│  ├─ 10.0.32.0/19  (8,192 addresses)
-│  ├─ 10.0.64.0/19  (8,192 addresses)
-│  ├─ 10.0.96.0/19  (8,192 addresses)
-│  └─ ... (4 more for multi-region)
-├─ Private Subnets (8): Similar pattern
+Primary VPC: 10.0.0.0/18 (16,384 addresses)
+├─ Public Subnets (3):  
+│  ├─ 10.0.0.0/23   (512 addresses, us-east-1a)
+│  ├─ 10.0.2.0/23   (512 addresses, us-east-1b)
+│  └─ 10.0.4.0/23   (512 addresses, us-east-1c)
+├─ Private Subnets (3):
+│  ├─ 10.0.16.0/20  (4,096 addresses, us-east-1a)
+│  ├─ 10.0.32.0/20  (4,096 addresses, us-east-1b)
+│  └─ 10.0.48.0/20  (4,096 addresses, us-east-1c)
 └─ Secondary Ranges:
    ├─ Pods:    10.100.0.0/13  (524,288 addresses)
    └─ Services: 10.1.0.0/16   (65,536 addresses)
@@ -480,13 +772,13 @@ All EKS clusters **must** use private RFC 1918 address ranges. Our implementatio
 
 ### Allocation Strategy
 
-**Tier Allocation** (example with 10.0.0.0/16 VPC):
+**Tier Allocation** (example with 10.0.0.0/18 VPC for Hyperscale):
 ```
-VPC: 10.0.0.0/16 (65,536 addresses)
+VPC: 10.0.0.0/18 (16,384 addresses)
 
 Hyperscale Tier:
-├─ Public Subnets (8):   10.0.0.0/19 through 10.0.224.0/19
-├─ Private Subnets (8):  10.1.0.0/19 through 10.1.224.0/19
+├─ Public Subnets (3):   10.0.0.0/23, 10.0.2.0/23, 10.0.4.0/23
+├─ Private Subnets (3):  10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
 ├─ Pod Secondary:        10.100.0.0/13 (524,288 addresses)
 └─ Service Secondary:    10.1.0.0/16 (65,536 addresses)
 ```
@@ -520,7 +812,7 @@ EKS strongly recommends multi-AZ deployment:
 | Standard | 1 | 1 | Single AZ (option for dev) |
 | Professional | 2 | 2 | 2 AZs (dual-AZ HA) |
 | Enterprise | 3 | 3 | 3 AZs (zone redundancy) |
-| Hyperscale | 8 | 8 | Multi-region (8 AZs total) |
+| Hyperscale | 3 | 3 | 3 AZs (zone redundancy) |
 
 ### EKS Recommendations
 
@@ -731,11 +1023,18 @@ For automated deployments:
 
 ### No Changes Needed
 
-Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation is already optimal:
-- Hyperscale tier with /19 supports full 5,000-node EKS clusters
-- Pod CIDR /13 exceeds requirements
-- Service CIDR /16 provides ample space
-- All tier configurations validated
+The EKS implementation is optimized for realistic deployments:
+- Hyperscale tier with 3 × `/20` private subnets supports 5,000-node EKS clusters
+- Pod CIDR `/13` exceeds requirements
+- Service CIDR `/16` provides ample space
+- All tier configurations validated with differentiated public/private subnet sizes
+
+**Current Tier Configuration Summary:**
+- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC
+- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC
+- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC
+- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
 
 ---
 
@@ -743,20 +1042,87 @@ Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation i
 
 **Documentation Files Created/Updated**:
 
-1. **EKS_COMPLIANCE_AUDIT.md** (NEW)
-   - This comprehensive audit document
+1. **EKS_COMPLIANCE_AUDIT.md** (UPDATED February 4, 2026)
+   - Comprehensive audit document
    - 14 sections covering all aspects
-   - Ready for reference in support/onboarding
+   - Updated for differentiated subnet sizes (public/private)
+   - Hyperscale: 3 AZs with /23 public, /20 private
 
-2. **.github/copilot-instructions.md** (UPDATE PENDING)
-   - Add "EKS Compliance & IP Calculation Formulas" section
-   - Document EKS-specific algorithms
-   - Include Nitro instance requirements
-   - Add fragmentation mitigation strategies
+2. **.github/copilot-instructions.md** (SYNCED)
+   - "EKS Compliance & IP Calculation Formulas" section
+   - Documents EKS-specific algorithms
+   - Includes Nitro instance requirements
 
-3. **shared/kubernetes-schema.ts** (NO CHANGES NEEDED)
-   - Configuration already EKS-compliant
-   - Hyperscale tier at optimal /19 for both EKS and GKE
+3. **shared/kubernetes-schema.ts** (UPDATED)
+   - DeploymentTierConfig with publicSubnetSize/privateSubnetSize
+   - All tiers use differentiated subnet sizes
+
+---
+
+## Optional Enhancements
+
+These optional configurations can improve scalability and observability for large-scale EKS deployments:
+
+### NAT Gateway Scaling Considerations
+
+**NAT Gateway Specifications** (AWS documentation reference):
+- **SNAT Port Allocation**: 64,512 ports per destination IP address
+- **Connection Limit**: 55,000 simultaneous connections per unique destination
+- **Bandwidth**: 5 Gbps default, scales up to 100 Gbps automatically
+- **Documentation**: [AWS VPC NAT Gateway quotas](https://docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html#vpc-limits-gateways)
+
+**Scaling Recommendations**:
+1. **Hyperscale Tier (5000 nodes)**:
+   - Deploy **1 NAT Gateway per AZ** (8 total for 8 public subnets)
+   - Each NAT Gateway supports ~1000 pods with high outbound traffic
+   - Use VPC Flow Logs to monitor SNAT port exhaustion
+
+2. **Enterprise Tier (50 nodes)**:
+   - Single NAT Gateway per AZ (3 total) is sufficient
+   - Each NAT Gateway can handle 10K+ concurrent connections
+
+3. **Monitoring**:
+   ```bash
+   aws cloudwatch get-metric-statistics \
+     --namespace AWS/NATGateway \
+     --metric-name ErrorPortAllocation \
+     --dimensions Name=NatGatewayId,Value=<nat-gateway-id> \
+     --start-time <start> --end-time <end> \
+     --period 300 --statistics Sum
+   ```
+
+### Elastic Load Balancer Integration
+
+**EKS Load Balancer Controller** ([GitHub: aws-load-balancer-controller](https://github.com/aws/aws-load-balancer-controller)):
+- **Application Load Balancer (ALB)**: Layer 7, HTTP/HTTPS routing
+- **Network Load Balancer (NLB)**: Layer 4, TCP/UDP, static IPs
+- **Target Types**: `ip` (pod IPs directly) or `instance` (node IPs)
+
+**Public Subnet Requirements** (from EKS user guide):
+- Minimum 8 available IPs per subnet for load balancers
+- Tag: `kubernetes.io/role/elb: 1` (for public load balancers)
+- Tag: `kubernetes.io/cluster/<cluster-name>: shared`
+
+**Private Subnet Requirements**:
+- Tag: `kubernetes.io/role/internal-elb: 1` (for internal load balancers)
+- Must have NAT Gateway route for outbound traffic
+
+### Official Documentation References
+
+**AWS EKS Networking**:
+- [EKS VPC and Subnet Requirements](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html)
+- [EKS Best Practices - Networking](https://aws.github.io/aws-eks-best-practices/networking/)
+- [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/)
+
+**AWS VPC Networking**:
+- [NAT Gateway Specifications](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html)
+- [VPC Quotas and Limits](https://docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html)
+- [VPC CNI Plugin Documentation](https://github.com/aws/amazon-vpc-cni-k8s)
+
+**GitHub Repositories** (validated sources):
+- [awsdocs/amazon-eks-user-guide](https://github.com/awsdocs/amazon-eks-user-guide) (official EKS documentation)
+- [aws/amazon-vpc-cni-k8s](https://github.com/aws/amazon-vpc-cni-k8s) (EKS CNI plugin)
+- [aws-samples/aws-eks-best-practices](https://github.com/aws-samples/aws-eks-best-practices) (AWS samples)
 
 ---
 
@@ -777,5 +1143,5 @@ Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation i
 ---
 
 **Document Status**: Complete and ready for reference  
-**Last Updated**: February 1, 2026  
+**Last Updated**: February 4, 2026  
 **Compliance Level**: Production Ready 

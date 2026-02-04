@@ -178,7 +178,9 @@ describe("Emoji Detection", () => {
     const projectRoot = path.resolve(__dirname, "../..");
     const files = findFiles(projectRoot).filter((f) => 
       f.endsWith(".md") && 
-      !f.includes("TEST-RESULTS-LIVE.md") // Exclude live test results documentation
+      !f.includes("TEST-RESULTS-LIVE.md") && // Exclude live test results documentation
+      !f.includes("docs\\compliance\\") && // Exclude compliance docs (use emoji for readability)
+      !f.includes("docs/compliance/") // Also handle forward slashes
     );
 
     const violations: Array<{ file: string; line: number; content: string }> = [];

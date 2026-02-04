@@ -1,5 +1,7 @@
 # AKS Compliance Audit - Kubernetes Network Planning API
 
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+
 **Date**: February 1, 2026  
 **Scope**: Azure Kubernetes Service (AKS)  
 **Status**:  **FULLY COMPLIANT**
@@ -16,12 +18,279 @@ The Kubernetes Network Planning API has been validated against Microsoft Azure K
 -  Token bucket throttling algorithm documented
 -  Azure Resource Manager (ARM) quota system compatible
 -  **Multi-zone distribution** automatically configured for all tiers
--  **Azure availability zones** properly assigned (zone-1, zone-2, zone-3)
+-  **Azure availability zones** properly assigned using real region names (e.g., `eastus-1`, `eastus-2`, `eastus-3`)
 -  Multi-node pool scaling patterns supported
 -  Control plane tier support (Free, Standard, Premium) documented
 -  RFC 1918 private addressing enforced
 
 **Compliance Level**: **PRODUCTION READY**
+
+---
+
+## 0.1. Azure Region and Availability Zone Naming Standards
+
+### Region Naming Convention
+
+Azure regions follow a simplified naming pattern: `<location><direction?><number?>`
+
+**Format**: `{location}{direction}{number}` (no separators)
+- **location**: Geographic area or city (east, west, central, north, south, australia, brazil, canada, etc.)
+- **direction**: Optional cardinal direction (east, west, central, etc.)
+- **number**: Optional distinguisher (2, 3, etc.)
+
+**Key Differences from AWS/GCP**:
+- **No hyphens or underscores**: Region names are lowercase without separators
+- **Uses programmatic names**: `eastus` not `East US`
+- **Human-readable display names**: Separate from programmatic names
+
+### Azure Regions by Geography (Programmatic Names)
+
+| Geography | Region Code | Display Name | Physical Location | AZ Support |
+|-----------|-------------|--------------|-------------------|------------|
+| **United States** | | | | |
+| | `eastus` | East US | Virginia | Yes |
+| | `eastus2` | East US 2 | Virginia | Yes |
+| | `centralus` | Central US | Iowa | Yes |
+| | `northcentralus` | North Central US | Illinois | No |
+| | `southcentralus` | South Central US | Texas | Yes |
+| | `westcentralus` | West Central US | Wyoming | No |
+| | `westus` | West US | California | No |
+| | `westus2` | West US 2 | Washington | Yes |
+| | `westus3` | West US 3 | Arizona | Yes |
+| **Canada** | | | | |
+| | `canadacentral` | Canada Central | Toronto | Yes |
+| | `canadaeast` | Canada East | Quebec | No |
+| **Europe** | | | | |
+| | `northeurope` | North Europe | Ireland | Yes |
+| | `westeurope` | West Europe | Netherlands | Yes |
+| | `uksouth` | UK South | London | Yes |
+| | `ukwest` | UK West | Cardiff | No |
+| | `francecentral` | France Central | Paris | Yes |
+| | `francesouth` | France South | Marseille | No |
+| | `germanywestcentral` | Germany West Central | Frankfurt | Yes |
+| | `germanynorth` | Germany North | Berlin | No |
+| | `switzerlandnorth` | Switzerland North | Zurich | Yes |
+| | `switzerlandwest` | Switzerland West | Geneva | No |
+| | `norwayeast` | Norway East | Oslo | Yes |
+| | `norwaywest` | Norway West | Stavanger | No |
+| | `swedencentral` | Sweden Central | Gävle | Yes |
+| | `polandcentral` | Poland Central | Warsaw | Yes |
+| | `italynorth` | Italy North | Milan | Yes |
+| | `spaincentral` | Spain Central | Madrid | Yes |
+| **Asia Pacific** | | | | |
+| | `eastasia` | East Asia | Hong Kong | Yes |
+| | `southeastasia` | Southeast Asia | Singapore | Yes |
+| | `japaneast` | Japan East | Tokyo | Yes |
+| | `japanwest` | Japan West | Osaka | Yes |
+| | `koreacentral` | Korea Central | Seoul | Yes |
+| | `koreasouth` | Korea South | Busan | No |
+| | `centralindia` | Central India | Pune | Yes |
+| | `southindia` | South India | Chennai | No |
+| | `westindia` | West India | Mumbai | No |
+| | `australiaeast` | Australia East | Sydney | Yes |
+| | `australiasoutheast` | Australia Southeast | Melbourne | No |
+| | `australiacentral` | Australia Central | Canberra | No |
+| | `indonesiacentral` | Indonesia Central | Jakarta | Yes |
+| | `malaysiawest` | Malaysia West | Kuala Lumpur | Yes |
+| | `newzealandnorth` | New Zealand North | Auckland | Yes |
+| **South America** | | | | |
+| | `brazilsouth` | Brazil South | São Paulo | Yes |
+| | `brazilsoutheast` | Brazil Southeast | Rio | No |
+| | `chilecentral` | Chile Central | Santiago | Yes |
+| **Middle East & Africa** | | | | |
+| | `uaenorth` | UAE North | Dubai | Yes |
+| | `uaecentral` | UAE Central | Abu Dhabi | No |
+| | `qatarcentral` | Qatar Central | Doha | Yes |
+| | `israelcentral` | Israel Central | Tel Aviv | Yes |
+| | `southafricanorth` | South Africa North | Johannesburg | Yes |
+| | `southafricawest` | South Africa West | Cape Town | No |
+
+### Availability Zone Naming Convention
+
+Azure AZs use **numeric identifiers** (NOT letters like AWS/GCP):
+
+**Format**: `{region}-{zone-number}`
+- **region**: Programmatic region code (e.g., `eastus`)
+- **zone-number**: Numeric zone identifier (1, 2, 3)
+
+**Examples**:
+- `eastus-1` - First AZ in East US (Virginia)
+- `eastus-2` - Second AZ in East US (Virginia)
+- `eastus-3` - Third AZ in East US (Virginia)
+
+**Important Notes**:
+
+1. **Logical-to-Physical Mapping**: Azure maps logical zone numbers (1, 2, 3) to physical zones per subscription
+   - Zone 1 in Subscription A may map to a different physical zone than Zone 1 in Subscription B
+   - This provides balanced distribution across physical infrastructure
+
+2. **Zone Redundant Services**: Some Azure services are "zone-redundant" (automatically replicated)
+   - Storage accounts, SQL Database, etc.
+   - No need to specify individual zones
+
+3. **Maximum 3 Zones**: Azure regions that support AZs have exactly 3 zones (1, 2, 3)
+   - Unlike AWS (up to 6) or GCP (variable)
+
+4. **Not All Regions Support AZs**: Check the AZ Support column
+   - Use zone-redundant services in non-AZ regions for HA
+
+### Retrieving Region Names Programmatically
+
+```bash
+# Azure CLI
+az account list-locations --output table
+
+# Azure PowerShell
+Get-AzLocation | Select-Object DisplayName, Location
+
+# Example output:
+# DisplayName          Location
+# East US              eastus
+# East US 2            eastus2
+# West US              westus
+# Central US           centralus
+```
+
+### API Implementation
+
+Our API uses real Azure region names for AZ assignment:
+
+```typescript
+// Default region for AKS
+const region = "eastus";
+
+// AZ assignment for subnets (numeric zones)
+private-1 -> eastus-1
+private-2 -> eastus-2
+private-3 -> eastus-3
+public-1  -> eastus-1
+public-2  -> eastus-2
+public-3  -> eastus-3
+```
+
+**Reference**: [Azure Regions List](https://learn.microsoft.com/en-us/azure/reliability/regions-list)
+
+---
+
+## 0. IPv4 Address Consumption Model (Azure CNI Overlay)
+
+### Network Architecture Overview
+
+Azure Kubernetes Service uses **Azure CNI Overlay** mode for pod networking, which **separates pod IP allocation from the VNet address space**. This is fundamentally different from EKS's shared model and similar to GKE's alias IP model, but simpler:
+
+**Critical Insight**: **Pods use a separate overlay CIDR that does NOT consume VNet subnet space.** Nodes get IPs from VNet subnets, Pods get IPs from overlay CIDR. This eliminates IP exhaustion risk entirely.
+
+### IPv4 Allocation by Component
+
+#### 1. Node IP Allocation (Primary VNet Subnet)
+
+**Source**: VNet subnet (e.g., `/18` = 16,384 IPs for Hyperscale)  
+**Consumption**: 1 IP per Node from primary VNet subnet  
+**Calculation**: Same as EKS/GKE - simple node count
+
+```
+Node_Capacity = 2^(32 - subnet_prefix) - 4
+Example: /18 subnet = 2^14 - 4 = 16,380 nodes capacity
+```
+
+**For Hyperscale Tier**:
+- Primary subnet: `/18` = 16,384 IPs
+- Actual nodes: 5,000 (supports AKS 5,000-node limit)
+- Node capacity: 16,380 nodes (sufficient for all tiers)
+
+#### 2. Pod IP Allocation (Overlay CIDR)
+
+**Source**: Overlay CIDR (e.g., `/13` = 524,288 IPs for Hyperscale)  
+**Consumption**: Pods use overlay IPs **separate from VNet subnet**  
+**Calculation**: Simple pod capacity calculation
+
+```
+With Azure CNI Overlay:
+Pod_Addresses = 2^(32 - pod_prefix)
+
+Example (Hyperscale with /13 Pod CIDR):
+Pod_Addresses = 2^(32 - 13) = 524,288 IPs
+Actual Limit: Minimum of calculated or 200,000 pods per cluster (AKS max)
+```
+
+**Key Differences from EKS/GKE**:
+- **EKS**: Pods use secondary IPs from VNet subnet (competes with Nodes) -> HIGH exhaustion risk
+- **GKE**: Pods use alias IP ranges (Google manages automatically) -> LOW exhaustion risk
+- **AKS**: Pods use overlay CIDR (completely separate from VNet) -> **NO exhaustion risk**
+
+**Azure CNI Overlay Benefits**:
+- No VNet IP consumption for pods
+- No subnet fragmentation issues
+- No secondary IP allocation complexity
+- Maximum 200,000 pods per cluster (sufficient for Hyperscale)
+- Simple subnet sizing (only Node count matters)
+
+#### 3. Service IP Allocation (Service CIDR)
+
+**Source**: Service CIDR (e.g., `/16` = 65,536 IPs)  
+**Consumption**: Virtual IPs managed by kube-proxy  
+**Does NOT consume VNet subnet space**
+
+```
+Service_IPs = 2^(32 - service_prefix)
+Example: /16 = 65,536 ClusterIP addresses
+```
+
+**Important**: Services use virtual IPs that exist only within the cluster. They are **not routable outside** the cluster and do **not** consume VNet IP space. This is identical to EKS and GKE.
+
+#### 4. LoadBalancer IP Allocation (External Azure Resources)
+
+**Source**: Azure Load Balancer (external resource)  
+**Consumption**: Azure assigns IPs from its own pool  
+**Does NOT consume VNet subnet space**
+
+**Azure LoadBalancer Types**:
+- **Internal LoadBalancer**: Uses private IP from VNet (user-specified subnet)
+- **External LoadBalancer**: Uses Azure public IP (external resource)
+
+**Important**: While internal load balancers use VNet IPs, they are **not** allocated from Node/Pod subnets. User specifies a separate subnet for load balancers (best practice).
+
+### IP Exhaustion Risk Analysis
+
+**AKS has NO IP exhaustion risk** due to overlay CIDR model:
+
+**Problem Scenario (Theoretical - Does NOT Apply to AKS)**:
+- If AKS used EKS's model: `/24` subnet (256 IPs) exhausted by 10 Nodes + 1,100 Pods = 1,110 IPs needed -> FAIL
+
+**AKS Reality (Overlay CIDR)**:
+- Node subnet: `/24` = 252 usable IPs for Nodes
+- Pod overlay: `/16` = 65,536 IPs for Pods (separate CIDR)
+- **No competition**: Nodes and Pods use different IP spaces
+- **Result**: `/24` Node subnet + `/16` Pod CIDR = 10 Nodes + 27,720 Pods -> SUCCESS
+
+**Hyperscale Tier IP Exhaustion Risk (AKS)**:
+- Node subnet: `/18` = 16,380 IPs for Nodes
+- Pod overlay: `/13` = 524,288 IPs for Pods (AKS limit: 200,000)
+- 5,000 nodes + 200,000 pods = **NO RISK**
+- Pod overlay can scale independently of VNet
+
+### Comparison to EKS and GKE
+
+| Component | EKS (VPC CNI) | GKE (Alias IP) | AKS (CNI Overlay) |
+|---|---|---|---|
+| **Node IPs** | VPC subnet (1 IP/node) | VPC subnet (1 IP/node) | VNet subnet (1 IP/node) |
+| **Pod IPs** | Same VPC subnet (secondary IPs) | Alias ranges (Google-managed) | Overlay CIDR (separate) |
+| **Service IPs** | Separate virtual range | Separate virtual range | Separate virtual range |
+| **LoadBalancer IPs** | External AWS resources | External Google Cloud LB | External Azure LB |
+| **IP Exhaustion Risk** | **HIGH** (Pods compete with Nodes) | **LOW** (Google manages) | **NONE** (Pods separate) |
+| **VNet IP Consumption** | 5K Nodes + 550K Pods = 555K IPs | 5K Nodes = 5K IPs (Pods separate) | 5K Nodes = 5K IPs (Pods separate) |
+
+### Key Takeaways for AKS
+
+1. **NO IP Exhaustion Risk**: Overlay CIDR eliminates VNet IP competition entirely
+2. **Simple Node Subnet Sizing**: Only need to account for Node count (1 IP per Node)
+3. **Independent Pod Scaling**: Pod CIDR can be sized independently of VNet
+4. **200K Pod Limit**: AKS enforces 200,000 pods per cluster (regardless of IP space)
+5. **Multi-Node Pool Support**: 5,000 nodes require 5-10 node pools (1,000 nodes per pool max)
+6. **Service CIDR**: Virtual IPs only, do NOT consume VNet space
+7. **LoadBalancers**: External resources, do NOT consume VNet space (except internal LBs use separate subnet)
+
+**Cross-Reference**: For detailed comparison of IPv4 allocation across all three platforms, see [IP_ALLOCATION_CROSS_REFERENCE.md](IP_ALLOCATION_CROSS_REFERENCE.md).
 
 ---
 
@@ -37,19 +306,17 @@ The Kubernetes Network Planning API has been validated against Microsoft Azure K
 - Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
 - Offset for private subnets = number of public subnets
 
-**Example (Hyperscale tier with VPC 10.0.0.0/16, /19 subnets)**:
+**Example (Hyperscale tier with VPC 10.0.0.0/18, differentiated sizes)**:
 ```
-Public subnets (offset=0):
-  public-1: 10.0.0.0/19   (10.0.0.0 - 10.0.31.255)
-  public-2: 10.0.32.0/19  (10.0.32.0 - 10.0.63.255)
-  ...
-  public-8: 10.0.224.0/19 (10.0.224.0 - 10.0.255.255)
+Public subnets (offset=0, /23 each):
+  public-1: 10.0.0.0/23   (10.0.0.0 - 10.0.1.255)   [512 IPs]
+  public-2: 10.0.2.0/23   (10.0.2.0 - 10.0.3.255)   [512 IPs]
+  public-3: 10.0.4.0/23   (10.0.4.0 - 10.0.5.255)   [512 IPs]
 
-Private subnets (offset=8):
-  private-1: 10.1.0.0/19   (10.1.0.0 - 10.1.31.255)   [PASS] No overlap
-  private-2: 10.1.32.0/19  (10.1.32.0 - 10.1.63.255)  [PASS] No overlap
-  ...
-  private-8: 10.1.224.0/19 (10.1.224.0 - 10.1.255.255) [PASS] No overlap
+Private subnets (offset=3, /20 each):
+  private-1: 10.0.16.0/20  (10.0.16.0 - 10.0.31.255)  [4,096 IPs] [PASS] No overlap
+  private-2: 10.0.32.0/20  (10.0.32.0 - 10.0.47.255)  [4,096 IPs] [PASS] No overlap
+  private-3: 10.0.48.0/20  (10.0.48.0 - 10.0.63.255)  [4,096 IPs] [PASS] No overlap
 ```
 
 **Test Coverage**:
@@ -74,7 +341,7 @@ Based on Microsoft Azure AKS documentation:
 | **Max Nodes per Node Pool** | 1,000 nodes | 1,000 nodes (suggest 5 pools for 5K) |  Supported |
 | **Max Node Pools** | 100 pools | Supports multiple pools |  Compliant |
 | **Max Pods per Node** | 250 pods (max) | 110 default, 250 with Azure CNI |  Supported |
-| **Primary Subnet** | VNet subnet required | /19 hyperscale |  Compliant |
+| **Primary Subnet** | VNet subnet required | /20 × 3 hyperscale |  Compliant |
 | **Pod CIDR** | CNI secondary range | /13 hyperscale |  Compliant |
 | **Service CIDR** | Typically /16-/20 | /16 all tiers |  Over-provisioned |
 
@@ -100,6 +367,90 @@ Based on Microsoft Azure AKS documentation:
 | Professional | 3-10 | ~1,100-3,300 | Standard |
 | Enterprise | 10-50 | ~3,300-16,500 | Standard |
 | Hyperscale | 50-5000 | ~55,000-260,000 | Standard/Premium |
+
+---
+
+## 2.1. Azure NAT Gateway & Outbound Connectivity
+
+### Overview
+
+**Azure NAT Gateway** provides outbound internet connectivity for private AKS nodes and pods without exposing them to inbound traffic.
+
+### SNAT Port Allocation Formula
+
+**Adapted for Azure**:
+```
+NAT Gateway IPs needed = ((# of instances) × (Ports / Instance)) / 64,000
+```
+
+**Azure NAT Gateway Limits**:
+- **64,000 SNAT ports per IP** (configurable 1,024-64,000)
+- **16 public IPs max per NAT Gateway**
+- **1,024,000 total ports** per gateway (16 × 64,000)
+- **No bandwidth limit** (Standard Public IP SKU)
+
+### Hyperscale Tier Examples (5,000 Nodes)
+
+**Scenario 1: Standard Workload (128 ports/node)**
+```
+5,000 nodes × 128 ports = 640,000 ports
+640,000 / 64,000 = 10 IPs
+1 NAT Gateway (below 16 IP limit)
+```
+
+**Scenario 2: High Connections (1,024 ports/node)**
+```
+5,000 nodes × 1,024 ports = 5,120,000 ports
+5,120,000 / 64,000 = 80 IPs
+80 / 16 = 5 NAT Gateways required
+```
+
+**Scenario 3: Maximum Single Gateway**
+```
+16 IPs × 64,000 ports = 1,024,000 ports total
+1,024,000 / 128 = 8,000 nodes (standard workload)
+1,024,000 / 1,024 = 1,000 nodes (high-connection workload)
+```
+
+### Token Bucket Throttling (API Rate Limiting)
+
+**Critical for 5,000-node clusters**:
+```
+PUT ManagedCluster: 20 burst, 1 req/min sustained
+PUT AgentPool:      20 burst, 1 req/min sustained
+
+Error: HTTP 429 (Too Many Requests)
+Header: Retry-After: <seconds>
+```
+
+**Scaling Best Practice**: Scale in batches of 500-700 nodes, wait 2-5 min between operations.
+
+### Azure NAT Gateway Quotas
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| NAT Gateways/region | 1,000 | Per subscription |
+| IPs/NAT Gateway | 16 | Hard limit |
+| Subnets/gateway | 800 | Multi-subnet support |
+| SNAT ports/IP | 64,000 | Configurable |
+| Idle timeout | 4-120 min | Configurable |
+
+### Load Balancer IP Consumption
+
+| LB Type | IP Consumption | VNet Impact |
+|---------|----------------|-------------|
+| **Azure LB (Public)** | Azure-managed public IP | [FAIL] NO |
+| **Azure LB (Internal)** | 1 IP from VNet subnet | [PASS] YES |
+| **Application Gateway** | 1 public + dedicated subnet | [PASS] YES (/24) |
+
+**Hyperscale Estimate** (5,000 nodes):
+- NAT Gateways: 3-5 gateways × 16 IPs = 48-80 Azure IPs (no VNet impact)
+- Public Load Balancers: ~20 services = Azure IPs (no VNet impact)
+- Internal Load Balancers: ~10 services = 10 VNet IPs
+- Application Gateways: ~2 × 256 IPs = 512 VNet IPs (dedicated subnets)
+- **Total VNet IPs**: 5,000 (nodes) + 522 (LBs+AppGW) = **~5,522 IPs**
+
+**Note**: Pods use overlay CIDR (10.244.0.0/16), no VNet consumption.
 
 ---
 
@@ -524,8 +875,9 @@ All AKS clusters **must** use RFC 1918 address ranges:
 
 ```
 Hyperscale Tier Allocation:
-VNet: 10.0.0.0/16 (65,536 addresses)
-├─ Node Subnet: 10.0.0.0/19 (8,192 for 5,000 nodes)
+VNet: 10.0.0.0/18 (16,384 addresses)
+├─ Public Subnets: 3 × /23 (1,536 total for LBs, NAT gateways)
+├─ Node Subnets: 3 × /20 (12,288 total for 5,000 nodes across 3 AZs)
 ├─ Pod Overlay: 10.100.0.0/13 (524,288 addresses)
 └─ Service CIDR: 10.1.0.0/16 (65,536 addresses)
 ```
@@ -555,7 +907,7 @@ VNet: 10.0.0.0/16 (65,536 addresses)
 | Standard | 1-2 AZs (dual HA) |
 | Professional | 2-3 AZs (zone redundancy) |
 | Enterprise | 3 AZs (maximum redundancy) |
-| Hyperscale | 3+ AZs (across regions if needed) |
+| Hyperscale | 3 AZs (zone redundancy) |
 
 ### Node Pool Distribution
 
@@ -740,10 +1092,12 @@ on_tick(time):
 Node_Capacity = 2^(32 - subnet_prefix) - 4
 
 Examples:
-/25 = 2^7 - 4 = 124 nodes
-/24 = 2^8 - 4 = 252 nodes
-/23 = 2^9 - 4 = 508 nodes
-/19 = 2^13 - 4 = 8,188 nodes (full capacity)
+/26 = 2^6 - 4 = 60 nodes (micro public)
+/25 = 2^7 - 4 = 124 nodes (micro private)
+/24 = 2^8 - 4 = 252 nodes (standard private)
+/23 = 2^9 - 4 = 508 nodes (professional/enterprise)
+/21 = 2^11 - 4 = 2,044 nodes (enterprise private)
+/20 = 2^12 - 4 = 4,092 nodes (hyperscale private)
 ```
 
 ### 3. Pod CIDR Space (Overlay Model)
@@ -866,11 +1220,18 @@ Max_Services = 300 per cluster (hard load balancer limit)
 
 ### No Configuration Changes Needed
 
-Azure AKS implementation already optimal:
-- Hyperscale tier with `/19` supports full 5,000-node clusters
+Azure AKS implementation is optimized for realistic deployments:
+- Hyperscale tier with 3 × `/20` private subnets supports 5,000-node clusters
 - Pod CIDR `/13` supports 200K+ pods (AKS overlay limit)
 - Service CIDR `/16` provides ample space
 - All tier configurations validated for Azure compatibility
+
+**Current Tier Configuration Summary:**
+- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC
+- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC
+- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC
+- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
 
 ---
 
@@ -878,9 +1239,10 @@ Azure AKS implementation already optimal:
 
 **Documentation Files Created/Updated**:
 
-1. **AKS_COMPLIANCE_AUDIT.md** (NEW)
+1. **AKS_COMPLIANCE_AUDIT.md** (UPDATED February 4, 2026)
    - This comprehensive audit document
    - 16 sections covering all aspects
+   - Updated with differentiated public/private subnet sizes
    - Ready for reference in Azure documentation
 
 2. **.github/copilot-instructions.md** (UPDATE PENDING)
@@ -893,6 +1255,81 @@ Azure AKS implementation already optimal:
 3. **shared/kubernetes-schema.ts** (NO CHANGES NEEDED)
    - Configuration already AKS-compliant
    - All tiers support Azure requirements
+
+---
+
+## Optional Enhancements
+
+These optional configurations can improve scalability and observability for large-scale AKS deployments:
+
+### Azure NAT Gateway Scaling Considerations
+
+**Azure NAT Gateway Specifications** (Azure documentation):
+- **SNAT Port Allocation**: 64,512 ports per public IP address
+- **Port Allocation**: Dynamic, shared across all VMs in subnet
+- **Public IPs per NAT Gateway**: 1-16 public IPs (1,032,192 total ports max)
+- **Connection Limit**: 1 million concurrent connections per NAT Gateway
+- **Documentation**: [Azure NAT Gateway resource limits](https://learn.microsoft.com/en-us/azure/nat-gateway/nat-gateway-resource)
+
+**Scaling Recommendations**:
+1. **Hyperscale Tier (5000 nodes @ 200K pods)**:
+   - **NAT Gateway Configuration**:
+     - Attach NAT Gateway to all private subnets (8 subnets)
+     - Allocate 4-8 public IPs per NAT Gateway (256K-512K ports)
+     - Monitor SNAT port usage with Azure Monitor
+   - **Monitoring**:
+     ```bash
+     az monitor metrics list \
+       --resource <nat-gateway-resource-id> \
+       --metric "SNATConnectionCount" \
+       --aggregation Average
+     ```
+
+2. **Enterprise Tier (50 nodes)**:
+   - Single public IP per NAT Gateway sufficient
+   - 64,512 ports supports ~10K concurrent connections
+   - Standard SKU (default)
+
+3. **Monitoring**:
+   - Metric: `SNATConnectionCount` (active connections)
+   - Metric: `ByteCount` (throughput)
+   - Alert on: `SNATConnectionCount > 50000` (port exhaustion warning)
+
+### Azure Load Balancer Integration
+
+**AKS Load Balancer Options**:
+- **Azure Load Balancer Standard**: Layer 4, Service type LoadBalancer
+- **Azure Application Gateway**: Layer 7, Ingress controller (AGIC)
+- **Internal Load Balancer**: Private subnet traffic only
+
+**Subnet Requirements** (from AKS documentation):
+- **Primary Subnet (Nodes)**: Must support all node IPs
+- **Pod Overlay CIDR**: Separate range (10.244.0.0/16 default for kubenet)
+- **Service CIDR**: 10.0.0.0/16 default (internal cluster networking)
+- **Load Balancer IPs**: Allocated from Azure public IP pool or private subnet
+
+**Azure CNI Overlay** (recommended for large clusters):
+- Separates pod IPs from VNet (no VNet IP exhaustion)
+- Supports 200,000 pods per cluster (vs 50K for direct CNI)
+- Nodes use VNet IPs, pods use overlay network
+- Better scalability for hyperscale deployments
+
+### Official Documentation References
+
+**AKS Networking**:
+- [AKS Network Concepts](https://learn.microsoft.com/en-us/azure/aks/concepts-network)
+- [Azure CNI Overlay](https://learn.microsoft.com/en-us/azure/aks/azure-cni-overlay)
+- [AKS Network Planning](https://learn.microsoft.com/en-us/azure/aks/configure-azure-cni)
+
+**Azure Virtual Network**:
+- [Azure NAT Gateway](https://learn.microsoft.com/en-us/azure/nat-gateway/nat-overview)
+- [NAT Gateway Metrics and Alerts](https://learn.microsoft.com/en-us/azure/nat-gateway/nat-metrics)
+- [VNet Quotas and Limits](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#networking-limits)
+
+**AKS Best Practices**:
+- [AKS Baseline Architecture](https://learn.microsoft.com/en-us/azure/architecture/reference-architectures/containers/aks/baseline-aks)
+- [AKS Network Best Practices](https://learn.microsoft.com/en-us/azure/aks/operator-best-practices-network)
+- [Azure Well-Architected Framework - AKS](https://learn.microsoft.com/en-us/azure/well-architected/service-guides/azure-kubernetes-service)
 
 ---
 
@@ -912,5 +1349,5 @@ Azure AKS implementation already optimal:
 ---
 
 **Document Status**: Complete and ready for reference  
-**Last Updated**: February 1, 2026  
+**Last Updated**: February 4, 2026  
 **Compliance Level**: Production Ready 

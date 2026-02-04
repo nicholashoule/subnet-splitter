@@ -2,7 +2,23 @@
  * shared/kubernetes-schema.ts
  * 
  * Schema definitions for Kubernetes network planning API
- * Supports battle-tested configurations for EKS, GKE, and generic Kubernetes
+ * Supports battle-tested configurations for EKS, GKE, AKS, and generic Kubernetes
+ * 
+ * EKS VPC CNI Model:
+ * - Pods and Nodes share the same VPC CIDR space (AWS VPC CNI)
+ * - Each Pod gets a secondary private IP from the Node's ENI
+ * - Services use a separate virtual IP range (ClusterIP, internal routing only)
+ * - For high pod density (>100 pods/node), use /18 or /16 subnets to avoid IP exhaustion
+ * 
+ * GKE Alias IP Model:
+ * - Pods use alias IP ranges (automatic secondary ranges)
+ * - Nodes use primary VPC subnet IPs
+ * - Services use separate ClusterIP range
+ * 
+ * AKS CNI Overlay Model:
+ * - Pods use overlay CIDR (separate from VPC)
+ * - Nodes use VNet subnet IPs
+ * - Services use separate ClusterIP range
  */
 
 import { z } from "zod";
@@ -43,11 +59,54 @@ export function normalizeProvider(provider: Provider): "eks" | "gke" | "aks" | "
  */
 export const KubernetesNetworkPlanRequestSchema = z.object({
   deploymentSize: DeploymentSizeEnum.describe("Deployment tier: standard, professional, enterprise, hyperscale"),
-  provider: ProviderEnum.optional().default("kubernetes").describe("Cloud provider: eks, gke, or kubernetes"),
+  provider: ProviderEnum.optional().default("kubernetes").describe("Cloud provider: eks, gke, aks, or kubernetes"),
+  region: z.string().optional().describe("Cloud region/location (e.g., us-east-1 for AWS, us-central1 for GCP, eastus for Azure)"),
   vpcCidr: z.string().optional().describe("Optional VPC CIDR (e.g., 10.0.0.0/16). If not provided, random RFC 1918 will be generated"),
   deploymentName: z.string().optional().describe("Optional deployment name for reference")
 });
 export type KubernetesNetworkPlanRequest = z.infer<typeof KubernetesNetworkPlanRequestSchema>;
+
+/**
+ * Provider-specific region examples and naming conventions
+ * Each provider has different naming standards for regions and availability zones:
+ * 
+ * AWS (EKS):
+ *   - Region format: {continent}-{direction}-{number} (e.g., us-east-1, eu-west-2)
+ *   - AZ format: {region}{letter} (e.g., us-east-1a, us-east-1b) - NO hyphen before letter
+ *   - Up to 6 AZs per region
+ * 
+ * GCP (GKE):
+ *   - Region format: {continent}-{direction}{number} (e.g., us-central1, europe-west1) - NO hyphen before number
+ *   - Zone format: {region}-{letter} (e.g., us-central1-a, us-central1-b) - hyphen before letter
+ *   - Typically 3-4 zones per region
+ * 
+ * Azure (AKS):
+ *   - Region format: lowercase concatenated (e.g., eastus, westeurope, northcentralus) - NO separators
+ *   - AZ format: {region}-{number} (e.g., eastus-1, eastus-2) - numeric zones (1, 2, 3)
+ *   - Maximum 3 zones per region
+ */
+export const PROVIDER_REGION_EXAMPLES: Record<string, { regions: string[]; default: string; format: string }> = {
+  eks: {
+    regions: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "eu-central-1", "ap-southeast-1", "ap-northeast-1", "ap-south-1", "sa-east-1", "ca-central-1"],
+    default: "us-east-1",
+    format: "{region}{letter} (e.g., us-east-1a, us-east-1b, eu-west-1c)"
+  },
+  gke: {
+    regions: ["us-central1", "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "europe-west4", "asia-east1", "asia-southeast1", "asia-northeast1", "australia-southeast1"],
+    default: "us-central1",
+    format: "{region}-{letter} (e.g., us-central1-a, us-central1-b, europe-west1-c)"
+  },
+  aks: {
+    regions: ["eastus", "eastus2", "westus", "westus2", "westus3", "centralus", "northcentralus", "southcentralus", "northeurope", "westeurope", "uksouth", "southeastasia", "australiaeast", "japaneast"],
+    default: "eastus",
+    format: "{region}-{zone} (e.g., eastus-1, eastus-2, westeurope-3)"
+  },
+  kubernetes: {
+    regions: ["region-1", "datacenter-1", "zone-1"],
+    default: "region-1",
+    format: "zone-{n} (e.g., zone-1, zone-2)"
+  }
+};
 
 /**
  * Subnet configuration for VPC
@@ -75,6 +134,7 @@ export type NetworkRange = z.infer<typeof NetworkRangeSchema>;
 export const KubernetesNetworkPlanSchema = z.object({
   deploymentSize: DeploymentSizeEnum.describe("Deployment tier used for generation"),
   provider: ProviderEnum.describe("Cloud provider"),
+  region: z.string().optional().describe("Cloud region/location"),
   deploymentName: z.string().optional().describe("Reference name for this deployment"),
   vpc: z.object({
     cidr: z.string().describe("VPC CIDR block")
@@ -99,13 +159,20 @@ export type KubernetesNetworkPlan = z.infer<typeof KubernetesNetworkPlanSchema>;
 /**
  * Configuration for each deployment size tier
  * Defines subnet count, sizing, and IP space allocation
+ * 
+ * Design Principles:
+ * - Public subnets are for infrastructure (NAT, LB, Bastion) - need fewer IPs
+ * - Private subnets are for compute (Nodes) - need more IPs
+ * - Different sizes reflect real-world usage patterns
  */
 export interface DeploymentTierConfig {
   publicSubnets: number;
   privateSubnets: number;
-  subnetSize: number; // CIDR prefix (e.g., 24 for /24)
+  publicSubnetSize: number;   // CIDR prefix for public subnets (e.g., 25 for /25)
+  privateSubnetSize: number;  // CIDR prefix for private subnets (e.g., 20 for /20)
   podsPrefix: number;
   servicesPrefix: number;
+  minVpcPrefix: number;       // Minimum VPC prefix required (e.g., 18 for /18)
   description: string;
 }
 
@@ -113,41 +180,51 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
   micro: {
     publicSubnets: 1,
     privateSubnets: 1,
-    subnetSize: 25,      // /25 = 128 addresses per subnet
-    podsPrefix: 18,      // /18 for small clusters
-    servicesPrefix: 16,  // /16 for services
+    publicSubnetSize: 26,    // /26 = 64 addresses (plenty for 1 NAT + LB)
+    privateSubnetSize: 25,   // /25 = 128 addresses (1 node + pods)
+    podsPrefix: 18,          // /18 for small clusters
+    servicesPrefix: 16,      // /16 for services
+    minVpcPrefix: 24,        // Minimum /24 VPC
     description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   standard: {
     publicSubnets: 1,
     privateSubnets: 1,
-    subnetSize: 24,      // /24 = 256 addresses per subnet
-    podsPrefix: 16,      // /16 for pods
-    servicesPrefix: 16,  // /16 for services
+    publicSubnetSize: 25,    // /25 = 128 addresses
+    privateSubnetSize: 24,   // /24 = 256 addresses (1-3 nodes + pods)
+    podsPrefix: 16,          // /16 for pods
+    servicesPrefix: 16,      // /16 for services
+    minVpcPrefix: 23,        // Minimum /23 VPC
     description: "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   professional: {
     publicSubnets: 2,
     privateSubnets: 2,
-    subnetSize: 23,      // /23 = 512 addresses per subnet (better for HA)
+    publicSubnetSize: 25,    // /25 = 128 addresses per public subnet
+    privateSubnetSize: 23,   // /23 = 512 addresses per private subnet
     podsPrefix: 16,
     servicesPrefix: 16,
+    minVpcPrefix: 21,        // Minimum /21 VPC
     description: "Small Production: 3-10 nodes, dual AZ ready"
   },
   enterprise: {
     publicSubnets: 3,
     privateSubnets: 3,
-    subnetSize: 23,      // /23 subnets
+    publicSubnetSize: 24,    // /24 = 256 addresses per public subnet
+    privateSubnetSize: 21,   // /21 = 2048 addresses per private subnet
     podsPrefix: 16,
     servicesPrefix: 16,
+    minVpcPrefix: 18,        // Minimum /18 VPC
     description: "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   hyperscale: {
-    publicSubnets: 8,
-    privateSubnets: 8,
-    subnetSize: 19,      // /19 = 8192 addresses per subnet (GKE optimal for 5000+ nodes: 2^(32-19)-4 = 8188 nodes)
-    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes, supports 262K pods with /24 per node)
-    servicesPrefix: 16,  // /16 for 65K+ services (exceeds GKE /20 default)
-    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    publicSubnets: 3,        // 3 AZs (realistic for most regions)
+    privateSubnets: 3,       // 3 AZs
+    publicSubnetSize: 23,    // /23 = 512 addresses per public subnet (NAT, LB, Bastion)
+    privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (high node density)
+    podsPrefix: 13,          // /13 for massive pod IP space
+    servicesPrefix: 16,      // /16 for 65K+ services
+    minVpcPrefix: 18,        // Minimum /18 VPC (fits 3×/23 + 3×/20 = 13,824 IPs)
+    description: "Global Scale: 50-500 nodes per VPC, 3 AZs, high pod density (use multi-VPC for 500+ nodes)"
   }
 };

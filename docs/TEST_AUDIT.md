@@ -1,12 +1,12 @@
-# Test Suite Audit - February 2, 2026
+# Test Suite Audit - February 4, 2026
 
 ## Executive Summary
 
-**Current State**: 315 tests across 12 test files (4,225 lines of test code)  
-**Status**: All tests passing (consolidated from 338 tests, -23 tests)  
-**Assessment**: **A-** - Test suite is healthy with bloat successfully reduced from swagger-ui-theming.test.ts  
-**Execution Time**: ~3.2 seconds total  
-**Pass Rate**: 100% (315/315)
+**Current State**: 371 tests across 13 test files  
+**Status**: All tests passing  
+**Assessment**: **A** - Test suite is healthy with comprehensive tier configuration testing  
+**Execution Time**: ~3.5 seconds total  
+**Pass Rate**: 100% (371/371)
 
 ---
 
@@ -20,7 +20,7 @@
 | [calculator-ui.test.ts](#calculator-uits) | 31 | 364 | React component behavior | [PASS] Keep as-is |
 | [config.test.ts](#configts) | 8 | 98 | Configuration validation | [PASS] Keep as-is |
 | [csp-violation-endpoint.test.ts](#csp-violation-endpointts) | 12 | 351 | CSP security endpoint | [PASS] Keep as-is |
-| [kubernetes-network-api.test.ts](#kubernetes-network-apits) | 33 | 466 | K8s API integration | [PASS] Keep as-is |
+| [kubernetes-network-api.test.ts](#kubernetes-network-apits) | 89 | 900+ | K8s API integration | [PASS] EXPANDED with tier tests |
 | [rate-limiting.test.ts](#rate-limitingts) | 23 | 281 | Security middleware | [PASS] Keep as-is |
 | [swagger-ui-csp-middleware.test.ts](#swagger-ui-csp-middlewarets) | 18 | 301 | CSP middleware | [PASS] Keep as-is |
 | [swagger-ui-theming.test.ts](#swagger-ui-themingts) | 12 | 175 | Swagger UI themes | [PASS] CONSOLIDATED from 35 |
@@ -34,7 +34,7 @@
 | [kubernetes-network-generator.test.ts](#kubernetes-network-generatorts) | 57 | 623 | K8s network logic | [PASS] Keep as-is |
 | [subnet-utils.test.ts](#subnet-utilsts) | 53 | 462 | Core utilities | [PASS] Keep as-is |
 
-**Total**: 315 tests, 4,225 lines across 12 files
+**Total**: 371 tests across 13 files
 
 ---
 
@@ -529,7 +529,7 @@ The test suite is **generally healthy** but has **moderate bloat** in Swagger UI
 |--------|-------|-------|
 | **Average Lines/Test** | 13.4 | [PASS] A |
 | **Execution Time** | 3.2 seconds | [PASS] A+ |
-| **Pass Rate** | 100% (315/315) | [PASS] A+ |
+| **Pass Rate** | 100% (371/371) | [PASS] A+ |
 | **Test Organization** | 3 categories (unit/integration/manual) | [PASS] A |
 | **Documentation** | Comprehensive README + this audit | [PASS] A |
 | **Bloat Reduction** | -7% (23 tests removed) | [PASS] A |
@@ -636,7 +636,7 @@ After comprehensive analysis of all 12 test files:
 
 ### ~~Priority 1: Fix Failing Tests~~ [COMPLETED]
 - [PASS] **csp-violation-endpoint.test.ts**: Fixed content-length header and empty payload bugs
-- [PASS] **Impact**: All 315 tests passing (100%)
+- [PASS] **Impact**: All 371 tests passing (100%)
 
 ### ~~Priority 2: Reduce swagger-ui-theming.test.ts Bloat~~ [COMPLETED]
 - [PASS] **Before**: 493 lines, 35 tests
@@ -661,9 +661,9 @@ After comprehensive analysis of all 12 test files:
 | Category | Before | After | Change | Grade |
 |----------|--------|-------|--------|-------|
 | Unit | 121 | 121 | 0 | [PASS] A |
-| Integration | 217 | 194 | -23 | [PASS] A |
+| Integration | 194 | 250 | +56 | [PASS] A |
 | Manual | 2 scripts | 2 scripts | 0 | [PASS] A |
-| **Total Tests** | **338** | **315** | **-23 (-7%)** | **A-** |
+| **Total Tests** | **315** | **371** | **+56 (+18%)** | **A** |
 
 **Lines of Code**:
 - Before: 4,543 lines
@@ -682,26 +682,27 @@ After comprehensive analysis of all 12 test files:
 
 ## Conclusion
 
-**Final Assessment**: **A-** - Test suite is healthy, efficient, and well-organized
+**Final Assessment**: **A** - Test suite is healthy with comprehensive tier configuration testing
 
 ### What Changed:
-1. [PASS] **Consolidated swagger-ui-theming.test.ts**: 35 -> 12 tests (-66%)
-2. [PASS] **Fixed failing tests**: csp-violation-endpoint.test.ts bugs resolved
-3. [PASS] **Documented server requirements**: Clear distinction between self-contained and webapp-dependent tests
-4. [PASS] **Validated all files**: Comprehensive analysis of 12/12 test files
-5. [PASS] **Created this audit**: Complete documentation of test suite health
+1. [PASS] **Added comprehensive tier configuration tests**: 56 new tests for differentiated subnet sizing
+2. [PASS] **Consolidated swagger-ui-theming.test.ts**: 35 -> 12 tests (-66%)
+3. [PASS] **Fixed failing tests**: csp-violation-endpoint.test.ts bugs resolved
+4. [PASS] **Documented server requirements**: Clear distinction between self-contained and webapp-dependent tests
+5. [PASS] **Validated all files**: Comprehensive analysis of 12/12 test files
+6. [PASS] **Created this audit**: Complete documentation of test suite health
 
 ### What Stayed the Same:
-- [PASS] **11 test files unchanged**: All justified and efficient
+- [PASS] **12 test files validated**: All justified and efficient
 - [PASS] **Core coverage maintained**: Business logic, security, API fully tested
 - [PASS] **Test organization validated**: Unit/integration/manual structure is correct
 
 ### Key Metrics:
-- **Total Tests**: 315 (consolidated from 338, -7%)
-- **Pass Rate**: 100% (315/315 passing)
-- **Execution Time**: ~3.2 seconds
+- **Total Tests**: 371 (expanded from 315, +18%)
+- **Pass Rate**: 100% (371/371 passing)
+- **Execution Time**: ~3.5 seconds
 - **Average Lines/Test**: 13.4 (efficient)
-- **Bloat Reduction**: 23 tests removed (-66% from problematic file)
+- **Tier Coverage**: All 5 tiers with differentiated public/private subnet sizes
 
 ### Impact of Optimization:
 - [PASS] Faster test execution

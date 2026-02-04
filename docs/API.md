@@ -199,42 +199,52 @@ Get information about all deployment tiers and their configurations.
   "micro": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 25,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
     "podsPrefix": 18,
     "servicesPrefix": 16,
+    "minVpcPrefix": 24,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 23,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 21,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
   },
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 18,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 8,
-    "privateSubnets": 8,
-    "subnetSize": 19,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
     "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    "minVpcPrefix": 18,
+    "description": "Global Scale: 50-5000 nodes, 3 AZ deployment, realistic subnet sizing"
   }
 }
 ```
@@ -352,11 +362,13 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ```typescript
 {
-  publicSubnets: number,            // Count of public subnets
-  privateSubnets: number,           // Count of private subnets
-  subnetSize: number,               // CIDR prefix (e.g., 24 for /24)
+  publicSubnets: number,            // Count of public subnets (1-3 AZs)
+  privateSubnets: number,           // Count of private subnets (1-3 AZs)
+  publicSubnetSize: number,         // Public subnet CIDR prefix (e.g., 23 for /23)
+  privateSubnetSize: number,        // Private subnet CIDR prefix (e.g., 20 for /20)
   podsPrefix: number,               // Pod CIDR prefix (e.g., 16 for /16)
   servicesPrefix: number,           // Service CIDR prefix (e.g., 16 for /16)
+  minVpcPrefix: number,             // Minimum VPC size required (e.g., 18 for /18)
   description: string               // Tier description
 }
 ```
@@ -374,42 +386,52 @@ curl http://localhost:5000/api/kubernetes/tiers
   "micro": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 25,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
     "podsPrefix": 18,
     "servicesPrefix": 16,
+    "minVpcPrefix": 24,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 23,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 21,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
   },
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 18,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 8,
-    "privateSubnets": 8,
-    "subnetSize": 19,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
     "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    "minVpcPrefix": 18,
+    "description": "Global Scale: 50-5000 nodes, 3 AZ deployment, realistic subnet sizing"
   }
 }
 ```
@@ -426,13 +448,13 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 
 ### Tier Summary
 
-| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Pod CIDR | Service CIDR | Multi-AZ | Use Case |
-|------|-------|----------------|-----------------|-------------|----------|--------------|----------|----------|
-| **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | No | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /24 (256 IPs) | /16 | /16 | No | Dev/Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 (512 IPs) | /16 | /16 | Dual AZ | Small Production |
-| **Enterprise** | 10-50 | 3 | 3 | /23 (512 IPs) | /16 | /16 | Triple AZ | Large Production |
-| **Hyperscale** | 50-5000 | 8 | 8 | /19 (8,192 IPs) | /13 | /16 | Multi-Region | Global Scale |
+| Tier | Nodes | AZs | Public Subnet | Private Subnet | Pod CIDR | Min VPC | Use Case |
+|------|-------|-----|---------------|----------------|----------|---------|----------|
+| **Micro** | 1 | 1 | /26 (64 IPs) | /25 (128 IPs) | /18 | /24 | POC, Development |
+| **Standard** | 1-3 | 1 | /25 (128 IPs) | /24 (256 IPs) | /16 | /23 | Dev/Testing |
+| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /16 | /21 | Small Production |
+| **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /18 | Large Production |
+| **Hyperscale** | 50-5000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 | Global Scale |
 
 ### Tier Validation Status
 
@@ -444,21 +466,28 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 - Multi-AZ availability requirements
 - Network performance best practices
 
-| Tier | Nodes | Public | Private | Subnet | Pods | Services | Use Case |
-|------|-------|--------|---------|--------|------|----------|----------|
-| **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /24 (256 IPs) | /16 | /16 | Development, Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 (512 IPs) | /16 | /16 | Small Production (HA) |
-| **Enterprise** | 10-50 | 3 | 3 | /23 (512 IPs) | /16 | /16 | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 8 | 8 | /19 (8,192 IPs) | /13 | /16 | Global Scale (EKS/GKE max) |
+| Tier | Nodes | AZs | Public Subnet | Private Subnet | Pods | Min VPC | Use Case |
+|------|-------|-----|---------------|----------------|------|---------|----------|
+| **Micro** | 1 | 1 | /26 (64 IPs) | /25 (128 IPs) | /18 | /24 | POC, Development |
+| **Standard** | 1-3 | 1 | /25 (128 IPs) | /24 (256 IPs) | /16 | /23 | Development, Testing |
+| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /16 | /21 | Small Production (HA) |
+| **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /18 | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 | Global Scale (3-AZ HA) |
 
 ### Tier Selection Guide
 
-- **Micro**: Single-node clusters for testing and proof-of-concept
-- **Standard**: Development and testing environments with minimal infrastructure
-- **Professional**: Small production deployments requiring high availability (2 AZs)
-- **Enterprise**: Large production deployments with guaranteed multi-AZ deployment (3 AZs)
-- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes (EKS/GKE maximum)
+- **Micro**: Single-node clusters for testing and proof-of-concept (fits in /24 VPC)
+- **Standard**: Development and testing environments with minimal infrastructure (fits in /23 VPC)
+- **Professional**: Small production deployments requiring high availability (2 AZs, fits in /21 VPC)
+- **Enterprise**: Large production deployments with guaranteed multi-AZ deployment (3 AZs, fits in /18 VPC)
+- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes with realistic subnet sizing (3 AZs, fits in /18 VPC)
+
+### Design Rationale
+
+**Why differentiated subnet sizes?**
+- **Public subnets** only need IPs for: NAT Gateways (1/AZ), Load Balancers, Bastion hosts
+- **Private subnets** need IPs for: Worker Nodes AND their Pod secondary IPs (EKS VPC CNI model)
+- Real-world deployments use smaller public subnets (/23-/26) and larger private subnets (/20-/24)
 
 ---
 
@@ -472,6 +501,206 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 | **GKE** |  Supported | 5,000 (Autopilot) | 200,000 cluster limit | Google Cloud |
 | **AKS** |  Supported | 5,000 | 200,000 (CNI Overlay) | Azure cloud |
 | **Kubernetes** |  Supported | Unlimited | Unlimited | Self-hosted, on-premises, alternative clouds |
+
+---
+
+## Region and Availability Zone Standards
+
+### Overview
+
+Each cloud provider uses different naming conventions for regions and availability zones. Our API automatically applies the correct format based on the selected provider.
+
+### AWS (EKS)
+
+**Region Format:** `{continent}-{direction}-{number}`
+- Regions use hyphens to separate all components
+- Examples: `us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`
+
+**Availability Zone Format:** `{region}{letter}`
+- AZs append a letter directly to the region (no hyphen)
+- Examples: `us-east-1a`, `us-east-1b`, `us-west-2c`, `eu-west-1a`
+
+**Common AWS Regions:**
+
+| Region Code | Location | AZ Count |
+|-------------|----------|----------|
+| `us-east-1` | N. Virginia | 6 |
+| `us-east-2` | Ohio | 3 |
+| `us-west-1` | N. California | 2 |
+| `us-west-2` | Oregon | 4 |
+| `eu-west-1` | Ireland | 3 |
+| `eu-central-1` | Frankfurt | 3 |
+| `ap-southeast-1` | Singapore | 3 |
+| `ap-northeast-1` | Tokyo | 3 |
+
+**Default Region:** `us-east-1` (if not specified)
+
+### GCP (GKE)
+
+**Region Format:** `{continent}-{direction}{number}` (NO hyphen before number)
+- Key difference from AWS: no hyphen between direction and number
+- Examples: `us-central1`, `us-east1`, `europe-west1`, `asia-east1`
+
+**Zone Format:** `{region}-{letter}`
+- Zones add a hyphen and letter after the region
+- Examples: `us-central1-a`, `us-central1-b`, `europe-west1-c`
+
+**Common GCP Regions:**
+
+| Region Code | Location | Zone Count |
+|-------------|----------|------------|
+| `us-central1` | Iowa | 4 |
+| `us-east1` | South Carolina | 4 |
+| `us-west1` | Oregon | 3 |
+| `europe-west1` | Belgium | 3 |
+| `europe-west4` | Netherlands | 3 |
+| `asia-east1` | Taiwan | 3 |
+| `asia-southeast1` | Singapore | 3 |
+| `australia-southeast1` | Sydney | 3 |
+
+**Default Region:** `us-central1` (if not specified)
+
+### Azure (AKS)
+
+**Region Format:** Lowercase concatenated (NO separators)
+- Azure uses simple concatenated names without hyphens
+- Examples: `eastus`, `westus2`, `northeurope`, `southeastasia`
+
+**Availability Zone Format:** `{region}-{number}` (numeric zones)
+- Azure uses numeric zone identifiers (1, 2, 3)
+- Examples: `eastus-1`, `eastus-2`, `westeurope-1`
+- Note: Zone numbers are logical (mapped per subscription)
+
+**Common Azure Regions:**
+
+| Region Code | Location | AZ Support |
+|-------------|----------|------------|
+| `eastus` | Virginia | Yes (1,2,3) |
+| `eastus2` | Virginia | Yes (1,2,3) |
+| `westus2` | Washington | Yes (1,2,3) |
+| `westus3` | Arizona | Yes (1,2,3) |
+| `centralus` | Iowa | Yes (1,2,3) |
+| `northeurope` | Ireland | Yes (1,2,3) |
+| `westeurope` | Netherlands | Yes (1,2,3) |
+| `southeastasia` | Singapore | Yes (1,2,3) |
+| `australiaeast` | Sydney | Yes (1,2,3) |
+
+**Default Region:** `eastus` (if not specified)
+
+### Generic Kubernetes
+
+**Region Format:** User-defined or generic
+- Default: `region-1`, `datacenter-1`
+
+**Zone Format:** `zone-{number}`
+- Default: `zone-1`, `zone-2`, `zone-3`
+
+**Default Region:** `region-1` (if not specified)
+
+### API Usage
+
+**Specifying a Region:**
+
+```bash
+# AWS EKS with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "eks",
+    "region": "us-west-2",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+
+# GCP GKE with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "gke",
+    "region": "europe-west1",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+
+# Azure AKS with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "aks",
+    "region": "westeurope",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+```
+
+**Example Response (EKS us-west-2):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "eks",
+  "region": "us-west-2",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "us-west-2a" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "us-west-2b" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "us-west-2c" }
+    ],
+    "private": [
+      { "cidr": "10.0.3.0/21", "name": "private-1", "type": "private", "availabilityZone": "us-west-2a" },
+      { "cidr": "10.0.11.0/21", "name": "private-2", "type": "private", "availabilityZone": "us-west-2b" },
+      { "cidr": "10.0.19.0/21", "name": "private-3", "type": "private", "availabilityZone": "us-west-2c" }
+    ]
+  }
+}
+```
+
+**Example Response (GKE europe-west1):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "gke",
+  "region": "europe-west1",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "europe-west1-a" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "europe-west1-b" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "europe-west1-c" }
+    ],
+    "private": [...]
+  }
+}
+```
+
+**Example Response (AKS westeurope):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "aks",
+  "region": "westeurope",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "westeurope-1" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "westeurope-2" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "westeurope-3" }
+    ],
+    "private": [...]
+  }
+}
+```
+
+### Naming Convention Summary
+
+| Provider | Region Example | AZ Example | Key Difference |
+|----------|----------------|------------|----------------|
+| **AWS (EKS)** | `us-east-1` | `us-east-1a` | Hyphens everywhere, letter suffix |
+| **GCP (GKE)** | `us-central1` | `us-central1-a` | No hyphen before number |
+| **Azure (AKS)** | `eastus` | `eastus-1` | No separators, numeric zones |
+| **Kubernetes** | `region-1` | `zone-1` | Generic naming |
+
+---
 
 ### Provider-Specific Features
 
@@ -710,18 +939,23 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   }'
 ```
 
-### Example 3: Global-Scale Self-Hosted Kubernetes
+### Example 3: Global-Scale Kubernetes (Realistic Hyperscale)
 
 ```bash
 curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   -H "Content-Type: application/json" \
   -d '{
     "deploymentSize": "hyperscale",
-    "provider": "kubernetes",
-    "vpcCidr": "172.16.0.0/12",
-    "deploymentName": "global-mesh"
+    "provider": "eks",
+    "vpcCidr": "10.42.192.0/18",
+    "deploymentName": "prod-us-east-1"
   }'
 ```
+
+**This generates:**
+- 3 public subnets at /23 (512 IPs each) for NAT/LB
+- 3 private subnets at /20 (4,096 IPs each) for nodes
+- Total: 13,824 IPs fitting comfortably in a /18 VPC
 
 ### Example 4: Multi-Region Deployment
 
