@@ -780,8 +780,8 @@ export default function Calculator() {
           </Card>
         )}
       </div>
-
-      <footer className="border-t border-border bg-muted/30 -mx-6 px-6 py-8 text-center text-sm text-muted-foreground space-y-3">
+      
+      <footer className="border-t border-border bg-muted/30 px-6 py-8 text-center text-sm text-muted-foreground space-y-3">
         <p className="max-w-2xl mx-auto leading-relaxed">
           CIDR (Classless Inter-Domain Routing) allows flexible IP allocation. Split subnets to create smaller network segments for better organization, efficient management, and improved security through network isolation.
         </p>

@@ -274,9 +274,6 @@ describe("IP Calculation Compliance Validation", () => {
       it("should have sufficient pod space for hyperscale tier (5000 nodes, 110 pods)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const podAddresses = calculateTotalAddresses(config.podsPrefix);
-        const maxNodes = 5000;
-        const podsPerNode = 110;
-        const requiredPodIPs = maxNodes * podsPerNode; // 550,000
 
         // /13 = 524,288 addresses
         expect(podAddresses).toBe(524288);
