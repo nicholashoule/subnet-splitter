@@ -33,7 +33,9 @@ describe("CSP Violation Endpoint Integration", () => {
   beforeAll(async () => {
     // Create test server with CSP violation endpoint (development mode)
     app = express();
-    app.use(express.json());
+    // Parse JSON bodies for application/json and application/csp-report
+    // This matches production configuration to accurately test browser behavior
+    app.use(express.json({ type: ['application/json', 'application/csp-report'] }));
     httpServer = createServer(app);
 
     // Mock logger to capture violations
