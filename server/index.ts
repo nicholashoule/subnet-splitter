@@ -92,7 +92,9 @@ if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
   app.set('trust proxy', trustProxyConfig.split(',').map(ip => ip.trim()));
 }
 
-app.use(express.json());
+// Parse JSON bodies for application/json and application/csp-report
+// Browsers send CSP violation reports with Content-Type: application/csp-report per W3C spec
+app.use(express.json({ type: ['application/json', 'application/csp-report'] }));
 
 app.use(express.urlencoded({ extended: false }));
 
