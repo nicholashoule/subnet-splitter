@@ -2,7 +2,23 @@
  * shared/kubernetes-schema.ts
  * 
  * Schema definitions for Kubernetes network planning API
- * Supports battle-tested configurations for EKS, GKE, and generic Kubernetes
+ * Supports battle-tested configurations for EKS, GKE, AKS, and generic Kubernetes
+ * 
+ * EKS VPC CNI Model:
+ * - Pods and Nodes share the same VPC CIDR space (AWS VPC CNI)
+ * - Each Pod gets a secondary private IP from the Node's ENI
+ * - Services use a separate virtual IP range (ClusterIP, internal routing only)
+ * - For high pod density (>100 pods/node), use /18 or /16 subnets to avoid IP exhaustion
+ * 
+ * GKE Alias IP Model:
+ * - Pods use alias IP ranges (automatic secondary ranges)
+ * - Nodes use primary VPC subnet IPs
+ * - Services use separate ClusterIP range
+ * 
+ * AKS CNI Overlay Model:
+ * - Pods use overlay CIDR (separate from VPC)
+ * - Nodes use VNet subnet IPs
+ * - Services use separate ClusterIP range
  */
 
 import { z } from "zod";
@@ -145,9 +161,9 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
   hyperscale: {
     publicSubnets: 8,
     privateSubnets: 8,
-    subnetSize: 19,      // /19 = 8192 addresses per subnet (GKE optimal for 5000+ nodes: 2^(32-19)-4 = 8188 nodes)
-    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes, supports 262K pods with /24 per node)
-    servicesPrefix: 16,  // /16 for 65K+ services (exceeds GKE /20 default)
-    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    subnetSize: 18,      // /18 = 16,384 IPs per subnet (high-density: >100 pods/node, warm pool for CNI)
+    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes, supports 524K pods)
+    servicesPrefix: 16,  // /16 for 65K+ services
+    description: "Global Scale: 50-5000 nodes, high pod density (>100 pods/node), multi-region ready"
   }
 };

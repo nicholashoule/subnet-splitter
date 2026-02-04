@@ -25,6 +25,131 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 
 ---
 
+## 1.1. IPv4 Address Consumption Model (EKS VPC CNI)
+
+### Network Architecture Overview
+
+AWS EKS uses the **VPC CNI (Container Network Interface)** plugin, where **Pods and Nodes draw from the same VPC CIDR space**. This is fundamentally different from GKE (alias ranges) and AKS (overlay networks).
+
+**CRITICAL INSIGHT**:  Pods do NOT share Node IPs, but they DO pull from the same VPC subnet pool as Nodes, creating IP exhaustion risks for small subnets.
+
+### IP Allocation by Component
+
+#### 1. Node IP Allocation
+
+**Source**: Primary VPC subnet (public or private subnets from our API)
+
+**Allocation Method**:
+- Each Node gets **1 primary IP address** from the VPC subnet
+- Primary ENI (Elastic Network Interface) is created for the Node
+- This IP is used for Node-to-Node communication and external access
+
+**Subnet Sizing Impact**:
+- Node IPs are consumed from the primary VPC subnet
+- Small subnets must accommodate BOTH Node IPs AND Pod secondary IPs
+- Example: `/24` subnet (256 IPs) can only support ~50 Nodes if Pods also need space
+
+#### 2. Pod IP Allocation
+
+**Source**: Same VPC CIDR as Nodes (secondary IPs from Node ENI)
+
+**Allocation Method**:
+- Each Pod gets a **unique secondary private IP address** from the Node's ENI
+- **NOT SHARED**: Pods do NOT share the Node's primary IP
+- **Exception**: Pods with `hostNetwork: true` DO share the Node's IP
+
+**Two Models for Secondary IPs**:
+
+**Traditional Method** (Older or non-Nitro instances):
+- Individual secondary IPs per Pod
+- Limited to ~50 secondary IPs per Node (instance type dependent)
+- **IP Exhaustion Risk**: High for large clusters
+
+**IP Prefix Delegation** (Nitro-based instances - RECOMMENDED):
+- Nodes request `/28` CIDR blocks (16 addresses per prefix) from Pod subnet
+- Multiple prefixes per Node (up to instance type limit)
+- Max 250 pods/node with proper configuration
+- **Requires**: Nitro-based EC2 instances (c5+, m5+, r5+, t3+)
+- **Enable**: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
+
+**Configuration**:
+```bash
+# Enable IP prefix delegation
+kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
+
+# Set warm prefix target for proactive scaling
+kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
+```
+
+#### 3. Service IP Allocation
+
+**Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+
+**Allocation Method**:
+- ClusterIP services get IPs from Service CIDR (e.g., `10.2.0.0/16`)
+- **NOT routable outside cluster**: Internal routing managed by kube-proxy
+- **Does NOT overlap with VPC CIDR**: Completely separate range
+- **Does NOT consume VPC subnet space**: Virtual IPs only
+
+**Key Point**: Service CIDR is NOT part of the VPC CIDR and does NOT contribute to IP exhaustion.
+
+#### 4. LoadBalancer IP Allocation
+
+**Source**: External AWS resources (ALB or NLB)
+
+**Allocation Method**:
+- AWS provisions public or private IPs for the LoadBalancer
+- **Does NOT consume VPC CIDR**: LoadBalancers have their own IP pools
+- LoadBalancers target Node IPs or Pod IPs (depending on configuration)
+- DNS names are provided for external access
+
+**Key Point**: LoadBalancer services do NOT use VPC subnet IPs.
+
+### IP Exhaustion Risk Analysis
+
+ **CRITICAL RISK**: Because Pods and Nodes share the same VPC CIDR space, small subnets can run out of IPs.
+
+**Problem Scenario**:
+```
+VPC Subnet: 10.0.0.0/24 (256 total IPs)
+- 10 Nodes: 10 IPs used
+- 110 Pods/Node: 1,100 Pod secondary IPs needed
+- Total Required: 1,110 IPs
+- Available: 256 IPs
+- Result: IP EXHAUSTION - Cluster cannot scale
+```
+
+**Solution (Our Hyperscale Tier)**:
+```
+VPC Subnet: 10.0.0.0/18 (16,384 total IPs per subnet)
+- 5,000 Nodes: 5,000 IPs used
+- 110 Pods/Node (with IP Prefix Delegation): 550,000 Pod IPs potential
+- Pod CIDR: /13 (524,288 IPs) - separate CNI configuration
+- Result: Sufficient IP space for high-density deployments
+```
+
+### Comparison to Other Platforms
+
+| Component | EKS (AWS) | GKE (Google) | AKS (Azure) |
+|-----------|-----------|--------------|-------------|
+| **Node IPs** | VPC primary subnet | VPC primary subnet | VNet primary subnet |
+| **Pod IPs** | VPC CIDR (secondary IPs from Node ENI) | Alias IP ranges (automatic secondary) | Overlay CIDR (separate from VNet) |
+| **Pods & Nodes Share Pool?** | **YES** (IP exhaustion risk) | NO (alias ranges) | NO (overlay) |
+| **IP Exhaustion Risk** | **HIGH** (small subnets) | LOW (Google manages) | **NONE** (overlay decoupled) |
+
+### Key Takeaways for EKS
+
+1.  **Pods and Nodes compete for the same VPC CIDR space** (unique to EKS)
+2.  **Each Pod gets a unique secondary IP** (not shared with Node)
+3.  **Service CIDR is separate** (does not consume VPC space)
+4.  **LoadBalancers are external** (do not consume VPC space)
+5.  **IP Prefix Delegation REQUIRED** for high-density (>100 pods/node)
+6.  **Hyperscale tier uses `/18` subnets** (16,384 IPs) to avoid exhaustion
+
+**Cross-Reference**: See `docs/compliance/IP_ALLOCATION_CROSS_REFERENCE.md` for detailed cross-provider comparison.
+
+---
+
 ## 2. Subnet Overlap Validation
 
 ### Non-Overlapping Subnet Guarantee
@@ -54,6 +179,78 @@ Private subnets (offset=2):
 - Validated across all 5 deployment tiers
 
 **EKS Relevance**: Prevents routing conflicts where VPC CNI could assign duplicate IPs to pods and nodes, which would cause network failures.
+
+---
+
+## 2.1. NAT Gateway & Outbound Internet Connectivity
+
+### Overview
+
+**AWS NAT Gateway** provides outbound internet connectivity for private EKS nodes and pods without exposing them to inbound traffic.
+
+### SNAT Port Allocation Formula
+
+**Adapted from GKE formula**:
+```
+NAT Gateway IPs needed = ((# of instances) × (Ports / Instance)) / 64,512
+```
+
+**AWS NAT Gateway Limits**:
+- **55,000 connections** per unique destination (IP:Port)
+- **2,000,000 packets/second** aggregate
+- **100 Gbps bandwidth** (elastic)
+- **1 Elastic IP per NAT Gateway** (fixed)
+
+### Hyperscale Tier Examples (5,000 Nodes)
+
+**Scenario 1: Low Connections**
+```
+5,000 nodes × 50 connections = 250,000 connections
+Distributed across 100 destinations: 2,500/dest
+NAT Gateways required: 1 (below 55K limit)
+Elastic IPs: 1-2 (for redundancy)
+```
+
+**Scenario 2: High Connections (Single API Destination)**
+```
+5,000 nodes × 500 connections = 2,500,000 connections
+50% to single destination: 1,250,000 connections
+1,250,000 / 55,000 = 23 NAT Gateways
+Elastic IPs: 23-30
+```
+
+**Scenario 3: Port-Based (Conservative)**
+```
+5,000 nodes × 1,024 ports = 5,120,000 ports
+5,120,000 / 64,512 = 80 NAT Gateway IPs
+```
+
+### NAT Gateway Quotas
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| NAT Gateways/AZ | 5 | Soft limit |
+| EIPs/NAT Gateway | 1 | Fixed |
+| Connections/destination | 55,000 | Per IP:Port |
+| Bandwidth | 100 Gbps | Auto-scales |
+
+### Load Balancer IP Consumption
+
+| LB Type | IP Consumption | VPC Impact |
+|---------|----------------|------------|
+| **ALB (Internet-facing)** | AWS-managed public IPs | ❌ NO |
+| **ALB (Internal)** | 1 IP/AZ from VPC subnet | ✅ YES |
+| **NLB (Internet-facing)** | 1 EIP/AZ | ❌ NO |
+| **NLB (Internal)** | 1 IP/AZ from VPC subnet | ✅ YES |
+
+**Hyperscale Estimate** (5,000 nodes, 3 AZs):
+- NAT Gateways: 3-6 (1-2 per AZ) = 3-6 EIPs (no VPC impact)
+- External ALBs: ~10 services × 3 AZs = AWS IPs (no VPC impact)
+- Internal ALBs: ~5 services × 3 AZs = 15 VPC IPs
+- Internal NLBs: ~3 services × 3 AZs = 9 VPC IPs
+- **Total VPC IPs**: 5,000 (nodes+pods) + 24 (LBs) = **~5,024 IPs**
+
+**Critical**: EKS Pods share VPC CIDR with Nodes. Use `/18` subnets minimum for Hyperscale.
 
 ---
 
@@ -760,6 +957,73 @@ Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation i
 
 ---
 
+## Optional Enhancements
+
+These optional configurations can improve scalability and observability for large-scale EKS deployments:
+
+### NAT Gateway Scaling Considerations
+
+**NAT Gateway Specifications** (AWS documentation reference):
+- **SNAT Port Allocation**: 64,512 ports per destination IP address
+- **Connection Limit**: 55,000 simultaneous connections per unique destination
+- **Bandwidth**: 5 Gbps default, scales up to 100 Gbps automatically
+- **Documentation**: [AWS VPC NAT Gateway quotas](https://docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html#vpc-limits-gateways)
+
+**Scaling Recommendations**:
+1. **Hyperscale Tier (5000 nodes)**:
+   - Deploy **1 NAT Gateway per AZ** (8 total for 8 public subnets)
+   - Each NAT Gateway supports ~1000 pods with high outbound traffic
+   - Use VPC Flow Logs to monitor SNAT port exhaustion
+
+2. **Enterprise Tier (50 nodes)**:
+   - Single NAT Gateway per AZ (3 total) is sufficient
+   - Each NAT Gateway can handle 10K+ concurrent connections
+
+3. **Monitoring**:
+   ```bash
+   aws cloudwatch get-metric-statistics \
+     --namespace AWS/NATGateway \
+     --metric-name ErrorPortAllocation \
+     --dimensions Name=NatGatewayId,Value=<nat-gateway-id> \
+     --start-time <start> --end-time <end> \
+     --period 300 --statistics Sum
+   ```
+
+### Elastic Load Balancer Integration
+
+**EKS Load Balancer Controller** ([GitHub: aws-load-balancer-controller](https://github.com/aws/aws-load-balancer-controller)):
+- **Application Load Balancer (ALB)**: Layer 7, HTTP/HTTPS routing
+- **Network Load Balancer (NLB)**: Layer 4, TCP/UDP, static IPs
+- **Target Types**: `ip` (pod IPs directly) or `instance` (node IPs)
+
+**Public Subnet Requirements** (from EKS user guide):
+- Minimum 8 available IPs per subnet for load balancers
+- Tag: `kubernetes.io/role/elb: 1` (for public load balancers)
+- Tag: `kubernetes.io/cluster/<cluster-name>: shared`
+
+**Private Subnet Requirements**:
+- Tag: `kubernetes.io/role/internal-elb: 1` (for internal load balancers)
+- Must have NAT Gateway route for outbound traffic
+
+### Official Documentation References
+
+**AWS EKS Networking**:
+- [EKS VPC and Subnet Requirements](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html)
+- [EKS Best Practices - Networking](https://aws.github.io/aws-eks-best-practices/networking/)
+- [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/)
+
+**AWS VPC Networking**:
+- [NAT Gateway Specifications](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html)
+- [VPC Quotas and Limits](https://docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html)
+- [VPC CNI Plugin Documentation](https://github.com/aws/amazon-vpc-cni-k8s)
+
+**GitHub Repositories** (validated sources):
+- [awsdocs/amazon-eks-user-guide](https://github.com/awsdocs/amazon-eks-user-guide) (official EKS documentation)
+- [aws/amazon-vpc-cni-k8s](https://github.com/aws/amazon-vpc-cni-k8s) (EKS CNI plugin)
+- [aws-samples/aws-eks-best-practices](https://github.com/aws-samples/aws-eks-best-practices) (AWS samples)
+
+---
+
 ## References
 
 **AWS EKS Documentation**:
@@ -777,5 +1041,5 @@ Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation i
 ---
 
 **Document Status**: Complete and ready for reference  
-**Last Updated**: February 1, 2026  
+**Last Updated**: February 4, 2026  
 **Compliance Level**: Production Ready 

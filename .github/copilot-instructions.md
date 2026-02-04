@@ -1639,7 +1639,7 @@ The Kubernetes Network Planning API generates enterprise-grade network configura
 | **Standard** | 1-3 | 1 | 1 | /24 | /16 | /16 | Development/Testing |
 | **Professional** | 3-10 | 2 | 2 | /23 | /16 | /16 | Small Production |
 | **Enterprise** | 10-50 | 3 | 3 | /23 | /16 | /16 | Large Production |
-| **Hyperscale** | 50-5000 | 8 | 8 | /20 | /13 | /16 | Global Scale/EKS/GKE Max |
+| **Hyperscale** | 50-5000 | 8 | 8 | /18 | /13 | /16 | Global Scale/High Pod Density |
 
 ### API Endpoints
 
@@ -1680,8 +1680,8 @@ N = 2^(32-S) - 4
 Where S = primary subnet prefix
 
 For 5,000 nodes:
-  S = 32 - ⌈log₂(5004)⌉ = /19
-  N = 2^13 - 4 = 8,188 nodes 
+  S = 32 - ⌈log₂(5004)⌉ = /19 (8,188 nodes) or /18 (16,380 nodes for high density)
+  N = 2^(32-18) - 4 = 16,380 nodes 
 ```
 
 **GKE Compliance:**
@@ -1709,9 +1709,9 @@ Our formulas assume 110 pods/node (Standard). For Autopilot, actual pod space wi
 # Enterprise tier (GKE Standard, 50 nodes, 10-50 node range)
 # Pod range: /16 -> supports 256 nodes at 110 pods/node = 28K pods 
 
-# Hyperscale tier (GKE Standard, 5,000 nodes max)
-# Pod range: /13 -> supports 2,048 nodes at 110 pods/node = 225K pods 
-# Primary: /19 -> supports 8,188 nodes 
+# Hyperscale tier (EKS/GKE, 5,000 nodes max, high pod density)
+# Pod range: /13 -> supports 524K pods
+# Primary: /18 -> supports 16,380 nodes per subnet 
 ```
 
 **Best Practices:**
@@ -1746,7 +1746,7 @@ Maximum pods per node: 50-110 (instance type dependent)
 **Node Primary Subnet Formula:**
 ```
 Node_Capacity = 2^(32 - subnet_prefix) - 4
-Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+Example: /18 subnet = 2^14 - 4 = 16,380 nodes capacity
 ```
 
 **EKS Scalability Thresholds:**
@@ -1758,7 +1758,7 @@ Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
 | **Large** | 1000-5000 | 50K-200K | Contact AWS support |
 | **Extreme** | 5000-100K | 200K+ | AWS onboarding required |
 
-Our Hyperscale tier supports up to 5,000 nodes in standard configuration (8,188 with optimized /19 primary subnet).
+Our Hyperscale tier supports up to 5,000 nodes in standard configuration (16,380 IPs with /18 primary subnets for high pod density).
 
 **EKS Tier Compliance Matrix:**
 
@@ -1768,7 +1768,7 @@ Our Hyperscale tier supports up to 5,000 nodes in standard configuration (8,188 
 | Standard | /24 | /16 | 252 | 1-3 |  |
 | Professional | /23 | /16 | 508 | 3-10 |  |
 | Enterprise | /23 | /16 | 508 | 10-50 |  |
-| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** |  |
+| **Hyperscale** | **/18** | **/13** | **16,380** | **50-5000** |  |
 
 **IP Prefix Delegation Requirements:**
 - Requires AWS Nitro-based instance types (c5+, m5+, r5+, t3+, etc.)
@@ -1836,7 +1836,7 @@ Azure Kubernetes Service (AKS) uses Azure Virtual Network integration with Azure
 **Node Capacity Formula:**
 ```
 Node_Capacity = 2^(32 - subnet_prefix) - 4
-Example: /19 subnet = 2^13 - 4 = 8,188 nodes capacity
+Example: /18 subnet = 2^14 - 4 = 16,380 nodes capacity
 ```
 
 **Pod CIDR Capacity (Overlay Model):**
@@ -1858,7 +1858,7 @@ Actual Limit: Minimum of calculated or 200,000 pods per cluster
 | **Large** | 1000-5000 | 50K-200K | Contact Azure support |
 | **At Limit** | 5000 | 200K (overlay) | Cannot upgrade (no surge capacity) |
 
-Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Overlay).
+Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Overlay, /18 primary subnets for high density).
 
 **AKS Tier Compliance Matrix:**
 
@@ -1868,7 +1868,7 @@ Our Hyperscale tier supports up to 5,000 nodes with 200,000 pods (Azure CNI Over
 | Standard | /24 | /16 | 252 | 1-3 | 1 |  |
 | Professional | /23 | /16 | 508 | 3-10 | 1 |  |
 | Enterprise | /23 | /16 | 508 | 10-50 | 1-2 |  |
-| **Hyperscale** | **/19** | **/13** | **8,188** | **50-5000** | **5-10** |  |
+| **Hyperscale** | **/18** | **/13** | **16,380** | **50-5000** | **5-10** |  |
 
 **Multi-Node Pool Requirements:**
 - AKS limit: 1,000 nodes per node pool
