@@ -126,29 +126,47 @@ function SubnetRow({
           />
         </TableCell>
         <TableCell className="py-2 px-2">
-          <div 
-            className="flex items-center gap-1"
-            style={{ paddingLeft: `${depth * 16}px` }}
-          >
-            {hasChildren ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                onClick={() => onToggle(subnet.id)}
-                data-testid={`button-toggle-${subnet.id}`}
-                aria-label={subnet.isExpanded ? `Collapse subnet ${subnet.cidr}` : `Expand subnet ${subnet.cidr}`}
-                aria-expanded={subnet.isExpanded}
-              >
-                {subnet.isExpanded ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </Button>
-            ) : (
-              <div className="w-6" />
-            )}
+          <div className="flex items-center gap-2">
+            {/* Color-coded depth indicator - High contrast colors for maximum distinction */}
+            <div 
+              className={`w-1.5 h-7 rounded-full shadow-sm border ${
+                depth === 0 ? 'border-transparent bg-transparent' :
+                subnet.prefix === 1 ? 'border-red-300/30 bg-red-600' :
+                subnet.prefix === 2 ? 'border-orange-300/30 bg-orange-600' :
+                subnet.prefix === 3 ? 'border-yellow-300/30 bg-yellow-500' :
+                subnet.prefix === 4 ? 'border-lime-300/30 bg-lime-600' :
+                subnet.prefix === 5 ? 'border-green-300/30 bg-green-600' :
+                subnet.prefix === 6 ? 'border-emerald-300/30 bg-emerald-600' :
+                subnet.prefix === 7 ? 'border-teal-300/30 bg-teal-600' :
+                subnet.prefix === 8 ? 'border-cyan-300/30 bg-cyan-600' :
+                subnet.prefix === 9 ? 'border-sky-300/30 bg-sky-600' :
+                subnet.prefix === 10 ? 'border-blue-300/30 bg-blue-600' :
+                subnet.prefix === 11 ? 'border-indigo-300/30 bg-indigo-600' :
+                subnet.prefix === 12 ? 'border-violet-300/30 bg-violet-600' :
+                subnet.prefix === 13 ? 'border-purple-300/30 bg-purple-600' :
+                subnet.prefix === 14 ? 'border-fuchsia-300/30 bg-fuchsia-600' :
+                subnet.prefix === 15 ? 'border-pink-300/30 bg-pink-600' :
+                subnet.prefix === 16 ? 'border-rose-300/30 bg-rose-600' :
+                subnet.prefix === 17 ? 'border-red-300/30 bg-red-500' :
+                subnet.prefix === 18 ? 'border-orange-300/30 bg-orange-500' :
+                subnet.prefix === 19 ? 'border-amber-300/30 bg-amber-500' :
+                subnet.prefix === 20 ? 'border-yellow-300/30 bg-yellow-400' :
+                subnet.prefix === 21 ? 'border-lime-300/30 bg-lime-500' :
+                subnet.prefix === 22 ? 'border-green-300/30 bg-green-500' :
+                subnet.prefix === 23 ? 'border-emerald-300/30 bg-emerald-500' :
+                subnet.prefix === 24 ? 'border-teal-300/30 bg-teal-500' :
+                subnet.prefix === 25 ? 'border-cyan-300/30 bg-cyan-500' :
+                subnet.prefix === 26 ? 'border-sky-300/30 bg-sky-500' :
+                subnet.prefix === 27 ? 'border-blue-300/30 bg-blue-500' :
+                subnet.prefix === 28 ? 'border-indigo-300/30 bg-indigo-500' :
+                subnet.prefix === 29 ? 'border-violet-300/30 bg-violet-500' :
+                subnet.prefix === 30 ? 'border-purple-300/30 bg-purple-500' :
+                subnet.prefix === 31 ? 'border-fuchsia-300/30 bg-fuchsia-500' :
+                subnet.prefix === 32 ? 'border-pink-300/30 bg-pink-500' :
+                'border-slate-300/30 bg-slate-500'
+              }`}
+            />
+            
             <Badge 
               variant="outline" 
               className="font-mono text-xs"
@@ -156,10 +174,12 @@ function SubnetRow({
             >
               {subnet.cidr}
             </Badge>
-            <Badge variant="secondary" className="text-[10px]">
-              Class {getSubnetClass(subnet)}
-            </Badge>
           </div>
+        </TableCell>
+        <TableCell className="py-2 px-2">
+          <Badge variant="secondary" className="text-[10px]">
+            Class {getSubnetClass(subnet)}
+          </Badge>
         </TableCell>
         <CopyableCell value={subnet.networkAddress} fieldName="Network" />
         <CopyableCell value={subnet.broadcastAddress} fieldName="Broadcast" />
@@ -742,6 +762,7 @@ export default function Calculator() {
                           />
                         </TableHead>
                         <TableHead className="min-w-[180px] text-xs py-2 px-2">CIDR</TableHead>
+                        <TableHead className="text-xs py-2 px-2">Class</TableHead>
                         <TableHead className="text-xs py-2 px-2">Network</TableHead>
                         <TableHead className="text-xs py-2 px-2">Broadcast</TableHead>
                         <TableHead className="text-xs py-2 px-2">First Host</TableHead>
