@@ -98,6 +98,114 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
 **Requirements**:
 - Nitro-based EC2 instances (c5+, m5+, r5+, t3+, etc.)
 - Subnets must have contiguous `/28` blocks available
+
+---
+
+## Pod CIDR Sizing Recommendations
+
+### Formula for Right-Sizing Pod Networks
+
+**Formula**:
+```
+Total IPs Needed = (Max Pods per Node × Max Nodes) + Buffer
+```
+
+**Standard Practice**: Use CG-NAT ranges (100.64.0.0/10 or 198.19.0.0/16) to avoid conflicts with corporate RFC 1918 networks (10.x, 172.16.x, 192.168.x).
+
+**Minimums**: You typically need at least a /28 per subnet (16 IPs), but this is too small for practical Pod subnets.
+
+**Realistic Example**: A /16 (65,536 IPs) is usually plenty for large clusters. If you have 3 AZs, you could assign a /18 (16,384 IPs) to each AZ's subnet, which supports thousands of Pods per zone.
+
+### CIDR Size Comparison Table
+
+| CIDR | Total IPs | Suitability |
+|------|-----------|-------------|
+| **/13** | 524,288 | **OVERKILL** (Unless running hyper-scale 50k+ nodes). Wastes IP space. |
+| **/16** | 65,536 | **IDEAL** (Standard for large enterprise clusters). Supports 500+ nodes at 110 pods/node. |
+| **/18** | 16,384 | **GOOD** (Sufficient for mid-sized clusters). Supports ~140 nodes at 110 pods/node. |
+| **/20** | 4,096 | **TIGHT** (Okay for small, fixed-size clusters). Supports ~35 nodes at 110 pods/node. |
+| **/22** | 1,024 | **MINIMAL** (Dev/test only). Supports ~9 nodes at 110 pods/node. |
+
+### Real-World Sizing Examples
+
+#### Example 1: Standard Production Cluster (50 nodes)
+```
+Max Nodes: 50
+Max Pods per Node: 110 (EKS default)
+Total Pods: 50 × 110 = 5,500 pods
+With 50% Buffer: 5,500 × 1.5 = 8,250 IPs needed
+Recommended CIDR: /18 (16,384 IPs) or /16 (65,536 IPs) for growth
+```
+
+#### Example 2: Large Enterprise Cluster (500 nodes)
+```
+Max Nodes: 500
+Max Pods per Node: 110
+Total Pods: 500 × 110 = 55,000 pods
+With 20% Buffer: 55,000 × 1.2 = 66,000 IPs needed
+Recommended CIDR: /16 (65,536 IPs) - tight but workable
+                  /15 (131,072 IPs) - safer with growth headroom
+```
+
+#### Example 3: Hyper-Scale Cluster (5,000 nodes)
+```
+Max Nodes: 5,000
+Max Pods per Node: 110
+Total Pods: 5,000 × 110 = 550,000 pods
+With 20% Buffer: 550,000 × 1.2 = 660,000 IPs needed
+Recommended CIDR: /13 (524,288 IPs) - minimum
+                  /12 (1,048,576 IPs) - safer
+```
+
+### Our API Tier Configurations (Updated February 4, 2026)
+
+| Tier | Max Nodes | Pod CIDR | Total IPs | Rationale |
+|------|-----------|----------|-----------|------------|
+| **Micro** | 1-2 | /20 | 4,096 | Small dev/test (35 nodes capacity at 110 pods/node) |
+| **Standard** | 1-3 | /16 | 65,536 | Development/testing with generous headroom |
+| **Professional** | 3-10 | /18 | 16,384 | Small production (140 nodes capacity) |
+| **Enterprise** | 10-50 | /16 | 65,536 | **IDEAL** - Large production, supports 500+ nodes |
+| **Hyperscale** | 50-500 | /16 | 65,536 | Global scale with high density (500 nodes × 110 pods) |
+
+### Alternative: CG-NAT Ranges for Pod Networks
+
+**Problem**: Corporate networks often use RFC 1918 ranges (10.x, 172.16.x, 192.168.x) extensively, creating VPN/peering conflicts.
+
+**Solution**: Use **CG-NAT (Carrier-Grade NAT)** ranges for Pod networks:
+
+**CG-NAT Ranges** (RFC 6598):
+- **100.64.0.0/10**: 4,194,304 IPs (perfect for massive clusters)
+- **198.19.0.0/16**: 65,536 IPs (sufficient for most enterprise)
+
+**Benefits**:
+- No conflicts with corporate RFC 1918 networks
+- Large contiguous address space
+- Officially designated for private use
+- Kubernetes CNI plugins support these ranges
+
+**Example**:
+```yaml
+# EKS with Custom CNI (Calico)
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+    - cidr: 100.64.0.0/16  # CG-NAT range for pods
+      encapsulation: VXLAN
+```
+
+### Best Practices Summary
+
+1. **Use /16 for most production clusters** (65,536 IPs)
+2. **Use /18 for mid-sized clusters** (16,384 IPs) - good balance
+3. **Use /20 for small dev/test** (4,096 IPs) - minimum practical size
+4. **Avoid /13 unless 5,000+ nodes** (524,288 IPs) - massive waste otherwise
+5. **Consider CG-NAT ranges** (100.64.0.0/10, 198.19.0.0/16) to avoid RFC 1918 conflicts
+6. **Plan for 20-50% buffer** beyond current needs for growth
+7. **Use per-AZ /18 subnets** when distributing /16 across 3 availability zones
 - Enable via: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
 
 **Fragmentation Risk**: If subnets have scattered secondary IPs, prefix allocation can fail

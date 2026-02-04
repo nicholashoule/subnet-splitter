@@ -174,6 +174,7 @@ describe("Kubernetes Network Planning API Integration", () => {
     it("should show tier progression", () => {
       const tierInfo = getDeploymentTierInfo();
 
+      const micro = tierInfo.micro as any;
       const standard = tierInfo.standard as any;
       const professional = tierInfo.professional as any;
       const enterprise = tierInfo.enterprise as any;
@@ -186,8 +187,14 @@ describe("Kubernetes Network Planning API Integration", () => {
       // Realistic hyperscale: 3 AZs (same as enterprise, but larger subnet sizes)
       expect(hyperscale.publicSubnets).toBe(3);
 
-      // Hyperscale gets more pod space
-      expect(hyperscale.podsPrefix).toBeLessThan(standard.podsPrefix);
+      // Pod CIDR progression: micro (/20) -> professional (/18) -> enterprise & hyperscale (/16)
+      expect(micro.podsPrefix).toBe(20); // 4,096 IPs for 1-2 nodes
+      expect(professional.podsPrefix).toBe(18); // 16,384 IPs for 10 nodes
+      expect(enterprise.podsPrefix).toBe(16); // 65,536 IPs (IDEAL)
+      expect(hyperscale.podsPrefix).toBe(16); // 65,536 IPs (IDEAL)
+      // Larger tiers have more IP space (smaller prefix number)
+      expect(professional.podsPrefix).toBeLessThan(micro.podsPrefix);
+      expect(enterprise.podsPrefix).toBeLessThan(professional.podsPrefix);
     });
   });
 

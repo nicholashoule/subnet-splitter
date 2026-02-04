@@ -478,16 +478,25 @@ export const openApiSpec = {
           },
           pods: {
             type: "object",
-            description: "Pod network configuration (CNI plugin IP range)",
+            description: "Pod network configuration. **EKS Note**: This represents a SEPARATE pod CIDR (Model 2 - Custom CNI or Secondary VPC CIDR), NOT default AWS VPC CNI where pods share VPC subnet IPs. Requires custom CNI plugin (Calico, Cilium) or secondary VPC CIDR blocks.",
             properties: {
-              cidr: { type: "string", example: "10.1.0.0/16", description: "CIDR for pod IPs (AWS VPC CNI, Calico, etc.)" }
+              cidr: { 
+                type: "string", 
+                example: "10.1.0.0/16", 
+                description: "CIDR for pod IPs. For EKS: Use with custom CNI (Calico, Cilium, Weave) or secondary VPC CIDR blocks. For GKE/AKS: Always separate from VPC/VNet." 
+              }
             }
           },
           services: {
             type: "object",
-            description: "Kubernetes service network configuration",
+            description: "Kubernetes service network configuration. **EKS-specific**: Must be RFC 1918 private IP, /24 to /12 prefix, no overlap with VPC/Pod CIDR. Can only be set at cluster creation (immutable).",
             properties: {
-              cidr: { type: "string", example: "10.2.0.0/16", description: "ClusterIP service range" }
+              cidr: { 
+                type: "string", 
+                example: "10.2.0.0/16", 
+                description: "Service IPv4 CIDR for Kubernetes ClusterIP services. Defaults: EKS auto-assigns 10.100.0.0/16 or 172.20.0.0/16 if not specified. Our API uses 10.2.0.0/16 to avoid conflicts. **Requirements**: RFC 1918 private IPs only, prefix between /24 and /12, must not overlap with VPC CIDR. **Critical**: Cannot be changed after cluster creation.",
+                pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[2-9]|2[0-4])$"
+              }
             }
           },
           metadata: {

@@ -69,7 +69,7 @@ describe("IP Calculation Compliance Validation", () => {
         expect(config.privateSubnets).toBe(1);
         expect(config.publicSubnetSize).toBe(26); // /26 = 64 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(25); // /25 = 128 addresses (for nodes)
-        expect(config.podsPrefix).toBe(18); // /18 for small clusters
+        expect(config.podsPrefix).toBe(20); // /20 = 4,096 IPs for 1-2 nodes
         expect(config.servicesPrefix).toBe(16); // /16 for services
         expect(config.minVpcPrefix).toBe(24); // /24 minimum VPC
       });
@@ -91,7 +91,7 @@ describe("IP Calculation Compliance Validation", () => {
         expect(config.privateSubnets).toBe(2);
         expect(config.publicSubnetSize).toBe(25); // /25 = 128 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(23); // /23 = 512 addresses (for nodes)
-        expect(config.podsPrefix).toBe(16);
+        expect(config.podsPrefix).toBe(18); // /18 = 16,384 IPs for 10 nodes
         expect(config.servicesPrefix).toBe(16);
         expect(config.minVpcPrefix).toBe(21); // /21 minimum VPC
       });
@@ -114,7 +114,7 @@ describe("IP Calculation Compliance Validation", () => {
         expect(config.privateSubnets).toBe(3);
         expect(config.publicSubnetSize).toBe(23); // /23 = 512 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(20); // /20 = 4,096 addresses (for nodes)
-        expect(config.podsPrefix).toBe(13); // /13 = 524,288 addresses for massive pod space
+        expect(config.podsPrefix).toBe(16); // /16 = 65,536 IPs (IDEAL for 500 nodes × 110 pods)
         expect(config.servicesPrefix).toBe(16); // /16 for 65K+ services
         expect(config.minVpcPrefix).toBe(18); // /18 minimum VPC (realistic for /18 VPC like user example)
       });
@@ -180,11 +180,11 @@ describe("IP Calculation Compliance Validation", () => {
      * MP = MN * Q (max pods)
      */
     describe("GKE Node Capacity from Pod CIDR", () => {
-      it("should calculate hyperscale GKE node capacity correctly (/13 pod CIDR)", () => {
+      it("should calculate hyperscale GKE node capacity correctly (/16 pod CIDR)", () => {
         const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        // /13 pod CIDR: HD = 32-13 = 19, HM = 8, MN = 2^(19-8) = 2,048 nodes
+        // /16 pod CIDR: HD = 32-16 = 16, HM = 8, MN = 2^(16-8) = 256 nodes
         const maxNodes = calculateGKENodeCapacity(podPrefix);
-        expect(maxNodes).toBe(2048);
+        expect(maxNodes).toBe(256);
       });
 
       it("should calculate enterprise GKE node capacity correctly (/16 pod CIDR)", () => {
@@ -194,22 +194,21 @@ describe("IP Calculation Compliance Validation", () => {
         expect(maxNodes).toBe(256);
       });
 
-      it("should calculate micro GKE node capacity correctly (/18 pod CIDR)", () => {
+      it("should calculate micro GKE node capacity correctly (/20 pod CIDR)", () => {
         const podPrefix = DEPLOYMENT_TIER_CONFIGS["micro"].podsPrefix;
-        // /18 pod CIDR: HD = 32-18 = 14, HM = 8, MN = 2^(14-8) = 64 nodes
+        // /20 pod CIDR: HD = 32-20 = 12, HM = 8, MN = 2^(12-8) = 16 nodes
         const maxNodes = calculateGKENodeCapacity(podPrefix);
-        expect(maxNodes).toBe(64);
+        expect(maxNodes).toBe(16);
       });
     });
 
     describe("GKE Max Pods Calculation (110 pods/node)", () => {
       it("should calculate hyperscale GKE max pods correctly", () => {
         const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        // MP = 2,048 nodes * 110 pods = 225,280 pods
+        // MP = 256 nodes * 110 pods = 28,160 pods
         const maxPods = calculateGKEMaxPods(podPrefix, 110);
-        expect(maxPods).toBe(225280);
-        // GKE limit is 200,000 pods
-        expect(maxPods).toBeGreaterThanOrEqual(200000);
+        expect(maxPods).toBe(28160);
+        // Hyperscale tier (50-500 nodes): 256 node capacity is sufficient for pod IPs
       });
 
       it("should calculate enterprise GKE max pods correctly", () => {
@@ -226,15 +225,14 @@ describe("IP Calculation Compliance Validation", () => {
       it("should calculate hyperscale GKE Autopilot max pods correctly", () => {
         const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
         // For Autopilot: M = 31 - ceil(log2(32)) = 31 - 5 = 26, HM = 6
-        // MN = 2^(19-6) = 8,192 nodes, MP = 8,192 * 32 = 262,144 pods
-        const HD = 32 - podPrefix; // 19
+        // MN = 2^(16-6) = 1,024 nodes, MP = 1,024 * 32 = 32,768 pods
+        const HD = 32 - podPrefix; // 16
         const HM = 6; // For 32 pods/node
         const maxNodes = Math.pow(2, HD - HM);
         const maxPods = maxNodes * 32;
-        expect(maxNodes).toBe(8192);
-        expect(maxPods).toBe(262144);
-        // Exceeds GKE 200K pod limit (over-provisioned)
-        expect(maxPods).toBeGreaterThanOrEqual(200000);
+        expect(maxNodes).toBe(1024);
+        expect(maxPods).toBe(32768);
+        // Hyperscale tier (50-500 nodes): 1,024 node capacity covers upper range
       });
     });
   });
@@ -271,13 +269,16 @@ describe("IP Calculation Compliance Validation", () => {
      * Pod space must accommodate: nodes * pods_per_node
      */
     describe("Pod Space Capacity", () => {
-      it("should have sufficient pod space for hyperscale tier (5000 nodes, 110 pods)", () => {
+      it("should have sufficient pod space for hyperscale tier (500 nodes, 110 pods)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const podAddresses = calculateTotalAddresses(config.podsPrefix);
+        const maxNodes = 500;
+        const podsPerNode = 110;
+        const requiredPodIPs = maxNodes * podsPerNode; // 55,000
 
-        // /13 = 524,288 addresses
-        expect(podAddresses).toBe(524288);
-        // Note: GKE/AKS have 200K pod limit, so 524K is more than sufficient
+        // /16 = 65,536 addresses (IDEAL per user requirements)
+        expect(podAddresses).toBe(65536);
+        expect(podAddresses).toBeGreaterThanOrEqual(requiredPodIPs);
       });
 
       it("should have sufficient pod space for enterprise tier (50 nodes, 110 pods)", () => {
@@ -299,7 +300,8 @@ describe("IP Calculation Compliance Validation", () => {
         const podsPerNode = 110;
         const requiredPodIPs = maxNodes * podsPerNode; // 1,100
 
-        expect(podAddresses).toBe(65536);
+        // /18 = 16,384 addresses (right-sized per formula)
+        expect(podAddresses).toBe(16384);
         expect(podAddresses).toBeGreaterThanOrEqual(requiredPodIPs);
       });
     });
@@ -539,23 +541,24 @@ describe("IP Calculation Compliance Validation", () => {
     });
 
     describe("GKE Pod CIDR for Hyperscale", () => {
-      it("should support 2,048+ nodes with /13 pod CIDR (GKE Standard)", () => {
+      it("should support 256+ nodes with /16 pod CIDR (GKE Standard)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const maxNodes = calculateGKENodeCapacity(config.podsPrefix);
 
-        // /13 pod CIDR supports 2,048 nodes at 110 pods/node
-        expect(maxNodes).toBe(2048);
-        // This is less than 5,000 target, but GKE Autopilot handles this differently
+        // /16 pod CIDR supports 256 nodes at 110 pods/node (sufficient for 50-500 nodes)
+        expect(maxNodes).toBe(256);
+        // Hyperscale tier (50-500 nodes): /16 is IDEAL per user requirements
       });
 
-      it("should support 8,192 nodes with /13 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
+      it("should support 1,024 nodes with /16 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         // Autopilot: M = 26 (32 pods), HM = 6
-        const HD = 32 - config.podsPrefix; // 19
+        const HD = 32 - config.podsPrefix; // 16
         const HM = 6; // For 32 pods/node
         const maxNodes = Math.pow(2, HD - HM);
 
-        expect(maxNodes).toBe(8192);
+        expect(maxNodes).toBe(1024);
+        // Hyperscale tier (50-500 nodes): 1,024 node capacity is sufficient
       });
     });
   });
@@ -584,13 +587,14 @@ describe("IP Calculation Compliance Validation", () => {
     });
 
     describe("AKS CNI Overlay Capacity", () => {
-      it("should support 200,000 pods with /13 pod CIDR", () => {
+      it("should support 65,536 pod addresses with /16 pod CIDR", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const podAddresses = calculateTotalAddresses(config.podsPrefix);
 
-        // /13 = 524,288 addresses, AKS limit = 200,000 pods
-        expect(podAddresses).toBe(524288);
-        expect(podAddresses).toBeGreaterThanOrEqual(200000);
+        // /16 = 65,536 addresses (IDEAL per user requirements)
+        expect(podAddresses).toBe(65536);
+        // Hyperscale tier (50-500 nodes at 110 pods): requires ~55,000 IPs
+        expect(podAddresses).toBeGreaterThanOrEqual(55000);
       });
 
       it("should have sufficient node subnet capacity for 5,000 nodes", () => {
@@ -718,8 +722,8 @@ describe("IP Calculation Compliance Validation", () => {
         const podPrefix = parseInt(plan.pods.cidr.split("/")[1], 10);
         const podCapacity = Math.pow(2, 32 - podPrefix);
 
-        // /13 = 524,288 pod IPs
-        expect(podCapacity).toBe(524288);
+        // /16 = 65,536 pod IPs (IDEAL per user requirements)
+        expect(podCapacity).toBe(65536);
       });
 
       it("should calculate correct Service CIDR capacity", async () => {

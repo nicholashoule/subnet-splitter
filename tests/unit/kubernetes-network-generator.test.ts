@@ -251,18 +251,31 @@ describe("Kubernetes Network Generator", () => {
       });
 
       it("should have proper CIDR prefixes for different tiers", async () => {
-        const standard = await generateKubernetesNetworkPlan({
-          deploymentSize: "standard"
+        const micro = await generateKubernetesNetworkPlan({
+          deploymentSize: "micro"
         });
-        const hyperscale = await generateKubernetesNetworkPlan({
-          deploymentSize: "hyperscale"
+        const professional = await generateKubernetesNetworkPlan({
+          deploymentSize: "professional"
+        });
+        const enterprise = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise"
         });
 
-        // Hyperscale should have larger pod space (/15 vs /16)
-        const standardPodsPrefix = parseInt(standard.pods.cidr.split("/")[1], 10);
-        const hyperscalePodsPrefix = parseInt(hyperscale.pods.cidr.split("/")[1], 10);
+        // Verify pod CIDR sizing follows best practices:
+        // - Micro (/20 = 4K IPs) for 1-2 nodes
+        // - Professional (/18 = 16K IPs) for 10 nodes
+        // - Enterprise (/16 = 65K IPs) for 50+ nodes (IDEAL)
+        const microPodsPrefix = parseInt(micro.pods.cidr.split("/")[1], 10);
+        const professionalPodsPrefix = parseInt(professional.pods.cidr.split("/")[1], 10);
+        const enterprisePodsPrefix = parseInt(enterprise.pods.cidr.split("/")[1], 10);
 
-        expect(hyperscalePodsPrefix).toBeLessThan(standardPodsPrefix);
+        expect(microPodsPrefix).toBe(20);        // 4,096 IPs
+        expect(professionalPodsPrefix).toBe(18); // 16,384 IPs
+        expect(enterprisePodsPrefix).toBe(16);   // 65,536 IPs (IDEAL)
+
+        // Larger tiers should have more IP space (smaller prefix = more IPs)
+        expect(professionalPodsPrefix).toBeLessThan(microPodsPrefix);
+        expect(enterprisePodsPrefix).toBeLessThan(professionalPodsPrefix);
       });
     });
 

@@ -59,6 +59,43 @@ function isPrivateIP(ip: string): boolean {
 }
 
 /**
+ * Check if a CIDR is entirely within another CIDR
+ * Used to validate that generated pod/service CIDRs don't extend outside VPC
+ */
+function isCidrWithinCidr(innerCidr: string, outerCidr: string): boolean {
+  const [innerIp, innerPrefixStr] = innerCidr.split("/");
+  const [outerIp, outerPrefixStr] = outerCidr.split("/");
+  
+  const innerPrefix = parseInt(innerPrefixStr, 10);
+  const outerPrefix = parseInt(outerPrefixStr, 10);
+  
+  // Inner prefix must be >= outer prefix (more specific or equal)
+  if (innerPrefix < outerPrefix) return false;
+  
+  const innerNum = ipToNumber(innerIp);
+  const outerNum = ipToNumber(outerIp);
+  
+  // Calculate network addresses
+  const outerMask = (0xffffffff << (32 - outerPrefix)) >>> 0;
+  const innerNetwork = (innerNum & outerMask) >>> 0;
+  const outerNetwork = (outerNum & outerMask) >>> 0;
+  
+  // Inner network must match outer network
+  return innerNetwork === outerNetwork;
+}
+
+/**
+ * Get the RFC 1918 major block for an IP (10, 172, or 192)
+ */
+function getRFC1918MajorBlock(ip: string): number {
+  const firstOctet = parseInt(ip.split(".")[0], 10);
+  if (firstOctet === 10) return 10;
+  if (firstOctet === 172) return 172;
+  if (firstOctet === 192) return 192;
+  return 0; // Not RFC 1918
+}
+
+/**
  * Validate that a CIDR uses private IP space (RFC 1918)
  * Kubernetes deployments MUST use private IPs for security
  * Public IPs expose the cluster to the internet (security anti-pattern)
@@ -291,13 +328,43 @@ export async function generateKubernetesNetworkPlan(
   const privateBytesUsed = calculateTotalSubnetBytes(tierConfig.privateSubnets, tierConfig.privateSubnetSize);
   const totalSubnetBytes = publicBytesUsed + privateBytesUsed;
 
-  // Generate Pod and Services CIDR blocks (non-overlapping with VPC subnets)
-  // These are typically in different RFC 1918 ranges or secondary VPC CIDR
-  const podsCidr = generateCidrAtOffset(vpcCidr, totalSubnetBytes, tierConfig.podsPrefix);
+  // Generate Pod and Services CIDR blocks in SEPARATE RFC 1918 ranges
+  // This prevents confusion and ensures clear network isolation
+  // Strategy: Use 10.x.x.x (largest) for pods, save smaller ranges for services
+  const vpcIp = vpcCidr.split("/")[0];
+  const vpcMajorBlock = getRFC1918MajorBlock(vpcIp);
   
-  // Services CIDR starts after pods CIDR
-  const podBytes = Math.pow(2, 32 - tierConfig.podsPrefix);
-  const servicesCidr = generateCidrAtOffset(vpcCidr, totalSubnetBytes + podBytes, tierConfig.servicesPrefix);
+  // Choose different RFC 1918 blocks for pods and services
+  // Prefer 10.x.x.x for pods (most space available)
+  let podsCidr: string;
+  let servicesCidr: string;
+  
+  if (vpcMajorBlock === 10) {
+    // VPC in 10.x.x.x → Pods in 172.16.x.x, Services in 192.168.x.x
+    // (Can't use 10.x for pods since VPC already uses it)
+    podsCidr = `172.16.0.0/${tierConfig.podsPrefix}`;
+    servicesCidr = `192.168.0.0/${tierConfig.servicesPrefix}`;
+  } else {
+    // VPC in 172.x or 192.168.x → Pods in 10.x.x.x (best option - most space)
+    // Services in whichever range VPC isn't using
+    podsCidr = `10.0.0.0/${tierConfig.podsPrefix}`;
+    
+    if (vpcMajorBlock === 172) {
+      // VPC uses 172.x → Services use 192.168.x
+      servicesCidr = `192.168.0.0/${tierConfig.servicesPrefix}`;
+    } else {
+      // VPC uses 192.168.x → Services use 172.16.x
+      servicesCidr = `172.16.0.0/${tierConfig.servicesPrefix}`;
+    }
+  }
+  
+  // Validate that pods/services don't overlap with VPC subnets
+  if (isCidrWithinCidr(podsCidr, vpcCidr) || isCidrWithinCidr(servicesCidr, vpcCidr)) {
+    throw new KubernetesNetworkGenerationError(
+      `Generated pod or service CIDR overlaps with VPC CIDR ${vpcCidr}. ` +
+      `This should not happen with separate RFC 1918 major blocks.`
+    );
+  }
 
   // Build the network plan
   const plan: KubernetesNetworkPlan = {
