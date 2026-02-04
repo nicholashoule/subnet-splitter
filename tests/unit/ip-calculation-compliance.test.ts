@@ -511,8 +511,9 @@ describe("IP Calculation Compliance Validation", () => {
           vpcCidr: "10.0.0.0/16",
         });
 
+        // EKS AZs use format: {region}{letter} (e.g., us-east-1a)
         plan.subnets.public.forEach((subnet) => {
-          expect(subnet.availabilityZone).toMatch(/<region>-[a-h]/);
+          expect(subnet.availabilityZone).toMatch(/^us-east-1[a-h]$/);
         });
       });
     });
@@ -533,8 +534,9 @@ describe("IP Calculation Compliance Validation", () => {
           vpcCidr: "10.0.0.0/16",
         });
 
+        // GKE zones use format: {region}-{letter} (e.g., us-central1-a)
         plan.subnets.public.forEach((subnet) => {
-          expect(subnet.availabilityZone).toMatch(/<region>-[a-h]/);
+          expect(subnet.availabilityZone).toMatch(/^us-central1-[a-h]$/);
         });
       });
     });
@@ -577,8 +579,9 @@ describe("IP Calculation Compliance Validation", () => {
           vpcCidr: "10.0.0.0/16",
         });
 
+        // AKS zones use format: {region}-{number} (e.g., eastus-1)
         plan.subnets.public.forEach((subnet) => {
-          expect(subnet.availabilityZone).toMatch(/zone-[1-3]/);
+          expect(subnet.availabilityZone).toMatch(/^eastus-[1-3]$/);
         });
       });
     });

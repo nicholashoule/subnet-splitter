@@ -315,15 +315,15 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.public).toHaveLength(3);
         expect(plan.subnets.private).toHaveLength(3);
 
-        // Check public subnets have AZ assignments
-        expect(plan.subnets.public[0].availabilityZone).toBe("<region>-a");
-        expect(plan.subnets.public[1].availabilityZone).toBe("<region>-b");
-        expect(plan.subnets.public[2].availabilityZone).toBe("<region>-c");
+        // Check public subnets have AZ assignments (EKS default region: us-east-1)
+        expect(plan.subnets.public[0].availabilityZone).toBe("us-east-1a");
+        expect(plan.subnets.public[1].availabilityZone).toBe("us-east-1b");
+        expect(plan.subnets.public[2].availabilityZone).toBe("us-east-1c");
 
         // Check private subnets have AZ assignments
-        expect(plan.subnets.private[0].availabilityZone).toBe("<region>-a");
-        expect(plan.subnets.private[1].availabilityZone).toBe("<region>-b");
-        expect(plan.subnets.private[2].availabilityZone).toBe("<region>-c");
+        expect(plan.subnets.private[0].availabilityZone).toBe("us-east-1a");
+        expect(plan.subnets.private[1].availabilityZone).toBe("us-east-1b");
+        expect(plan.subnets.private[2].availabilityZone).toBe("us-east-1c");
       });
 
       it("should assign GKE-style zones for GKE provider", async () => {
@@ -337,11 +337,11 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.public).toHaveLength(2);
         expect(plan.subnets.private).toHaveLength(2);
 
-        // Check zone assignments (GKE uses same format as AWS)
-        expect(plan.subnets.public[0].availabilityZone).toBe("<region>-a");
-        expect(plan.subnets.public[1].availabilityZone).toBe("<region>-b");
-        expect(plan.subnets.private[0].availabilityZone).toBe("<region>-a");
-        expect(plan.subnets.private[1].availabilityZone).toBe("<region>-b");
+        // Check zone assignments (GKE default region: us-central1)
+        expect(plan.subnets.public[0].availabilityZone).toBe("us-central1-a");
+        expect(plan.subnets.public[1].availabilityZone).toBe("us-central1-b");
+        expect(plan.subnets.private[0].availabilityZone).toBe("us-central1-a");
+        expect(plan.subnets.private[1].availabilityZone).toBe("us-central1-b");
       });
 
       it("should assign numerical zones for generic Kubernetes", async () => {
@@ -371,13 +371,13 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.public).toHaveLength(3);
         expect(plan.subnets.private).toHaveLength(3);
 
-        // Check AZ distribution (a, b, c for 3 subnets)
-        const expectedAZs = ["a", "b", "c"];
+        // Check AZ distribution (EKS default region: us-east-1, letters a, b, c)
+        const expectedAZs = ["us-east-1a", "us-east-1b", "us-east-1c"];
         plan.subnets.public.forEach((subnet, i) => {
-          expect(subnet.availabilityZone).toBe(`<region>-${expectedAZs[i]}`);
+          expect(subnet.availabilityZone).toBe(expectedAZs[i]);
         });
         plan.subnets.private.forEach((subnet, i) => {
-          expect(subnet.availabilityZone).toBe(`<region>-${expectedAZs[i]}`);
+          expect(subnet.availabilityZone).toBe(expectedAZs[i]);
         });
       });
 

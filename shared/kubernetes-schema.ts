@@ -59,11 +59,39 @@ export function normalizeProvider(provider: Provider): "eks" | "gke" | "aks" | "
  */
 export const KubernetesNetworkPlanRequestSchema = z.object({
   deploymentSize: DeploymentSizeEnum.describe("Deployment tier: standard, professional, enterprise, hyperscale"),
-  provider: ProviderEnum.optional().default("kubernetes").describe("Cloud provider: eks, gke, or kubernetes"),
+  provider: ProviderEnum.optional().default("kubernetes").describe("Cloud provider: eks, gke, aks, or kubernetes"),
+  region: z.string().optional().describe("Cloud region/location (e.g., us-east-1 for AWS, us-central1 for GCP, eastus for Azure)"),
   vpcCidr: z.string().optional().describe("Optional VPC CIDR (e.g., 10.0.0.0/16). If not provided, random RFC 1918 will be generated"),
   deploymentName: z.string().optional().describe("Optional deployment name for reference")
 });
 export type KubernetesNetworkPlanRequest = z.infer<typeof KubernetesNetworkPlanRequestSchema>;
+
+/**
+ * Provider-specific region examples
+ * These are common production regions for each cloud provider
+ */
+export const PROVIDER_REGION_EXAMPLES: Record<string, { regions: string[]; default: string; format: string }> = {
+  eks: {
+    regions: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1", "ap-northeast-1"],
+    default: "us-east-1",
+    format: "<region>-<az> (e.g., us-east-1a, us-east-1b)"
+  },
+  gke: {
+    regions: ["us-central1", "us-east1", "us-west1", "europe-west1", "europe-west4", "asia-east1", "asia-southeast1", "australia-southeast1"],
+    default: "us-central1",
+    format: "<region>-<zone> (e.g., us-central1-a, us-central1-b)"
+  },
+  aks: {
+    regions: ["eastus", "eastus2", "westus", "westus2", "westus3", "centralus", "northeurope", "westeurope", "southeastasia", "australiaeast"],
+    default: "eastus",
+    format: "<region>-<zone> (e.g., eastus-1, eastus-2)"
+  },
+  kubernetes: {
+    regions: ["region-1", "datacenter-1", "zone-1"],
+    default: "region-1",
+    format: "zone-<n> (e.g., zone-1, zone-2)"
+  }
+};
 
 /**
  * Subnet configuration for VPC
@@ -91,6 +119,7 @@ export type NetworkRange = z.infer<typeof NetworkRangeSchema>;
 export const KubernetesNetworkPlanSchema = z.object({
   deploymentSize: DeploymentSizeEnum.describe("Deployment tier used for generation"),
   provider: ProviderEnum.describe("Cloud provider"),
+  region: z.string().optional().describe("Cloud region/location"),
   deploymentName: z.string().optional().describe("Reference name for this deployment"),
   vpc: z.object({
     cidr: z.string().describe("VPC CIDR block")

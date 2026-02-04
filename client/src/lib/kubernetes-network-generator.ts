@@ -16,6 +16,7 @@ import type {
 } from "@shared/kubernetes-schema";
 import {
   DEPLOYMENT_TIER_CONFIGS,
+  PROVIDER_REGION_EXAMPLES,
   KubernetesNetworkPlanSchema,
   KubernetesNetworkPlanRequestSchema,
   normalizeProvider
@@ -132,34 +133,41 @@ function normalizeVpcCidr(vpcCidr: string): string {
  * AWS/GKE/AKS best practices recommend minimum 3 AZs for production
  * @param subnetCount Total number of subnets to distribute
  * @param provider Cloud provider (affects AZ naming)
+ * @param region Optional region (uses provider default if not specified)
  * @returns Array of AZ identifiers
  */
-function getAvailabilityZones(subnetCount: number, provider: Provider): string[] {
+function getAvailabilityZones(subnetCount: number, provider: Provider, region?: string): string[] {
   const azs: string[] = [];
+  const normalizedProvider = normalizeProvider(provider);
   
-  // AWS availability zones: us-east-1a, us-east-1b, us-east-1c, etc.
-  // GKE zones: us-central1-a, us-central1-b, us-central1-c, etc.
-  // AKS zones: 1, 2, 3 (numerical zones)
+  // Get region from parameter or use provider default
+  const providerConfig = PROVIDER_REGION_EXAMPLES[normalizedProvider] || PROVIDER_REGION_EXAMPLES.kubernetes;
+  const effectiveRegion = region || providerConfig.default;
   
-  if (provider === "eks") {
-    // AWS EKS - use letter suffixes (a, b, c, d, e, f, g, h)
-    const azLetters = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  if (normalizedProvider === "eks") {
+    // AWS EKS - use letter suffixes (a, b, c, d, e, f)
+    const azLetters = ["a", "b", "c", "d", "e", "f"];
     for (let i = 0; i < subnetCount; i++) {
       const letter = azLetters[i % azLetters.length];
-      azs.push(`<region>-${letter}`);
+      azs.push(`${effectiveRegion}${letter}`);
     }
-  } else if (provider === "gke") {
+  } else if (normalizedProvider === "gke") {
     // GKE - use letter suffixes for zones
-    const zoneLetters = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const zoneLetters = ["a", "b", "c", "d", "e", "f"];
     for (let i = 0; i < subnetCount; i++) {
       const letter = zoneLetters[i % zoneLetters.length];
-      azs.push(`<region>-${letter}`);
+      azs.push(`${effectiveRegion}-${letter}`);
+    }
+  } else if (normalizedProvider === "aks") {
+    // AKS - use numerical zones
+    for (let i = 0; i < subnetCount; i++) {
+      const zone = (i % 3) + 1;
+      azs.push(`${effectiveRegion}-${zone}`);
     }
   } else {
-    // Generic Kubernetes or AKS - use numerical zones
-    const maxZones = 3; // Standard for most cloud providers
+    // Generic Kubernetes - use numerical zones
     for (let i = 0; i < subnetCount; i++) {
-      const zone = (i % maxZones) + 1;
+      const zone = (i % 3) + 1;
       azs.push(`zone-${zone}`);
     }
   }
@@ -172,13 +180,15 @@ function getAvailabilityZones(subnetCount: number, provider: Provider): string[]
  * Automatically distributes subnets across availability zones
  * Uses differentiated sizing: public subnets are smaller than private
  * @param offset Starting byte offset for subnet placement
+ * @param region Optional region for AZ naming
  */
 function generateSubnets(
   vpcCidr: string,
   config: DeploymentTierConfig,
   subnetType: "public" | "private",
   provider: Provider,
-  offset: number = 0
+  offset: number = 0,
+  region?: string
 ): SubnetConfig[] {
   const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
   const vpcPrefix = parseInt(vpcCidr.split("/")[1], 10);
@@ -203,7 +213,7 @@ function generateSubnets(
   const subnetAddresses = Math.pow(2, 32 - subnetSize);
   
   // Get availability zone assignments
-  const azs = getAvailabilityZones(subnetCount, provider);
+  const azs = getAvailabilityZones(subnetCount, provider, region);
   
   // Generate subnets with AZ distribution (starting after offset)
   for (let i = 0; i < subnetCount; i++) {
@@ -264,14 +274,18 @@ export async function generateKubernetesNetworkPlan(
   // Normalize provider alias (e.g., "k8s" -> "kubernetes")
   const provider = normalizeProvider(validatedRequest.provider);
   
+  // Get region (use provider default if not specified)
+  const providerConfig = PROVIDER_REGION_EXAMPLES[provider] || PROVIDER_REGION_EXAMPLES.kubernetes;
+  const region = validatedRequest.region || providerConfig.default;
+  
   // Generate public subnets (start at VPC base)
-  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider, 0);
+  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider, 0, region);
   
   // Calculate byte offset for private subnets (after all public subnets)
   const publicBytesUsed = calculateTotalSubnetBytes(tierConfig.publicSubnets, tierConfig.publicSubnetSize);
   
   // Generate private subnets (start after public subnets)
-  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, publicBytesUsed);
+  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, publicBytesUsed, region);
   
   // Calculate total bytes used by all subnets
   const privateBytesUsed = calculateTotalSubnetBytes(tierConfig.privateSubnets, tierConfig.privateSubnetSize);
@@ -289,6 +303,7 @@ export async function generateKubernetesNetworkPlan(
   const plan: KubernetesNetworkPlan = {
     deploymentSize: validatedRequest.deploymentSize,
     provider: provider,  // Use normalized provider
+    region: region,      // Include region in response
     deploymentName: validatedRequest.deploymentName,
     vpc: {
       cidr: vpcCidr
