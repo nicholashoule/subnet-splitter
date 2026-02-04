@@ -10,7 +10,6 @@ import type {
   DeploymentSize,
   Provider,
   KubernetesNetworkPlan,
-  KubernetesNetworkPlanRequest,
   SubnetConfig,
   DeploymentTierConfig
 } from "@shared/kubernetes-schema";
@@ -120,6 +119,7 @@ function validatePrivateCIDR(cidr: string): void {
 /**
  * Generate a random RFC 1918 private address space
  * Returns one of: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ * Default VPC size: /18 (16,384 addresses - suitable for most deployments)
  */
 function generateRandomRFC1918VPC(): string {
   const rfc1918Ranges = [
@@ -132,15 +132,15 @@ function generateRandomRFC1918VPC(): string {
   
   if (range.prefix === 8) {
     const secondOctet = Math.floor(Math.random() * 256);
-    return `${range.base}.${secondOctet}.0.0/16`;
+    return `${range.base}.${secondOctet}.0.0/18`;
   } else if (range.prefix === 12) {
     // 172.16.0.0 - 172.31.255.255
     const secondOctet = 16 + Math.floor(Math.random() * 16);
-    return `172.${secondOctet}.0.0/16`;
+    return `172.${secondOctet}.0.0/18`;
   } else {
     // 192.168.0.0 - 192.168.255.255
     const thirdOctet = Math.floor(Math.random() * 256);
-    return `192.168.${thirdOctet}.0/16`;
+    return `192.168.${thirdOctet}.0/18`;
   }
 }
 

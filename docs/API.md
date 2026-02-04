@@ -19,7 +19,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
   -d '{
     "deploymentSize": "professional",
     "provider": "eks",
-    "vpcCidr": "10.0.0.0/16"
+    "vpcCidr": "10.100.0.0/18"
   }'
 ```
 
@@ -107,7 +107,7 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
 {
   "deploymentSize": "professional",
   "provider": "eks",
-  "vpcCidr": "10.0.0.0/16",
+  "vpcCidr": "10.100.0.0/18",
   "deploymentName": "prod-us-east-1"
 }
 ```
@@ -129,7 +129,7 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
   "provider": "eks",
   "deploymentName": "prod-us-east-1",
   "vpc": {
-    "cidr": "10.0.0.0/16"
+    "cidr": "10.100.0.0/18"
   },
   "subnets": {
     "public": [
@@ -278,7 +278,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   -d '{
     "deploymentSize": "professional",
     "provider": "eks",
-    "vpcCidr": "10.0.0.0/16",
+    "vpcCidr": "10.100.0.0/18",
     "deploymentName": "prod-cluster-us-east-1"
   }'
 ```
@@ -291,7 +291,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   "provider": "eks",
   "deploymentName": "prod-cluster-us-east-1",
   "vpc": {
-    "cidr": "10.0.0.0/16"
+    "cidr": "10.100.0.0/18"
   },
   "subnets": {
     "public": [

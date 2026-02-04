@@ -232,14 +232,14 @@ npm run dev
 ```bash
 curl -X POST http://127.0.0.1:5000/api/k8s/plan \
   -H "Content-Type: application/json" \
-  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.100.0.0/18"}'
 ```
 
 **Test YAML output** (add `?format=yaml` query parameter):
 ```bash
 curl -X POST "http://127.0.0.1:5000/api/k8s/plan?format=yaml" \
   -H "Content-Type: application/json" \
-  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.0.0.0/16"}'
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.100.0.0/18"}'
 ```
 
 **Test tier information endpoint**:
@@ -322,7 +322,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
   -d '{
     "deploymentSize": "professional",
     "provider": "eks",
-    "vpcCidr": "10.0.0.0/16"
+    "vpcCidr": "10.100.0.0/18"
   }'
 ```
 
@@ -331,7 +331,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 {
   "deploymentSize": "micro|standard|professional|enterprise|hyperscale",
   "provider": "eks|gke|aks|kubernetes|k8s",
-  "vpcCidr": "10.0.0.0/16",
+  "vpcCidr": "10.100.0.0/18",
   "deploymentName": "my-cluster"
 }
 ```
@@ -355,7 +355,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
   -d '{
     "deploymentSize": "professional",
     "provider": "eks",
-    "vpcCidr": "10.0.0.0/16",
+    "vpcCidr": "10.100.0.0/18",
     "deploymentName": "prod-us-east-1"
   }'
 ```
@@ -367,7 +367,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
   "provider": "eks",
   "deploymentName": "prod-us-east-1",
   "vpc": {
-    "cidr": "10.0.0.0/16"
+    "cidr": "10.100.0.0/18"
   },
   "subnets": {
     "public": [
@@ -503,13 +503,20 @@ curl http://localhost:5000/api/k8s/tiers
 
 #### Deployment Tiers Overview
 
-| Tier | Nodes | Public Subnets | Private Subnets | Public Size | Private Size | Use Case |
-|------|-------|---|---|---|---|---|
-| **Micro** | 1 | 1 | 1 | /26 | /25 | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /25 | /24 | Dev/Testing |
-| **Professional** | 3-10 | 2 | 2 | /25 | /23 | Small Production (HA-ready) |
-| **Enterprise** | 10-50 | 3 | 3 | /24 | /21 | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 3 | 3 | /23 | /20 | Global Scale (EKS/GKE max) |
+| Tier | Nodes | Public Subnets | Private Subnets | Public Size | Private Size | Pod CIDR | Service CIDR | Use Case |
+|------|-------|---|---|---|---|---|---|---|
+| **Micro** | 1 | 1 | 1 | /26 (62 IPs) | /25 (126 IPs) | /20 (4K IPs) | /16 (65K IPs) | POC, Development |
+| **Standard** | 1-3 | 1 | 1 | /25 (126 IPs) | /24 (254 IPs) | /16 (65K IPs) | /16 (65K IPs) | Dev/Testing |
+| **Professional** | 3-10 | 2 | 2 | /25 (126 IPs) | /23 (510 IPs) | /18 (16K IPs) | /16 (65K IPs) | Small Production (HA-ready) |
+| **Enterprise** | 10-50 | 3 | 3 | /24 (254 IPs) | /21 (2K IPs) | /16 (65K IPs) | /16 (65K IPs) | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 3 | 3 | /23 (510 IPs) | /20 (4K IPs) | /16 (65K IPs) | /16 (65K IPs) | Global Scale (EKS/GKE max) |
+
+**Network Sizing Notes:**
+- **Pod CIDR**: Separate IP range for container networking (via CNI plugins like AWS VPC CNI, Calico, or Cilium)
+- **Service CIDR**: Kubernetes ClusterIP range for service discovery (10.2.0.0/16 by default, can be customized)
+- **Public Subnets**: For load balancers, NAT gateways, and bastion hosts
+- **Private Subnets**: For Kubernetes worker nodes (EC2 instances or node pools)
+- All networks use RFC 1918 private addressing (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 
 #### Supported Providers
 
