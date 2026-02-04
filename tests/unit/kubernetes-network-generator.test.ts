@@ -51,8 +51,9 @@ describe("Kubernetes Network Generator", () => {
         });
 
         expect(plan.deploymentSize).toBe("hyperscale");
-        expect(plan.subnets.public).toHaveLength(8);
-        expect(plan.subnets.private).toHaveLength(8);
+        // Realistic hyperscale: 3 AZs (most cloud regions have 3-6 AZs)
+        expect(plan.subnets.public).toHaveLength(3);
+        expect(plan.subnets.private).toHaveLength(3);
       });
     });
 
@@ -118,7 +119,8 @@ describe("Kubernetes Network Generator", () => {
         expect(plans[0].subnets.public).toHaveLength(1);
         expect(plans[1].subnets.public).toHaveLength(2);
         expect(plans[2].subnets.public).toHaveLength(3);
-        expect(plans[3].subnets.public).toHaveLength(8);
+        // Realistic hyperscale: 3 AZs (not 8)
+        expect(plans[3].subnets.public).toHaveLength(3);
       });
 
       it("should generate correct number of private subnets", async () => {
@@ -132,7 +134,8 @@ describe("Kubernetes Network Generator", () => {
         expect(plans[0].subnets.private).toHaveLength(1);
         expect(plans[1].subnets.private).toHaveLength(2);
         expect(plans[2].subnets.private).toHaveLength(3);
-        expect(plans[3].subnets.private).toHaveLength(8);
+        // Realistic hyperscale: 3 AZs (not 8)
+        expect(plans[3].subnets.private).toHaveLength(3);
       });
 
       it("should name subnets correctly", async () => {
@@ -357,19 +360,19 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.private[2].availabilityZone).toBe("zone-3");
       });
 
-      it("should round-robin AZs for hyperscale tier (8 subnets)", async () => {
+      it("should distribute hyperscale subnets across 3 AZs (realistic for most regions)", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "hyperscale",
           provider: "eks",
           vpcCidr: "10.100.0.0/16"
         });
 
-        // Hyperscale tier: 8 public + 8 private subnets
-        expect(plan.subnets.public).toHaveLength(8);
-        expect(plan.subnets.private).toHaveLength(8);
+        // Realistic hyperscale tier: 3 public + 3 private subnets (3 AZs)
+        expect(plan.subnets.public).toHaveLength(3);
+        expect(plan.subnets.private).toHaveLength(3);
 
-        // Check round-robin distribution (a-h for 8 subnets)
-        const expectedAZs = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        // Check AZ distribution (a, b, c for 3 subnets)
+        const expectedAZs = ["a", "b", "c"];
         plan.subnets.public.forEach((subnet, i) => {
           expect(subnet.availabilityZone).toBe(`<region>-${expectedAZs[i]}`);
         });
@@ -513,15 +516,18 @@ describe("Kubernetes Network Generator", () => {
       expect(tiers).toHaveProperty("hyperscale");
     });
 
-    it("should include tier configuration", () => {
+    it("should include tier configuration with differentiated subnet sizes", () => {
       const tiers = getDeploymentTierInfo();
 
+      // New config has separate public/private subnet sizes
       expect(tiers.standard).toMatchObject({
         publicSubnets: expect.any(Number),
         privateSubnets: expect.any(Number),
-        subnetSize: expect.any(Number),
+        publicSubnetSize: expect.any(Number),
+        privateSubnetSize: expect.any(Number),
         podsPrefix: expect.any(Number),
         servicesPrefix: expect.any(Number),
+        minVpcPrefix: expect.any(Number),
         description: expect.any(String)
       });
     });

@@ -170,7 +170,8 @@ function getAvailabilityZones(subnetCount: number, provider: Provider): string[]
 /**
  * Split a VPC CIDR into subnets for the given deployment tier
  * Automatically distributes subnets across availability zones
- * @param offset Number of subnets to skip (for private subnets to start after public)
+ * Uses differentiated sizing: public subnets are smaller than private
+ * @param offset Starting byte offset for subnet placement
  */
 function generateSubnets(
   vpcCidr: string,
@@ -182,9 +183,14 @@ function generateSubnets(
   const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
   const vpcPrefix = parseInt(vpcCidr.split("/")[1], 10);
   
-  if (vpcPrefix >= config.subnetSize) {
+  // Use differentiated subnet sizes: public subnets are smaller than private
+  const subnetSize = subnetType === "public" 
+    ? config.publicSubnetSize 
+    : config.privateSubnetSize;
+  
+  if (vpcPrefix >= subnetSize) {
     throw new KubernetesNetworkGenerationError(
-      `VPC prefix /${vpcPrefix} is too small. Cannot split into /${config.subnetSize} subnets`
+      `VPC prefix /${vpcPrefix} is too small. Cannot split into /${subnetSize} ${subnetType} subnets`
     );
   }
 
@@ -193,19 +199,19 @@ function generateSubnets(
     ? config.publicSubnets 
     : config.privateSubnets;
 
-  // Calculate step size in IP addresses
-  const subnetAddresses = Math.pow(2, 32 - config.subnetSize);
+  // Calculate step size in IP addresses for this subnet type
+  const subnetAddresses = Math.pow(2, 32 - subnetSize);
   
   // Get availability zone assignments
   const azs = getAvailabilityZones(subnetCount, provider);
   
   // Generate subnets with AZ distribution (starting after offset)
   for (let i = 0; i < subnetCount; i++) {
-    const subnetStart = vpcNum + ((offset + i) * subnetAddresses);
+    const subnetStart = vpcNum + offset + (i * subnetAddresses);
     const subnetIp = numberToIp(subnetStart);
     
     subnets.push({
-      cidr: `${subnetIp}/${config.subnetSize}`,
+      cidr: `${subnetIp}/${subnetSize}`,
       name: `${subnetType}-${i + 1}`,
       type: subnetType,
       availabilityZone: azs[i]
@@ -216,14 +222,18 @@ function generateSubnets(
 }
 
 /**
- * Generate the next available CIDR block after VPC subnets
+ * Calculate total IP addresses used by a set of subnets
  */
-function generateNextCidr(vpcCidr: string, subnetCount: number, subnetSize: number, prefix: number): string {
+function calculateTotalSubnetBytes(subnetCount: number, subnetSize: number): number {
+  return subnetCount * Math.pow(2, 32 - subnetSize);
+}
+
+/**
+ * Generate the next available CIDR block after a given offset
+ */
+function generateCidrAtOffset(vpcCidr: string, byteOffset: number, prefix: number): string {
   const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
-  const subnetAddresses = Math.pow(2, 32 - subnetSize);
-  
-  // Start after all subnets
-  const nextStart = vpcNum + (subnetCount * subnetAddresses);
+  const nextStart = vpcNum + byteOffset;
   const nextIp = numberToIp(nextStart);
   
   return `${nextIp}/${prefix}`;
@@ -251,20 +261,29 @@ export async function generateKubernetesNetworkPlan(
     );
   }
 
-  // Generate public and private subnets with AZ distribution
   // Normalize provider alias (e.g., "k8s" -> "kubernetes")
   const provider = normalizeProvider(validatedRequest.provider);
-  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider);
-  // Private subnets start AFTER public subnets to prevent overlap
-  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, tierConfig.publicSubnets);
+  
+  // Generate public subnets (start at VPC base)
+  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider, 0);
+  
+  // Calculate byte offset for private subnets (after all public subnets)
+  const publicBytesUsed = calculateTotalSubnetBytes(tierConfig.publicSubnets, tierConfig.publicSubnetSize);
+  
+  // Generate private subnets (start after public subnets)
+  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, publicBytesUsed);
+  
+  // Calculate total bytes used by all subnets
+  const privateBytesUsed = calculateTotalSubnetBytes(tierConfig.privateSubnets, tierConfig.privateSubnetSize);
+  const totalSubnetBytes = publicBytesUsed + privateBytesUsed;
 
-  // Calculate total subnets used for offset
-  const totalSubnets = publicSubnets.length + privateSubnets.length;
-
-  // Generate Pod and Services CIDR blocks (non-overlapping with VPC)
+  // Generate Pod and Services CIDR blocks (non-overlapping with VPC subnets)
   // These are typically in different RFC 1918 ranges or secondary VPC CIDR
-  const podsCidr = generateNextCidr(vpcCidr, totalSubnets, tierConfig.subnetSize, tierConfig.podsPrefix);
-  const servicesCidr = generateNextCidr(podsCidr, 1, tierConfig.podsPrefix, tierConfig.servicesPrefix);
+  const podsCidr = generateCidrAtOffset(vpcCidr, totalSubnetBytes, tierConfig.podsPrefix);
+  
+  // Services CIDR starts after pods CIDR
+  const podBytes = Math.pow(2, 32 - tierConfig.podsPrefix);
+  const servicesCidr = generateCidrAtOffset(vpcCidr, totalSubnetBytes + podBytes, tierConfig.servicesPrefix);
 
   // Build the network plan
   const plan: KubernetesNetworkPlan = {

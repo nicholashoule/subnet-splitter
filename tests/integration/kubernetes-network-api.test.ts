@@ -127,9 +127,9 @@ describe("Kubernetes Network Planning API Integration", () => {
         deploymentName: "global-k8s-cluster"
       });
 
-      // Hyperscale should have maximum subnet allocation (8 per tier)
-      expect(plan.subnets.public).toHaveLength(8);
-      expect(plan.subnets.private).toHaveLength(8);
+      // Realistic hyperscale: 3 AZs (most cloud regions have 3-6 AZs)
+      expect(plan.subnets.public).toHaveLength(3);
+      expect(plan.subnets.private).toHaveLength(3);
     });
   });
 
@@ -183,7 +183,8 @@ describe("Kubernetes Network Planning API Integration", () => {
       expect(standard.publicSubnets).toBe(1);
       expect(professional.publicSubnets).toBe(2);
       expect(enterprise.publicSubnets).toBe(3);
-      expect(hyperscale.publicSubnets).toBe(8);
+      // Realistic hyperscale: 3 AZs (same as enterprise, but larger subnet sizes)
+      expect(hyperscale.publicSubnets).toBe(3);
 
       // Hyperscale gets more pod space
       expect(hyperscale.podsPrefix).toBeLessThan(standard.podsPrefix);
@@ -241,15 +242,15 @@ describe("Kubernetes Network Planning API Integration", () => {
       });
     });
 
-    it("should generate hyperscale with 8 public and 8 private subnets", async () => {
+    it("should generate hyperscale with 3 AZs (realistic for most cloud regions)", async () => {
       const plan = await generateKubernetesNetworkPlan({
         deploymentSize: "hyperscale",
         provider: "eks"
       });
 
-      // Hyperscale tier for global scale
-      expect(plan.subnets.public).toHaveLength(8);
-      expect(plan.subnets.private).toHaveLength(8);
+      // Realistic hyperscale: 3 public + 3 private subnets
+      expect(plan.subnets.public).toHaveLength(3);
+      expect(plan.subnets.private).toHaveLength(3);
 
       // All subnets should be properly named
       plan.subnets.public.forEach((s, i) => {

@@ -115,13 +115,20 @@ export type KubernetesNetworkPlan = z.infer<typeof KubernetesNetworkPlanSchema>;
 /**
  * Configuration for each deployment size tier
  * Defines subnet count, sizing, and IP space allocation
+ * 
+ * Design Principles:
+ * - Public subnets are for infrastructure (NAT, LB, Bastion) - need fewer IPs
+ * - Private subnets are for compute (Nodes) - need more IPs
+ * - Different sizes reflect real-world usage patterns
  */
 export interface DeploymentTierConfig {
   publicSubnets: number;
   privateSubnets: number;
-  subnetSize: number; // CIDR prefix (e.g., 24 for /24)
+  publicSubnetSize: number;   // CIDR prefix for public subnets (e.g., 25 for /25)
+  privateSubnetSize: number;  // CIDR prefix for private subnets (e.g., 20 for /20)
   podsPrefix: number;
   servicesPrefix: number;
+  minVpcPrefix: number;       // Minimum VPC prefix required (e.g., 18 for /18)
   description: string;
 }
 
@@ -129,41 +136,51 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
   micro: {
     publicSubnets: 1,
     privateSubnets: 1,
-    subnetSize: 25,      // /25 = 128 addresses per subnet
-    podsPrefix: 18,      // /18 for small clusters
-    servicesPrefix: 16,  // /16 for services
+    publicSubnetSize: 26,    // /26 = 64 addresses (plenty for 1 NAT + LB)
+    privateSubnetSize: 25,   // /25 = 128 addresses (1 node + pods)
+    podsPrefix: 18,          // /18 for small clusters
+    servicesPrefix: 16,      // /16 for services
+    minVpcPrefix: 24,        // Minimum /24 VPC
     description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   standard: {
     publicSubnets: 1,
     privateSubnets: 1,
-    subnetSize: 24,      // /24 = 256 addresses per subnet
-    podsPrefix: 16,      // /16 for pods
-    servicesPrefix: 16,  // /16 for services
+    publicSubnetSize: 25,    // /25 = 128 addresses
+    privateSubnetSize: 24,   // /24 = 256 addresses (1-3 nodes + pods)
+    podsPrefix: 16,          // /16 for pods
+    servicesPrefix: 16,      // /16 for services
+    minVpcPrefix: 23,        // Minimum /23 VPC
     description: "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   professional: {
     publicSubnets: 2,
     privateSubnets: 2,
-    subnetSize: 23,      // /23 = 512 addresses per subnet (better for HA)
+    publicSubnetSize: 25,    // /25 = 128 addresses per public subnet
+    privateSubnetSize: 23,   // /23 = 512 addresses per private subnet
     podsPrefix: 16,
     servicesPrefix: 16,
+    minVpcPrefix: 21,        // Minimum /21 VPC
     description: "Small Production: 3-10 nodes, dual AZ ready"
   },
   enterprise: {
     publicSubnets: 3,
     privateSubnets: 3,
-    subnetSize: 23,      // /23 subnets
+    publicSubnetSize: 24,    // /24 = 256 addresses per public subnet
+    privateSubnetSize: 21,   // /21 = 2048 addresses per private subnet
     podsPrefix: 16,
     servicesPrefix: 16,
+    minVpcPrefix: 18,        // Minimum /18 VPC
     description: "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   hyperscale: {
-    publicSubnets: 8,
-    privateSubnets: 8,
-    subnetSize: 18,      // /18 = 16,384 IPs per subnet (high-density: >100 pods/node, warm pool for CNI)
-    podsPrefix: 13,      // /13 for massive pod IP space (5000+ nodes, supports 524K pods)
-    servicesPrefix: 16,  // /16 for 65K+ services
-    description: "Global Scale: 50-5000 nodes, high pod density (>100 pods/node), multi-region ready"
+    publicSubnets: 3,        // 3 AZs (realistic for most regions)
+    privateSubnets: 3,       // 3 AZs
+    publicSubnetSize: 23,    // /23 = 512 addresses per public subnet (NAT, LB, Bastion)
+    privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (high node density)
+    podsPrefix: 13,          // /13 for massive pod IP space
+    servicesPrefix: 16,      // /16 for 65K+ services
+    minVpcPrefix: 18,        // Minimum /18 VPC (fits 3×/23 + 3×/20 = 13,824 IPs)
+    description: "Global Scale: 50-500 nodes per VPC, 3 AZs, high pod density (use multi-VPC for 500+ nodes)"
   }
 };

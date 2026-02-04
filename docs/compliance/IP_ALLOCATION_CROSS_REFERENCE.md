@@ -1,5 +1,7 @@
 # Cloud Provider IPv4 Allocation Cross-Reference
 
+> **Note**: Tier configurations updated February 4, 2026. See [API.md](../API.md) for current subnet sizes and VPC requirements.
+
 **Date**: February 2, 2026  
 **Purpose**: Comprehensive comparison of how IPv4 addresses are consumed across EKS, GKE, and AKS
 
@@ -81,7 +83,7 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
 - **Available**: 256 IPs
 - **Result**:  IP EXHAUSTION - Cluster cannot scale
 
-**Solution**: Our Hyperscale tier uses `/18` subnets (16,384 IPs) to accommodate high pod density
+**Solution**: Our Hyperscale tier uses `/20` private subnets (4,092 IPs per subnet, 3 subnets × 3 AZs) with `/13` pod CIDR
 
 #### IP Prefix Delegation (EKS-Specific)
 
@@ -248,9 +250,10 @@ With Azure CNI Overlay:
 **Problem**: Pods and Nodes share VPC CIDR space
 
 **Hyperscale Tier (5,000 nodes, 110 pods/node)**:
-- **Primary Subnet**: `/18` (16,384 IPs per subnet)
-- **Why**: Must accommodate both Nodes (5K) and Pod secondary IPs (550K potential)
-- **Multiple Subnets**: Use 8 subnets across 3 AZs for distribution
+- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet = 12,276 IPs total)
+- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Why**: Private subnets for Nodes, public for ingress; `/20` provides ample Node + Pod headroom
+- **Distribution**: 3 subnets across 3 AZs
 - **Pod CIDR**: `/13` (524K IPs) - separate configuration for VPC CNI
 - **IP Prefix Delegation**: REQUIRED for high-density (>100 pods/node)
 
@@ -259,8 +262,9 @@ With Azure CNI Overlay:
 **Advantage**: Node subnet only needs Node IPs
 
 **Hyperscale Tier (5,000 nodes)**:
-- **Primary Subnet**: `/18` (16,384 IPs per subnet) - for Nodes only
-- **Why**: Google manages alias ranges automatically
+- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
+- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Why**: Google manages alias ranges automatically; smaller subnets are practical
 - **Pod CIDR**: `/13` (524K IPs via alias ranges)
 - **No fragmentation**: Google handles allocation
 
@@ -269,8 +273,9 @@ With Azure CNI Overlay:
 **Advantage**: Overlay CIDR is completely decoupled
 
 **Hyperscale Tier (5,000 nodes)**:
-- **Primary Subnet**: `/18` (16,384 IPs per subnet) - for Nodes only
-- **Why**: Pods use overlay network (no VNet pressure)
+- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
+- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Why**: Pods use overlay network (no VNet pressure); smaller subnets practical
 - **Overlay CIDR**: `/13` (524K IPs) - separate overlay network
 - **Max Pods**: 200,000 cluster limit (AKS constraint)
 
@@ -318,11 +323,11 @@ With Azure CNI Overlay:
 | Aspect | EKS | GKE | AKS |
 |--------|-----|-----|-----|
 | **Pods share Node subnet?** |  YES (secondary IPs) |  NO (alias ranges) |  NO (overlay) |
-| **IP exhaustion risk?** |  HIGH |  LOW | ❌ NONE |
+| **IP exhaustion risk?** |  HIGH |  LOW | [FAIL] NONE |
 | **Subnet sizing complexity** | High (must account for Pods) | Medium (Google helps) | Low (just Nodes) |
-| **Prefix delegation needed?** |  YES (Nitro instances) | ❌ NO (automatic) | ❌ NO (overlay) |
-| **Fragmentation risk?** |  YES (prefix allocation) | ❌ NO (Google manages) | ❌ NO (overlay) |
-| **Best for large clusters?** | ⚠️ With careful planning |  YES |  YES |
+| **Prefix delegation needed?** |  YES (Nitro instances) | [FAIL] NO (automatic) | [FAIL] NO (overlay) |
+| **Fragmentation risk?** |  YES (prefix allocation) | [FAIL] NO (Google manages) | [FAIL] NO (overlay) |
+| **Best for large clusters?** | WARNING With careful planning |  YES |  YES |
 
 ---
 
@@ -362,9 +367,9 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 
 | Provider | Calculation | Result |
 |----------|-------------|--------|
-| **EKS** | 5,000 × 1,024 = 5,120,000 ports<br>5,120,000 / 64,512 = 80 IPs<br>80 NAT Gateways | **80 NAT Gateways**<br>**80 Elastic IPs**<br>⚠️ HIGH COST |
+| **EKS** | 5,000 × 1,024 = 5,120,000 ports<br>5,120,000 / 64,512 = 80 IPs<br>80 NAT Gateways | **80 NAT Gateways**<br>**80 Elastic IPs**<br>WARNING HIGH COST |
 | **GKE** | 5,000 × 1,024 = 5,120,000 ports<br>5,120,000 / 64,512 = 80 IPs<br>1 Cloud NAT gateway | **1 Cloud NAT gateway**<br>**80 External IPs** |
-| **AKS** | 5,000 × 1,024 = 5,120,000 ports<br>5,120,000 / 64,000 = 80 IPs<br>5 NAT Gateways (16 IPs each) | **5 NAT Gateways**<br>**80 Public IPs**<br>⚠️ EXCEEDS SINGLE GATEWAY LIMIT |
+| **AKS** | 5,000 × 1,024 = 5,120,000 ports<br>5,120,000 / 64,000 = 80 IPs<br>5 NAT Gateways (16 IPs each) | **5 NAT Gateways**<br>**80 Public IPs**<br>WARNING EXCEEDS SINGLE GATEWAY LIMIT |
 
 ### NAT Gateway Quota Limits
 
@@ -378,22 +383,22 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 ### Best Practices Summary
 
 **EKS**:
-- ✅ Deploy NAT Gateway per AZ (typically 3 for HA)
-- ✅ Monitor connection limits (55K per destination)
-- ⚠️ Cost scales with gateway count
-- ✅ Use VPC Endpoints for AWS services to reduce NAT traffic
+- [PASS] Deploy NAT Gateway per AZ (typically 3 for HA)
+- [PASS] Monitor connection limits (55K per destination)
+- WARNING Cost scales with gateway count
+- [PASS] Use VPC Endpoints for AWS services to reduce NAT traffic
 
 **GKE**:
-- ✅ Single Cloud NAT gateway can handle 350 IPs
-- ✅ Start with 64 ports/VM, increase to 1024+ for API-heavy workloads
-- ✅ Use multiple NAT gateways for isolation (per node pool)
-- ✅ Monitor `nat/sent_packets_count` and `nat/dropped_sent_packets_count`
+- [PASS] Single Cloud NAT gateway can handle 350 IPs
+- [PASS] Start with 64 ports/VM, increase to 1024+ for API-heavy workloads
+- [PASS] Use multiple NAT gateways for isolation (per node pool)
+- [PASS] Monitor `nat/sent_packets_count` and `nat/dropped_sent_packets_count`
 
 **AKS**:
-- ✅ Single NAT Gateway supports up to 1,024,000 ports (16 IPs × 64K)
-- ⚠️ For 5,000 nodes with high connections, deploy 3-5 NAT Gateways
-- ✅ Use Azure Private Link for Azure services
-- ⚠️ Be aware of token bucket API throttling for large scale operations
+- [PASS] Single NAT Gateway supports up to 1,024,000 ports (16 IPs × 64K)
+- WARNING For 5,000 nodes with high connections, deploy 3-5 NAT Gateways
+- [PASS] Use Azure Private Link for Azure services
+- WARNING Be aware of token bucket API throttling for large scale operations
 
 ---
 
@@ -403,9 +408,9 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 
 | LB Type | EKS (AWS) | GKE (Google Cloud) | AKS (Azure) |
 |---------|-----------|-------------------|-------------|
-| **External (Internet-facing)** | ALB/NLB<br>AWS-managed IPs<br>❌ No VPC impact | Global/Regional LB<br>Google-managed IPs<br>❌ No VPC impact | Azure LB (Standard)<br>Azure-managed IPs<br>❌ No VNet impact |
-| **Internal (Private)** | Internal ALB/NLB<br>✅ 1 IP/AZ from VPC subnet | Internal TCP/UDP LB<br>✅ 1 IP from VPC subnet | Internal LB (Standard)<br>✅ 1 IP from VNet subnet |
-| **Layer 7 (HTTP/HTTPS)** | ALB<br>AWS-managed | Global HTTP(S) LB<br>Google-managed | Application Gateway<br>✅ Dedicated /24 subnet |
+| **External (Internet-facing)** | ALB/NLB<br>AWS-managed IPs<br>[FAIL] No VPC impact | Global/Regional LB<br>Google-managed IPs<br>[FAIL] No VPC impact | Azure LB (Standard)<br>Azure-managed IPs<br>[FAIL] No VNet impact |
+| **Internal (Private)** | Internal ALB/NLB<br>[PASS] 1 IP/AZ from VPC subnet | Internal TCP/UDP LB<br>[PASS] 1 IP from VPC subnet | Internal LB (Standard)<br>[PASS] 1 IP from VNet subnet |
+| **Layer 7 (HTTP/HTTPS)** | ALB<br>AWS-managed | Global HTTP(S) LB<br>Google-managed | Application Gateway<br>[PASS] Dedicated /24 subnet |
 
 ### Kubernetes Service Integration
 
@@ -413,17 +418,17 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 
 | Provider | Result | IP Consumption |
 |----------|--------|----------------|
-| **EKS** | Provisions NLB or CLB<br>DNS name or AWS IP | ❌ No VPC IPs |
-| **GKE** | Provisions Regional Network LB<br>Google external IP | ❌ No VPC IPs |
-| **AKS** | Provisions Azure LB (Standard)<br>Azure public IP | ❌ No VNet IPs |
+| **EKS** | Provisions NLB or CLB<br>DNS name or AWS IP | [FAIL] No VPC IPs |
+| **GKE** | Provisions Regional Network LB<br>Google external IP | [FAIL] No VPC IPs |
+| **AKS** | Provisions Azure LB (Standard)<br>Azure public IP | [FAIL] No VNet IPs |
 
 **Service Type: LoadBalancer (Internal)**
 
 | Provider | Result | IP Consumption |
 |----------|--------|----------------|
-| **EKS** | Internal NLB<br>1 IP per AZ | ✅ 3 IPs (3-AZ cluster) |
-| **GKE** | Internal TCP/UDP LB<br>1 IP per LB | ✅ 1 IP |
-| **AKS** | Internal LB (Standard)<br>1 IP per LB | ✅ 1 IP |
+| **EKS** | Internal NLB<br>1 IP per AZ | [PASS] 3 IPs (3-AZ cluster) |
+| **GKE** | Internal TCP/UDP LB<br>1 IP per LB | [PASS] 1 IP |
+| **AKS** | Internal LB (Standard)<br>1 IP per LB | [PASS] 1 IP |
 
 ### Hyperscale Tier Load Balancer IP Consumption (5,000 Nodes)
 
@@ -441,17 +446,17 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 |----------|-------------|----------------|
 | **EKS** | AWS ALB Ingress Controller<br>(provisions ALB per Ingress) | AWS-managed IPs (no VPC impact)<br>Internal: 3 IPs per ALB (per AZ) |
 | **GKE** | GKE Ingress<br>(provisions GCP Load Balancer) | 1 global anycast IP (no VPC impact)<br>Internal: 1 IP per Ingress |
-| **AKS** | Application Gateway Ingress<br>(AGIC, provisions App Gateway) | ✅ Requires dedicated /24 subnet<br>256 IPs per App Gateway |
+| **AKS** | Application Gateway Ingress<br>(AGIC, provisions App Gateway) | [PASS] Requires dedicated /24 subnet<br>256 IPs per App Gateway |
 
 ### Total VPC/VNet IP Consumption Summary (Hyperscale Tier)
 
 | Component | EKS | GKE | AKS |
 |-----------|-----|-----|-----|
 | **Nodes** | 5,000 IPs | 5,000 IPs | 5,000 IPs |
-| **Pods** | ✅ Shared with Nodes<br>(VPC CIDR competition) | ❌ Alias ranges<br>(separate, auto-managed) | ❌ Overlay CIDR<br>(separate, 10.244.0.0/16) |
+| **Pods** | [PASS] Shared with Nodes<br>(VPC CIDR competition) | [FAIL] Alias ranges<br>(separate, auto-managed) | [FAIL] Overlay CIDR<br>(separate, 10.244.0.0/16) |
 | **Internal Load Balancers** | 30 IPs (10 LBs × 3 AZs) | 10 IPs | 10 IPs |
 | **Application Gateways** | N/A | N/A | 512 IPs (2 × /24 subnets) |
-| **NAT Gateways** | ❌ Elastic IPs<br>(external resource) | ❌ External IPs<br>(external resource) | ❌ Public IPs<br>(external resource) |
+| **NAT Gateways** | [FAIL] Elastic IPs<br>(external resource) | [FAIL] External IPs<br>(external resource) | [FAIL] Public IPs<br>(external resource) |
 | **Total VPC/VNet IPs** | **~5,030 IPs**<br>+ Pod secondary IPs | **~5,010 IPs** | **~5,522 IPs** |
 
 **Critical Differences**:
@@ -461,11 +466,11 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 
 ### Recommended Subnet Sizing (Hyperscale Tier)
 
-| Provider | Primary Subnet | Rationale |
-|----------|---------------|-----------|
-| **EKS** | **/18 (16,384 IPs)** per subnet<br>or **/17 (32,768 IPs)** for growth | Pods and Nodes share VPC CIDR<br>Need headroom for prefix delegation |
-| **GKE** | **/18 (16,384 IPs)** per subnet | Nodes only (Pods use alias ranges)<br>Internal LBs minimal impact |
-| **AKS** | **/18 (16,384 IPs)** for node subnets<br>+ **/24 (256 IPs)** per App Gateway | Nodes only (Pods use overlay)<br>Separate subnets for App Gateways |
+| Provider | Private Subnets | Public Subnets | Rationale |
+|----------|----------------|----------------|-----------|
+| **EKS** | 3 × **/20** (4,092 IPs each) | 3 × **/23** (510 IPs each) | Private for Nodes + Pods, public for LBs<br>Pod secondary IPs from private subnet space |
+| **GKE** | 3 × **/20** (4,092 IPs each) | 3 × **/23** (510 IPs each) | Nodes only (Pods use alias ranges)<br>Smaller subnets practical with Google IP management |
+| **AKS** | 3 × **/20** (4,092 IPs each)<br>+ **/24** per App Gateway | 3 × **/23** (510 IPs each) | Nodes only (Pods use overlay)<br>Separate subnets for App Gateways |
 
 ---
 

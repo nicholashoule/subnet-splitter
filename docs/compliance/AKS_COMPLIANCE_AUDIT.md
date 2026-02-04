@@ -1,5 +1,7 @@
 # AKS Compliance Audit - Kubernetes Network Planning API
 
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+
 **Date**: February 1, 2026  
 **Scope**: Azure Kubernetes Service (AKS)  
 **Status**:  **FULLY COMPLIANT**
@@ -67,9 +69,9 @@ Actual Limit: Minimum of calculated or 200,000 pods per cluster (AKS max)
 ```
 
 **Key Differences from EKS/GKE**:
-- **EKS**: Pods use secondary IPs from VNet subnet (competes with Nodes) → HIGH exhaustion risk
-- **GKE**: Pods use alias IP ranges (Google manages automatically) → LOW exhaustion risk
-- **AKS**: Pods use overlay CIDR (completely separate from VNet) → **NO exhaustion risk**
+- **EKS**: Pods use secondary IPs from VNet subnet (competes with Nodes) -> HIGH exhaustion risk
+- **GKE**: Pods use alias IP ranges (Google manages automatically) -> LOW exhaustion risk
+- **AKS**: Pods use overlay CIDR (completely separate from VNet) -> **NO exhaustion risk**
 
 **Azure CNI Overlay Benefits**:
 - No VNet IP consumption for pods
@@ -108,13 +110,13 @@ Example: /16 = 65,536 ClusterIP addresses
 **AKS has NO IP exhaustion risk** due to overlay CIDR model:
 
 **Problem Scenario (Theoretical - Does NOT Apply to AKS)**:
-- If AKS used EKS's model: `/24` subnet (256 IPs) exhausted by 10 Nodes + 1,100 Pods = 1,110 IPs needed → FAIL
+- If AKS used EKS's model: `/24` subnet (256 IPs) exhausted by 10 Nodes + 1,100 Pods = 1,110 IPs needed -> FAIL
 
 **AKS Reality (Overlay CIDR)**:
 - Node subnet: `/24` = 252 usable IPs for Nodes
 - Pod overlay: `/16` = 65,536 IPs for Pods (separate CIDR)
 - **No competition**: Nodes and Pods use different IP spaces
-- **Result**: `/24` Node subnet + `/16` Pod CIDR = 10 Nodes + 27,720 Pods → SUCCESS
+- **Result**: `/24` Node subnet + `/16` Pod CIDR = 10 Nodes + 27,720 Pods -> SUCCESS
 
 **Hyperscale Tier IP Exhaustion Risk (AKS)**:
 - Node subnet: `/18` = 16,380 IPs for Nodes
@@ -159,19 +161,17 @@ Example: /16 = 65,536 ClusterIP addresses
 - Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
 - Offset for private subnets = number of public subnets
 
-**Example (Hyperscale tier with VPC 10.0.0.0/16, /19 subnets)**:
+**Example (Hyperscale tier with VPC 10.0.0.0/18, differentiated sizes)**:
 ```
-Public subnets (offset=0):
-  public-1: 10.0.0.0/19   (10.0.0.0 - 10.0.31.255)
-  public-2: 10.0.32.0/19  (10.0.32.0 - 10.0.63.255)
-  ...
-  public-8: 10.0.224.0/19 (10.0.224.0 - 10.0.255.255)
+Public subnets (offset=0, /23 each):
+  public-1: 10.0.0.0/23   (10.0.0.0 - 10.0.1.255)   [512 IPs]
+  public-2: 10.0.2.0/23   (10.0.2.0 - 10.0.3.255)   [512 IPs]
+  public-3: 10.0.4.0/23   (10.0.4.0 - 10.0.5.255)   [512 IPs]
 
-Private subnets (offset=8):
-  private-1: 10.1.0.0/19   (10.1.0.0 - 10.1.31.255)   [PASS] No overlap
-  private-2: 10.1.32.0/19  (10.1.32.0 - 10.1.63.255)  [PASS] No overlap
-  ...
-  private-8: 10.1.224.0/19 (10.1.224.0 - 10.1.255.255) [PASS] No overlap
+Private subnets (offset=3, /20 each):
+  private-1: 10.0.16.0/20  (10.0.16.0 - 10.0.31.255)  [4,096 IPs] [PASS] No overlap
+  private-2: 10.0.32.0/20  (10.0.32.0 - 10.0.47.255)  [4,096 IPs] [PASS] No overlap
+  private-3: 10.0.48.0/20  (10.0.48.0 - 10.0.63.255)  [4,096 IPs] [PASS] No overlap
 ```
 
 **Test Coverage**:
@@ -196,7 +196,7 @@ Based on Microsoft Azure AKS documentation:
 | **Max Nodes per Node Pool** | 1,000 nodes | 1,000 nodes (suggest 5 pools for 5K) |  Supported |
 | **Max Node Pools** | 100 pools | Supports multiple pools |  Compliant |
 | **Max Pods per Node** | 250 pods (max) | 110 default, 250 with Azure CNI |  Supported |
-| **Primary Subnet** | VNet subnet required | /19 hyperscale |  Compliant |
+| **Primary Subnet** | VNet subnet required | /20 × 3 hyperscale |  Compliant |
 | **Pod CIDR** | CNI secondary range | /13 hyperscale |  Compliant |
 | **Service CIDR** | Typically /16-/20 | /16 all tiers |  Over-provisioned |
 
@@ -294,9 +294,9 @@ Header: Retry-After: <seconds>
 
 | LB Type | IP Consumption | VNet Impact |
 |---------|----------------|-------------|
-| **Azure LB (Public)** | Azure-managed public IP | ❌ NO |
-| **Azure LB (Internal)** | 1 IP from VNet subnet | ✅ YES |
-| **Application Gateway** | 1 public + dedicated subnet | ✅ YES (/24) |
+| **Azure LB (Public)** | Azure-managed public IP | [FAIL] NO |
+| **Azure LB (Internal)** | 1 IP from VNet subnet | [PASS] YES |
+| **Application Gateway** | 1 public + dedicated subnet | [PASS] YES (/24) |
 
 **Hyperscale Estimate** (5,000 nodes):
 - NAT Gateways: 3-5 gateways × 16 IPs = 48-80 Azure IPs (no VNet impact)
@@ -730,8 +730,9 @@ All AKS clusters **must** use RFC 1918 address ranges:
 
 ```
 Hyperscale Tier Allocation:
-VNet: 10.0.0.0/16 (65,536 addresses)
-├─ Node Subnet: 10.0.0.0/19 (8,192 for 5,000 nodes)
+VNet: 10.0.0.0/18 (16,384 addresses)
+├─ Public Subnets: 3 × /23 (1,536 total for LBs, NAT gateways)
+├─ Node Subnets: 3 × /20 (12,288 total for 5,000 nodes across 3 AZs)
 ├─ Pod Overlay: 10.100.0.0/13 (524,288 addresses)
 └─ Service CIDR: 10.1.0.0/16 (65,536 addresses)
 ```
@@ -761,7 +762,7 @@ VNet: 10.0.0.0/16 (65,536 addresses)
 | Standard | 1-2 AZs (dual HA) |
 | Professional | 2-3 AZs (zone redundancy) |
 | Enterprise | 3 AZs (maximum redundancy) |
-| Hyperscale | 3+ AZs (across regions if needed) |
+| Hyperscale | 3 AZs (zone redundancy) |
 
 ### Node Pool Distribution
 
@@ -946,10 +947,12 @@ on_tick(time):
 Node_Capacity = 2^(32 - subnet_prefix) - 4
 
 Examples:
-/25 = 2^7 - 4 = 124 nodes
-/24 = 2^8 - 4 = 252 nodes
-/23 = 2^9 - 4 = 508 nodes
-/19 = 2^13 - 4 = 8,188 nodes (full capacity)
+/26 = 2^6 - 4 = 60 nodes (micro public)
+/25 = 2^7 - 4 = 124 nodes (micro private)
+/24 = 2^8 - 4 = 252 nodes (standard private)
+/23 = 2^9 - 4 = 508 nodes (professional/enterprise)
+/21 = 2^11 - 4 = 2,044 nodes (enterprise private)
+/20 = 2^12 - 4 = 4,092 nodes (hyperscale private)
 ```
 
 ### 3. Pod CIDR Space (Overlay Model)
@@ -1072,11 +1075,18 @@ Max_Services = 300 per cluster (hard load balancer limit)
 
 ### No Configuration Changes Needed
 
-Azure AKS implementation already optimal:
-- Hyperscale tier with `/19` supports full 5,000-node clusters
+Azure AKS implementation is optimized for realistic deployments:
+- Hyperscale tier with 3 × `/20` private subnets supports 5,000-node clusters
 - Pod CIDR `/13` supports 200K+ pods (AKS overlay limit)
 - Service CIDR `/16` provides ample space
 - All tier configurations validated for Azure compatibility
+
+**Current Tier Configuration Summary:**
+- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC
+- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC
+- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC
+- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
 
 ---
 
@@ -1084,9 +1094,10 @@ Azure AKS implementation already optimal:
 
 **Documentation Files Created/Updated**:
 
-1. **AKS_COMPLIANCE_AUDIT.md** (NEW)
+1. **AKS_COMPLIANCE_AUDIT.md** (UPDATED February 4, 2026)
    - This comprehensive audit document
    - 16 sections covering all aspects
+   - Updated with differentiated public/private subnet sizes
    - Ready for reference in Azure documentation
 
 2. **.github/copilot-instructions.md** (UPDATE PENDING)

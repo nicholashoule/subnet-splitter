@@ -199,42 +199,52 @@ Get information about all deployment tiers and their configurations.
   "micro": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 25,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
     "podsPrefix": 18,
     "servicesPrefix": 16,
+    "minVpcPrefix": 24,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 23,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 21,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
   },
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 18,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 8,
-    "privateSubnets": 8,
-    "subnetSize": 19,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
     "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    "minVpcPrefix": 18,
+    "description": "Global Scale: 50-5000 nodes, 3 AZ deployment, realistic subnet sizing"
   }
 }
 ```
@@ -352,11 +362,13 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ```typescript
 {
-  publicSubnets: number,            // Count of public subnets
-  privateSubnets: number,           // Count of private subnets
-  subnetSize: number,               // CIDR prefix (e.g., 24 for /24)
+  publicSubnets: number,            // Count of public subnets (1-3 AZs)
+  privateSubnets: number,           // Count of private subnets (1-3 AZs)
+  publicSubnetSize: number,         // Public subnet CIDR prefix (e.g., 23 for /23)
+  privateSubnetSize: number,        // Private subnet CIDR prefix (e.g., 20 for /20)
   podsPrefix: number,               // Pod CIDR prefix (e.g., 16 for /16)
   servicesPrefix: number,           // Service CIDR prefix (e.g., 16 for /16)
+  minVpcPrefix: number,             // Minimum VPC size required (e.g., 18 for /18)
   description: string               // Tier description
 }
 ```
@@ -374,42 +386,52 @@ curl http://localhost:5000/api/kubernetes/tiers
   "micro": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 25,
+    "publicSubnetSize": 26,
+    "privateSubnetSize": 25,
     "podsPrefix": 18,
     "servicesPrefix": 16,
+    "minVpcPrefix": 24,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   "standard": {
     "publicSubnets": 1,
     "privateSubnets": 1,
-    "subnetSize": 24,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 24,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 23,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   "professional": {
     "publicSubnets": 2,
     "privateSubnets": 2,
-    "subnetSize": 23,
+    "publicSubnetSize": 25,
+    "privateSubnetSize": 23,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 21,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
   },
   "enterprise": {
     "publicSubnets": 3,
     "privateSubnets": 3,
-    "subnetSize": 23,
+    "publicSubnetSize": 24,
+    "privateSubnetSize": 21,
     "podsPrefix": 16,
     "servicesPrefix": 16,
+    "minVpcPrefix": 18,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
-    "publicSubnets": 8,
-    "privateSubnets": 8,
-    "subnetSize": 19,
+    "publicSubnets": 3,
+    "privateSubnets": 3,
+    "publicSubnetSize": 23,
+    "privateSubnetSize": 20,
     "podsPrefix": 13,
     "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max), GKE-optimized"
+    "minVpcPrefix": 18,
+    "description": "Global Scale: 50-5000 nodes, 3 AZ deployment, realistic subnet sizing"
   }
 }
 ```
@@ -426,13 +448,13 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 
 ### Tier Summary
 
-| Tier | Nodes | Public Subnets | Private Subnets | Subnet Size | Pod CIDR | Service CIDR | Multi-AZ | Use Case |
-|------|-------|----------------|-----------------|-------------|----------|--------------|----------|----------|
-| **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | No | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /24 (256 IPs) | /16 | /16 | No | Dev/Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 (512 IPs) | /16 | /16 | Dual AZ | Small Production |
-| **Enterprise** | 10-50 | 3 | 3 | /23 (512 IPs) | /16 | /16 | Triple AZ | Large Production |
-| **Hyperscale** | 50-5000 | 8 | 8 | /19 (8,192 IPs) | /13 | /16 | Multi-Region | Global Scale |
+| Tier | Nodes | AZs | Public Subnet | Private Subnet | Pod CIDR | Min VPC | Use Case |
+|------|-------|-----|---------------|----------------|----------|---------|----------|
+| **Micro** | 1 | 1 | /26 (64 IPs) | /25 (128 IPs) | /18 | /24 | POC, Development |
+| **Standard** | 1-3 | 1 | /25 (128 IPs) | /24 (256 IPs) | /16 | /23 | Dev/Testing |
+| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /16 | /21 | Small Production |
+| **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /18 | Large Production |
+| **Hyperscale** | 50-5000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 | Global Scale |
 
 ### Tier Validation Status
 
@@ -444,21 +466,28 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 - Multi-AZ availability requirements
 - Network performance best practices
 
-| Tier | Nodes | Public | Private | Subnet | Pods | Services | Use Case |
-|------|-------|--------|---------|--------|------|----------|----------|
-| **Micro** | 1 | 1 | 1 | /25 (128 IPs) | /18 | /16 | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /24 (256 IPs) | /16 | /16 | Development, Testing |
-| **Professional** | 3-10 | 2 | 2 | /23 (512 IPs) | /16 | /16 | Small Production (HA) |
-| **Enterprise** | 10-50 | 3 | 3 | /23 (512 IPs) | /16 | /16 | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 8 | 8 | /19 (8,192 IPs) | /13 | /16 | Global Scale (EKS/GKE max) |
+| Tier | Nodes | AZs | Public Subnet | Private Subnet | Pods | Min VPC | Use Case |
+|------|-------|-----|---------------|----------------|------|---------|----------|
+| **Micro** | 1 | 1 | /26 (64 IPs) | /25 (128 IPs) | /18 | /24 | POC, Development |
+| **Standard** | 1-3 | 1 | /25 (128 IPs) | /24 (256 IPs) | /16 | /23 | Development, Testing |
+| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /16 | /21 | Small Production (HA) |
+| **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /18 | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 | Global Scale (3-AZ HA) |
 
 ### Tier Selection Guide
 
-- **Micro**: Single-node clusters for testing and proof-of-concept
-- **Standard**: Development and testing environments with minimal infrastructure
-- **Professional**: Small production deployments requiring high availability (2 AZs)
-- **Enterprise**: Large production deployments with guaranteed multi-AZ deployment (3 AZs)
-- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes (EKS/GKE maximum)
+- **Micro**: Single-node clusters for testing and proof-of-concept (fits in /24 VPC)
+- **Standard**: Development and testing environments with minimal infrastructure (fits in /23 VPC)
+- **Professional**: Small production deployments requiring high availability (2 AZs, fits in /21 VPC)
+- **Enterprise**: Large production deployments with guaranteed multi-AZ deployment (3 AZs, fits in /18 VPC)
+- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes with realistic subnet sizing (3 AZs, fits in /18 VPC)
+
+### Design Rationale
+
+**Why differentiated subnet sizes?**
+- **Public subnets** only need IPs for: NAT Gateways (1/AZ), Load Balancers, Bastion hosts
+- **Private subnets** need IPs for: Worker Nodes AND their Pod secondary IPs (EKS VPC CNI model)
+- Real-world deployments use smaller public subnets (/23-/26) and larger private subnets (/20-/24)
 
 ---
 
@@ -710,18 +739,23 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   }'
 ```
 
-### Example 3: Global-Scale Self-Hosted Kubernetes
+### Example 3: Global-Scale Kubernetes (Realistic Hyperscale)
 
 ```bash
 curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   -H "Content-Type: application/json" \
   -d '{
     "deploymentSize": "hyperscale",
-    "provider": "kubernetes",
-    "vpcCidr": "172.16.0.0/12",
-    "deploymentName": "global-mesh"
+    "provider": "eks",
+    "vpcCidr": "10.42.192.0/18",
+    "deploymentName": "prod-us-east-1"
   }'
 ```
+
+**This generates:**
+- 3 public subnets at /23 (512 IPs each) for NAT/LB
+- 3 private subnets at /20 (4,096 IPs each) for nodes
+- Total: 13,824 IPs fitting comfortably in a /18 VPC
 
 ### Example 4: Multi-Region Deployment
 

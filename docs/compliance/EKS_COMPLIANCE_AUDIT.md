@@ -1,5 +1,7 @@
 # EKS Compliance Audit - Kubernetes Network Planning API
 
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+
 **Date**: February 1, 2026  
 **Scope**: AWS EKS (Elastic Kubernetes Service)  
 **Status**:  **FULLY COMPLIANT**
@@ -121,8 +123,9 @@ VPC Subnet: 10.0.0.0/24 (256 total IPs)
 
 **Solution (Our Hyperscale Tier)**:
 ```
-VPC Subnet: 10.0.0.0/18 (16,384 total IPs per subnet)
-- 5,000 Nodes: 5,000 IPs used
+VPC Subnet: 10.0.0.0/20 (4,096 total IPs per private subnet, 3 AZs)
+- Total Private Capacity: 3 × 4,096 = 12,288 IPs
+- 5,000 Nodes: 5,000 IPs used (distributed across 3 AZs)
 - 110 Pods/Node (with IP Prefix Delegation): 550,000 Pod IPs potential
 - Pod CIDR: /13 (524,288 IPs) - separate CNI configuration
 - Result: Sufficient IP space for high-density deployments
@@ -144,7 +147,7 @@ VPC Subnet: 10.0.0.0/18 (16,384 total IPs per subnet)
 3.  **Service CIDR is separate** (does not consume VPC space)
 4.  **LoadBalancers are external** (do not consume VPC space)
 5.  **IP Prefix Delegation REQUIRED** for high-density (>100 pods/node)
-6.  **Hyperscale tier uses `/18` subnets** (16,384 IPs) to avoid exhaustion
+6.  **Hyperscale tier uses `/20` private subnets** (4,096 IPs each × 3 AZs = 12,288 total)
 
 **Cross-Reference**: See `docs/compliance/IP_ALLOCATION_CROSS_REFERENCE.md` for detailed cross-provider comparison.
 
@@ -238,10 +241,10 @@ Elastic IPs: 23-30
 
 | LB Type | IP Consumption | VPC Impact |
 |---------|----------------|------------|
-| **ALB (Internet-facing)** | AWS-managed public IPs | ❌ NO |
-| **ALB (Internal)** | 1 IP/AZ from VPC subnet | ✅ YES |
-| **NLB (Internet-facing)** | 1 EIP/AZ | ❌ NO |
-| **NLB (Internal)** | 1 IP/AZ from VPC subnet | ✅ YES |
+| **ALB (Internet-facing)** | AWS-managed public IPs | [FAIL] NO |
+| **ALB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
+| **NLB (Internet-facing)** | 1 EIP/AZ | [FAIL] NO |
+| **NLB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
 
 **Hyperscale Estimate** (5,000 nodes, 3 AZs):
 - NAT Gateways: 3-6 (1-2 per AZ) = 3-6 EIPs (no VPC impact)
@@ -250,7 +253,7 @@ Elastic IPs: 23-30
 - Internal NLBs: ~3 services × 3 AZs = 9 VPC IPs
 - **Total VPC IPs**: 5,000 (nodes+pods) + 24 (LBs) = **~5,024 IPs**
 
-**Critical**: EKS Pods share VPC CIDR with Nodes. Use `/18` subnets minimum for Hyperscale.
+**Critical**: EKS Pods share VPC CIDR with Nodes. Use `/20` private subnets × 3 AZs for Hyperscale.
 
 ---
 
@@ -451,17 +454,17 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 ### Hyperscale Tier (Global/Extreme Scale)
 
 **Configuration**:
-- Primary Subnet: `/19` (8,192 addresses per subnet)
-- Public Subnets: 8 (65,536 addresses total)
-- Private Subnets: 8 (65,536 addresses total)
+- Public Subnets: 3 × `/23` (512 addresses each) = 1,536 total addresses
+- Private Subnets: 3 × `/20` (4,096 addresses each) = 12,288 total addresses
+- Min VPC Prefix: `/18` (65,536 addresses)
 - Pod CIDR: `/13` (524,288 addresses total)
 - Service CIDR: `/16` (65,536 addresses)
 - Nodes: 50-5,000 (up to 100,000 with AWS support)
 - Max Pods: 55,000-260,000
 
 **EKS Compliance**:
--  `/19` subnets support 8,192 addresses (full 5,000 nodes + buffer)
--  8 subnets support multi-AZ and regional distribution
+-  `/20` private subnets support 4,096 addresses each (12,288 total across 3 AZs)
+-  3 subnets across 3 AZs for zone redundancy
 -  Pod CIDR `/13` provides 524K addresses (52+ addresses per pod at 110 pods/node)
 -  Service CIDR exceeds recommendations by 3x
 -  Supports EKS maximum documented scale (5,000 nodes) without AWS onboarding
@@ -479,14 +482,15 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 
 **Subnet Configuration**:
 ```
-Primary VPC: 10.0.0.0/16 (65,536 addresses)
-├─ Public Subnets (8):  
-│  ├─ 10.0.0.0/19   (8,192 addresses)
-│  ├─ 10.0.32.0/19  (8,192 addresses)
-│  ├─ 10.0.64.0/19  (8,192 addresses)
-│  ├─ 10.0.96.0/19  (8,192 addresses)
-│  └─ ... (4 more for multi-region)
-├─ Private Subnets (8): Similar pattern
+Primary VPC: 10.0.0.0/18 (16,384 addresses)
+├─ Public Subnets (3):  
+│  ├─ 10.0.0.0/23   (512 addresses, us-east-1a)
+│  ├─ 10.0.2.0/23   (512 addresses, us-east-1b)
+│  └─ 10.0.4.0/23   (512 addresses, us-east-1c)
+├─ Private Subnets (3):
+│  ├─ 10.0.16.0/20  (4,096 addresses, us-east-1a)
+│  ├─ 10.0.32.0/20  (4,096 addresses, us-east-1b)
+│  └─ 10.0.48.0/20  (4,096 addresses, us-east-1c)
 └─ Secondary Ranges:
    ├─ Pods:    10.100.0.0/13  (524,288 addresses)
    └─ Services: 10.1.0.0/16   (65,536 addresses)
@@ -677,13 +681,13 @@ All EKS clusters **must** use private RFC 1918 address ranges. Our implementatio
 
 ### Allocation Strategy
 
-**Tier Allocation** (example with 10.0.0.0/16 VPC):
+**Tier Allocation** (example with 10.0.0.0/18 VPC for Hyperscale):
 ```
-VPC: 10.0.0.0/16 (65,536 addresses)
+VPC: 10.0.0.0/18 (16,384 addresses)
 
 Hyperscale Tier:
-├─ Public Subnets (8):   10.0.0.0/19 through 10.0.224.0/19
-├─ Private Subnets (8):  10.1.0.0/19 through 10.1.224.0/19
+├─ Public Subnets (3):   10.0.0.0/23, 10.0.2.0/23, 10.0.4.0/23
+├─ Private Subnets (3):  10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
 ├─ Pod Secondary:        10.100.0.0/13 (524,288 addresses)
 └─ Service Secondary:    10.1.0.0/16 (65,536 addresses)
 ```
@@ -717,7 +721,7 @@ EKS strongly recommends multi-AZ deployment:
 | Standard | 1 | 1 | Single AZ (option for dev) |
 | Professional | 2 | 2 | 2 AZs (dual-AZ HA) |
 | Enterprise | 3 | 3 | 3 AZs (zone redundancy) |
-| Hyperscale | 8 | 8 | Multi-region (8 AZs total) |
+| Hyperscale | 3 | 3 | 3 AZs (zone redundancy) |
 
 ### EKS Recommendations
 
@@ -928,11 +932,18 @@ For automated deployments:
 
 ### No Changes Needed
 
-Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation is already optimal:
-- Hyperscale tier with /19 supports full 5,000-node EKS clusters
-- Pod CIDR /13 exceeds requirements
-- Service CIDR /16 provides ample space
-- All tier configurations validated
+The EKS implementation is optimized for realistic deployments:
+- Hyperscale tier with 3 × `/20` private subnets supports 5,000-node EKS clusters
+- Pod CIDR `/13` exceeds requirements
+- Service CIDR `/16` provides ample space
+- All tier configurations validated with differentiated public/private subnet sizes
+
+**Current Tier Configuration Summary:**
+- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC
+- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC
+- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC
+- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
 
 ---
 
@@ -940,20 +951,20 @@ Unlike GKE audit which optimized Hyperscale /20 -> /19, the EKS implementation i
 
 **Documentation Files Created/Updated**:
 
-1. **EKS_COMPLIANCE_AUDIT.md** (NEW)
-   - This comprehensive audit document
+1. **EKS_COMPLIANCE_AUDIT.md** (UPDATED February 4, 2026)
+   - Comprehensive audit document
    - 14 sections covering all aspects
-   - Ready for reference in support/onboarding
+   - Updated for differentiated subnet sizes (public/private)
+   - Hyperscale: 3 AZs with /23 public, /20 private
 
-2. **.github/copilot-instructions.md** (UPDATE PENDING)
-   - Add "EKS Compliance & IP Calculation Formulas" section
-   - Document EKS-specific algorithms
-   - Include Nitro instance requirements
-   - Add fragmentation mitigation strategies
+2. **.github/copilot-instructions.md** (SYNCED)
+   - "EKS Compliance & IP Calculation Formulas" section
+   - Documents EKS-specific algorithms
+   - Includes Nitro instance requirements
 
-3. **shared/kubernetes-schema.ts** (NO CHANGES NEEDED)
-   - Configuration already EKS-compliant
-   - Hyperscale tier at optimal /19 for both EKS and GKE
+3. **shared/kubernetes-schema.ts** (UPDATED)
+   - DeploymentTierConfig with publicSubnetSize/privateSubnetSize
+   - All tiers use differentiated subnet sizes
 
 ---
 
