@@ -18,12 +18,157 @@ The Kubernetes Network Planning API has been validated against Microsoft Azure K
 -  Token bucket throttling algorithm documented
 -  Azure Resource Manager (ARM) quota system compatible
 -  **Multi-zone distribution** automatically configured for all tiers
--  **Azure availability zones** properly assigned (zone-1, zone-2, zone-3)
+-  **Azure availability zones** properly assigned using real region names (e.g., `eastus-1`, `eastus-2`, `eastus-3`)
 -  Multi-node pool scaling patterns supported
 -  Control plane tier support (Free, Standard, Premium) documented
 -  RFC 1918 private addressing enforced
 
 **Compliance Level**: **PRODUCTION READY**
+
+---
+
+## 0.1. Azure Region and Availability Zone Naming Standards
+
+### Region Naming Convention
+
+Azure regions follow a simplified naming pattern: `<location><direction?><number?>`
+
+**Format**: `{location}{direction}{number}` (no separators)
+- **location**: Geographic area or city (east, west, central, north, south, australia, brazil, canada, etc.)
+- **direction**: Optional cardinal direction (east, west, central, etc.)
+- **number**: Optional distinguisher (2, 3, etc.)
+
+**Key Differences from AWS/GCP**:
+- **No hyphens or underscores**: Region names are lowercase without separators
+- **Uses programmatic names**: `eastus` not `East US`
+- **Human-readable display names**: Separate from programmatic names
+
+### Azure Regions by Geography (Programmatic Names)
+
+| Geography | Region Code | Display Name | Physical Location | AZ Support |
+|-----------|-------------|--------------|-------------------|------------|
+| **United States** | | | | |
+| | `eastus` | East US | Virginia | Yes |
+| | `eastus2` | East US 2 | Virginia | Yes |
+| | `centralus` | Central US | Iowa | Yes |
+| | `northcentralus` | North Central US | Illinois | No |
+| | `southcentralus` | South Central US | Texas | Yes |
+| | `westcentralus` | West Central US | Wyoming | No |
+| | `westus` | West US | California | No |
+| | `westus2` | West US 2 | Washington | Yes |
+| | `westus3` | West US 3 | Arizona | Yes |
+| **Canada** | | | | |
+| | `canadacentral` | Canada Central | Toronto | Yes |
+| | `canadaeast` | Canada East | Quebec | No |
+| **Europe** | | | | |
+| | `northeurope` | North Europe | Ireland | Yes |
+| | `westeurope` | West Europe | Netherlands | Yes |
+| | `uksouth` | UK South | London | Yes |
+| | `ukwest` | UK West | Cardiff | No |
+| | `francecentral` | France Central | Paris | Yes |
+| | `francesouth` | France South | Marseille | No |
+| | `germanywestcentral` | Germany West Central | Frankfurt | Yes |
+| | `germanynorth` | Germany North | Berlin | No |
+| | `switzerlandnorth` | Switzerland North | Zurich | Yes |
+| | `switzerlandwest` | Switzerland West | Geneva | No |
+| | `norwayeast` | Norway East | Oslo | Yes |
+| | `norwaywest` | Norway West | Stavanger | No |
+| | `swedencentral` | Sweden Central | Gävle | Yes |
+| | `polandcentral` | Poland Central | Warsaw | Yes |
+| | `italynorth` | Italy North | Milan | Yes |
+| | `spaincentral` | Spain Central | Madrid | Yes |
+| **Asia Pacific** | | | | |
+| | `eastasia` | East Asia | Hong Kong | Yes |
+| | `southeastasia` | Southeast Asia | Singapore | Yes |
+| | `japaneast` | Japan East | Tokyo | Yes |
+| | `japanwest` | Japan West | Osaka | Yes |
+| | `koreacentral` | Korea Central | Seoul | Yes |
+| | `koreasouth` | Korea South | Busan | No |
+| | `centralindia` | Central India | Pune | Yes |
+| | `southindia` | South India | Chennai | No |
+| | `westindia` | West India | Mumbai | No |
+| | `australiaeast` | Australia East | Sydney | Yes |
+| | `australiasoutheast` | Australia Southeast | Melbourne | No |
+| | `australiacentral` | Australia Central | Canberra | No |
+| | `indonesiacentral` | Indonesia Central | Jakarta | Yes |
+| | `malaysiawest` | Malaysia West | Kuala Lumpur | Yes |
+| | `newzealandnorth` | New Zealand North | Auckland | Yes |
+| **South America** | | | | |
+| | `brazilsouth` | Brazil South | São Paulo | Yes |
+| | `brazilsoutheast` | Brazil Southeast | Rio | No |
+| | `chilecentral` | Chile Central | Santiago | Yes |
+| **Middle East & Africa** | | | | |
+| | `uaenorth` | UAE North | Dubai | Yes |
+| | `uaecentral` | UAE Central | Abu Dhabi | No |
+| | `qatarcentral` | Qatar Central | Doha | Yes |
+| | `israelcentral` | Israel Central | Tel Aviv | Yes |
+| | `southafricanorth` | South Africa North | Johannesburg | Yes |
+| | `southafricawest` | South Africa West | Cape Town | No |
+
+### Availability Zone Naming Convention
+
+Azure AZs use **numeric identifiers** (NOT letters like AWS/GCP):
+
+**Format**: `{region}-{zone-number}`
+- **region**: Programmatic region code (e.g., `eastus`)
+- **zone-number**: Numeric zone identifier (1, 2, 3)
+
+**Examples**:
+- `eastus-1` - First AZ in East US (Virginia)
+- `eastus-2` - Second AZ in East US (Virginia)
+- `eastus-3` - Third AZ in East US (Virginia)
+
+**Important Notes**:
+
+1. **Logical-to-Physical Mapping**: Azure maps logical zone numbers (1, 2, 3) to physical zones per subscription
+   - Zone 1 in Subscription A may map to a different physical zone than Zone 1 in Subscription B
+   - This provides balanced distribution across physical infrastructure
+
+2. **Zone Redundant Services**: Some Azure services are "zone-redundant" (automatically replicated)
+   - Storage accounts, SQL Database, etc.
+   - No need to specify individual zones
+
+3. **Maximum 3 Zones**: Azure regions that support AZs have exactly 3 zones (1, 2, 3)
+   - Unlike AWS (up to 6) or GCP (variable)
+
+4. **Not All Regions Support AZs**: Check the AZ Support column
+   - Use zone-redundant services in non-AZ regions for HA
+
+### Retrieving Region Names Programmatically
+
+```bash
+# Azure CLI
+az account list-locations --output table
+
+# Azure PowerShell
+Get-AzLocation | Select-Object DisplayName, Location
+
+# Example output:
+# DisplayName          Location
+# East US              eastus
+# East US 2            eastus2
+# West US              westus
+# Central US           centralus
+```
+
+### API Implementation
+
+Our API uses real Azure region names for AZ assignment:
+
+```typescript
+// Default region for AKS
+const region = "eastus";
+
+// AZ assignment for subnets (numeric zones)
+private-1 -> eastus-1
+private-2 -> eastus-2
+private-3 -> eastus-3
+public-1  -> eastus-1
+public-2  -> eastus-2
+public-3  -> eastus-3
+```
+
+**Reference**: [Azure Regions List](https://learn.microsoft.com/en-us/azure/reliability/regions-list)
 
 ---
 

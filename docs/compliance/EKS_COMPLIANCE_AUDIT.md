@@ -18,12 +18,103 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 -  IP prefix delegation support confirmed
 -  RFC 1918 private addressing enforced
 -  **Multi-AZ distribution** automatically configured for all tiers
--  **AWS availability zones** properly assigned (region letter suffixes: a, b, c, etc.)
+-  **AWS availability zones** properly assigned using real region names (e.g., `us-east-1a`, `us-east-1b`, `us-east-1c`)
 -  Subnet sizing appropriate for EKS node types
 -  Pod IP space sufficient for maximum density deployments
 -  Service CIDR allocation exceeds EKS recommendations
 
 **Compliance Level**: **PRODUCTION READY**
+
+---
+
+## 1.0.1. AWS Region and Availability Zone Naming Standards
+
+### Region Naming Convention
+
+AWS regions follow the pattern: `<continent>-<direction>-<number>`
+
+**Format**: `{continent}-{direction}-{number}`
+- **continent**: Geographic area (us, eu, ap, sa, af, me, ca)
+- **direction**: Cardinal direction (north, south, east, west, central, northeast, southeast)
+- **number**: Distinguisher when multiple regions exist in same area (1, 2, 3...)
+
+### AWS Regions by Geography
+
+| Geography | Region Code | Region Name | Typical AZs |
+|-----------|-------------|-------------|-------------|
+| **North America** | | | |
+| | `us-east-1` | US East (N. Virginia) | us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1e, us-east-1f |
+| | `us-east-2` | US East (Ohio) | us-east-2a, us-east-2b, us-east-2c |
+| | `us-west-1` | US West (N. California) | us-west-1a, us-west-1c |
+| | `us-west-2` | US West (Oregon) | us-west-2a, us-west-2b, us-west-2c, us-west-2d |
+| | `ca-central-1` | Canada (Central) | ca-central-1a, ca-central-1b, ca-central-1d |
+| | `ca-west-1` | Canada West (Calgary) | ca-west-1a, ca-west-1b |
+| **Europe** | | | |
+| | `eu-west-1` | Europe (Ireland) | eu-west-1a, eu-west-1b, eu-west-1c |
+| | `eu-west-2` | Europe (London) | eu-west-2a, eu-west-2b, eu-west-2c |
+| | `eu-west-3` | Europe (Paris) | eu-west-3a, eu-west-3b, eu-west-3c |
+| | `eu-central-1` | Europe (Frankfurt) | eu-central-1a, eu-central-1b, eu-central-1c |
+| | `eu-central-2` | Europe (Zurich) | eu-central-2a, eu-central-2b, eu-central-2c |
+| | `eu-north-1` | Europe (Stockholm) | eu-north-1a, eu-north-1b, eu-north-1c |
+| | `eu-south-1` | Europe (Milan) | eu-south-1a, eu-south-1b, eu-south-1c |
+| | `eu-south-2` | Europe (Spain) | eu-south-2a, eu-south-2b, eu-south-2c |
+| **Asia Pacific** | | | |
+| | `ap-northeast-1` | Asia Pacific (Tokyo) | ap-northeast-1a, ap-northeast-1c, ap-northeast-1d |
+| | `ap-northeast-2` | Asia Pacific (Seoul) | ap-northeast-2a, ap-northeast-2b, ap-northeast-2c, ap-northeast-2d |
+| | `ap-northeast-3` | Asia Pacific (Osaka) | ap-northeast-3a, ap-northeast-3b, ap-northeast-3c |
+| | `ap-southeast-1` | Asia Pacific (Singapore) | ap-southeast-1a, ap-southeast-1b, ap-southeast-1c |
+| | `ap-southeast-2` | Asia Pacific (Sydney) | ap-southeast-2a, ap-southeast-2b, ap-southeast-2c |
+| | `ap-southeast-3` | Asia Pacific (Jakarta) | ap-southeast-3a, ap-southeast-3b, ap-southeast-3c |
+| | `ap-southeast-4` | Asia Pacific (Melbourne) | ap-southeast-4a, ap-southeast-4b, ap-southeast-4c |
+| | `ap-south-1` | Asia Pacific (Mumbai) | ap-south-1a, ap-south-1b, ap-south-1c |
+| | `ap-south-2` | Asia Pacific (Hyderabad) | ap-south-2a, ap-south-2b, ap-south-2c |
+| | `ap-east-1` | Asia Pacific (Hong Kong) | ap-east-1a, ap-east-1b, ap-east-1c |
+| **South America** | | | |
+| | `sa-east-1` | South America (Sao Paulo) | sa-east-1a, sa-east-1b, sa-east-1c |
+| **Middle East** | | | |
+| | `me-south-1` | Middle East (Bahrain) | me-south-1a, me-south-1b, me-south-1c |
+| | `me-central-1` | Middle East (UAE) | me-central-1a, me-central-1b, me-central-1c |
+| | `il-central-1` | Israel (Tel Aviv) | il-central-1a, il-central-1b, il-central-1c |
+| **Africa** | | | |
+| | `af-south-1` | Africa (Cape Town) | af-south-1a, af-south-1b, af-south-1c |
+
+### Availability Zone Naming Convention
+
+AWS AZs follow the pattern: `<region-code><letter>`
+
+**Format**: `{region}{az-letter}`
+- **region**: Full region code (e.g., `us-east-1`)
+- **az-letter**: Lowercase letter suffix (a, b, c, d, e, f)
+
+**Examples**:
+- `us-east-1a` - First AZ in US East (Virginia)
+- `us-east-1b` - Second AZ in US East (Virginia)
+- `eu-west-1c` - Third AZ in Europe (Ireland)
+
+**Important Notes**:
+1. **AZ letters are randomized per account**: `us-east-1a` for Account A may physically differ from `us-east-1a` for Account B
+2. **Use AZ IDs for cross-account consistency**: `use1-az1`, `use1-az2`, etc.
+3. **Minimum 3 AZs per region**: Most regions have at least 3 AZs (some have 6)
+4. **Not all letters are sequential**: Some regions skip letters (e.g., `us-west-1` has `a` and `c` but no `b`)
+
+### API Implementation
+
+Our API uses real AWS region names for AZ assignment:
+
+```typescript
+// Default region for EKS
+const region = "us-east-1";
+
+// AZ assignment for subnets
+private-1 -> us-east-1a
+private-2 -> us-east-1b
+private-3 -> us-east-1c
+public-1  -> us-east-1a
+public-2  -> us-east-1b
+public-3  -> us-east-1c
+```
+
+**Reference**: [AWS Global Infrastructure - Regions & AZs](https://aws.amazon.com/about-aws/global-infrastructure/regions_az/)
 
 ---
 

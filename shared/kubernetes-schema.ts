@@ -67,29 +67,44 @@ export const KubernetesNetworkPlanRequestSchema = z.object({
 export type KubernetesNetworkPlanRequest = z.infer<typeof KubernetesNetworkPlanRequestSchema>;
 
 /**
- * Provider-specific region examples
- * These are common production regions for each cloud provider
+ * Provider-specific region examples and naming conventions
+ * Each provider has different naming standards for regions and availability zones:
+ * 
+ * AWS (EKS):
+ *   - Region format: {continent}-{direction}-{number} (e.g., us-east-1, eu-west-2)
+ *   - AZ format: {region}{letter} (e.g., us-east-1a, us-east-1b) - NO hyphen before letter
+ *   - Up to 6 AZs per region
+ * 
+ * GCP (GKE):
+ *   - Region format: {continent}-{direction}{number} (e.g., us-central1, europe-west1) - NO hyphen before number
+ *   - Zone format: {region}-{letter} (e.g., us-central1-a, us-central1-b) - hyphen before letter
+ *   - Typically 3-4 zones per region
+ * 
+ * Azure (AKS):
+ *   - Region format: lowercase concatenated (e.g., eastus, westeurope, northcentralus) - NO separators
+ *   - AZ format: {region}-{number} (e.g., eastus-1, eastus-2) - numeric zones (1, 2, 3)
+ *   - Maximum 3 zones per region
  */
 export const PROVIDER_REGION_EXAMPLES: Record<string, { regions: string[]; default: string; format: string }> = {
   eks: {
-    regions: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1", "ap-northeast-1"],
+    regions: ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "eu-central-1", "ap-southeast-1", "ap-northeast-1", "ap-south-1", "sa-east-1", "ca-central-1"],
     default: "us-east-1",
-    format: "<region>-<az> (e.g., us-east-1a, us-east-1b)"
+    format: "{region}{letter} (e.g., us-east-1a, us-east-1b, eu-west-1c)"
   },
   gke: {
-    regions: ["us-central1", "us-east1", "us-west1", "europe-west1", "europe-west4", "asia-east1", "asia-southeast1", "australia-southeast1"],
+    regions: ["us-central1", "us-east1", "us-east4", "us-west1", "us-west2", "europe-west1", "europe-west2", "europe-west4", "asia-east1", "asia-southeast1", "asia-northeast1", "australia-southeast1"],
     default: "us-central1",
-    format: "<region>-<zone> (e.g., us-central1-a, us-central1-b)"
+    format: "{region}-{letter} (e.g., us-central1-a, us-central1-b, europe-west1-c)"
   },
   aks: {
-    regions: ["eastus", "eastus2", "westus", "westus2", "westus3", "centralus", "northeurope", "westeurope", "southeastasia", "australiaeast"],
+    regions: ["eastus", "eastus2", "westus", "westus2", "westus3", "centralus", "northcentralus", "southcentralus", "northeurope", "westeurope", "uksouth", "southeastasia", "australiaeast", "japaneast"],
     default: "eastus",
-    format: "<region>-<zone> (e.g., eastus-1, eastus-2)"
+    format: "{region}-{zone} (e.g., eastus-1, eastus-2, westeurope-3)"
   },
   kubernetes: {
     regions: ["region-1", "datacenter-1", "zone-1"],
     default: "region-1",
-    format: "zone-<n> (e.g., zone-1, zone-2)"
+    format: "zone-{n} (e.g., zone-1, zone-2)"
   }
 };
 

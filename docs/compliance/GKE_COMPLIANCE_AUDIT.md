@@ -17,10 +17,117 @@
 -  Proper Service range sizing per GKE recommendations
 -  RFC 1918 compliance for all tiers
 -  **Multi-zone distribution** automatically configured for all tiers
--  **GKE zones** properly assigned (region letter suffixes: a, b, c, etc.)
+-  **GKE zones** properly assigned using real region names (e.g., `us-central1-a`, `us-central1-b`, `us-central1-c`)
 - WARNING - Minor optimization opportunity for pod density (addressed below)
 -  Supports all GKE cluster sizes up to 5000 nodes (GKE Autopilot/Standard limit)
 -  **Subnet overlap validation** guarantees non-conflicting IP ranges
+
+---
+
+## 0.1. GCP Region and Zone Naming Standards
+
+### Region Naming Convention
+
+GCP regions follow the pattern: `<continent>-<direction><number>`
+
+**Format**: `{continent}-{direction}{number}`
+- **continent**: Geographic area (us, europe, asia, australia, southamerica, northamerica, me, africa)
+- **direction**: Cardinal direction or city identifier (central, east, west, north, south, northeast, southeast, southwest)
+- **number**: Distinguisher when multiple regions exist in same area (1, 2, 3...)
+
+**Key Difference from AWS**: GCP uses NO hyphen before the number (e.g., `us-central1` vs AWS's `us-central-1`)
+
+### GCP Regions by Geography
+
+| Geography | Region Code | Location | Typical Zones |
+|-----------|-------------|----------|---------------|
+| **North America** | | | |
+| | `us-central1` | Council Bluffs, Iowa | us-central1-a, us-central1-b, us-central1-c, us-central1-f |
+| | `us-east1` | Moncks Corner, South Carolina | us-east1-b, us-east1-c, us-east1-d |
+| | `us-east4` | Ashburn, Virginia | us-east4-a, us-east4-b, us-east4-c |
+| | `us-east5` | Columbus, Ohio | us-east5-a, us-east5-b, us-east5-c |
+| | `us-south1` | Dallas, Texas | us-south1-a, us-south1-b, us-south1-c |
+| | `us-west1` | The Dalles, Oregon | us-west1-a, us-west1-b, us-west1-c |
+| | `us-west2` | Los Angeles, California | us-west2-a, us-west2-b, us-west2-c |
+| | `us-west3` | Salt Lake City, Utah | us-west3-a, us-west3-b, us-west3-c |
+| | `us-west4` | Las Vegas, Nevada | us-west4-a, us-west4-b, us-west4-c |
+| | `northamerica-northeast1` | Montréal, Québec | northamerica-northeast1-a, northamerica-northeast1-b, northamerica-northeast1-c |
+| | `northamerica-northeast2` | Toronto, Ontario | northamerica-northeast2-a, northamerica-northeast2-b, northamerica-northeast2-c |
+| | `northamerica-south1` | Querétaro, Mexico | northamerica-south1-a, northamerica-south1-b, northamerica-south1-c |
+| **Europe** | | | |
+| | `europe-west1` | St. Ghislain, Belgium | europe-west1-b, europe-west1-c, europe-west1-d |
+| | `europe-west2` | London, England | europe-west2-a, europe-west2-b, europe-west2-c |
+| | `europe-west3` | Frankfurt, Germany | europe-west3-a, europe-west3-b, europe-west3-c |
+| | `europe-west4` | Eemshaven, Netherlands | europe-west4-a, europe-west4-b, europe-west4-c |
+| | `europe-west6` | Zurich, Switzerland | europe-west6-a, europe-west6-b, europe-west6-c |
+| | `europe-west8` | Milan, Italy | europe-west8-a, europe-west8-b, europe-west8-c |
+| | `europe-west9` | Paris, France | europe-west9-a, europe-west9-b, europe-west9-c |
+| | `europe-west10` | Berlin, Germany | europe-west10-a, europe-west10-b, europe-west10-c |
+| | `europe-west12` | Turin, Italy | europe-west12-a, europe-west12-b, europe-west12-c |
+| | `europe-north1` | Hamina, Finland | europe-north1-a, europe-north1-b, europe-north1-c |
+| | `europe-north2` | Stockholm, Sweden | europe-north2-a, europe-north2-b, europe-north2-c |
+| | `europe-central2` | Warsaw, Poland | europe-central2-a, europe-central2-b, europe-central2-c |
+| | `europe-southwest1` | Madrid, Spain | europe-southwest1-a, europe-southwest1-b, europe-southwest1-c |
+| **Asia Pacific** | | | |
+| | `asia-east1` | Changhua County, Taiwan | asia-east1-a, asia-east1-b, asia-east1-c |
+| | `asia-east2` | Hong Kong | asia-east2-a, asia-east2-b, asia-east2-c |
+| | `asia-northeast1` | Tokyo, Japan | asia-northeast1-a, asia-northeast1-b, asia-northeast1-c |
+| | `asia-northeast2` | Osaka, Japan | asia-northeast2-a, asia-northeast2-b, asia-northeast2-c |
+| | `asia-northeast3` | Seoul, South Korea | asia-northeast3-a, asia-northeast3-b, asia-northeast3-c |
+| | `asia-south1` | Mumbai, India | asia-south1-a, asia-south1-b, asia-south1-c |
+| | `asia-south2` | Delhi, India | asia-south2-a, asia-south2-b, asia-south2-c |
+| | `asia-southeast1` | Singapore | asia-southeast1-a, asia-southeast1-b, asia-southeast1-c |
+| | `asia-southeast2` | Jakarta, Indonesia | asia-southeast2-a, asia-southeast2-b, asia-southeast2-c |
+| | `asia-southeast3` | Bangkok, Thailand | asia-southeast3-a, asia-southeast3-b, asia-southeast3-c |
+| | `australia-southeast1` | Sydney, Australia | australia-southeast1-a, australia-southeast1-b, australia-southeast1-c |
+| | `australia-southeast2` | Melbourne, Australia | australia-southeast2-a, australia-southeast2-b, australia-southeast2-c |
+| **South America** | | | |
+| | `southamerica-east1` | São Paulo, Brazil | southamerica-east1-a, southamerica-east1-b, southamerica-east1-c |
+| | `southamerica-west1` | Santiago, Chile | southamerica-west1-a, southamerica-west1-b, southamerica-west1-c |
+| **Middle East** | | | |
+| | `me-west1` | Tel Aviv, Israel | me-west1-a, me-west1-b, me-west1-c |
+| | `me-central1` | Doha, Qatar | me-central1-a, me-central1-b, me-central1-c |
+| | `me-central2` | Dammam, Saudi Arabia | me-central2-a, me-central2-b, me-central2-c |
+| **Africa** | | | |
+| | `africa-south1` | Johannesburg, South Africa | africa-south1-a, africa-south1-b, africa-south1-c |
+
+### Zone Naming Convention
+
+GCP zones follow the pattern: `<region>-<letter>`
+
+**Format**: `{region}-{zone-letter}`
+- **region**: Full region code (e.g., `us-central1`)
+- **zone-letter**: Lowercase letter suffix (a, b, c, d, f)
+
+**Examples**:
+- `us-central1-a` - First zone in US Central (Iowa)
+- `us-central1-b` - Second zone in US Central (Iowa)
+- `europe-west1-c` - Third zone in Europe West (Belgium)
+
+**Important Notes**:
+1. **Zones are consistent across accounts**: Unlike AWS, `us-central1-a` is the same physical zone for all users
+2. **Most regions have 3 zones**: Standard is a, b, c (some regions add d or f)
+3. **Zone letters may not be sequential**: Some regions skip letters (e.g., `us-central1` has a, b, c, f but no d or e)
+4. **AI Zones**: Special zones for AI/ML workloads use extended naming (e.g., `us-west4-ai2b`)
+
+### API Implementation
+
+Our API uses real GCP region names for zone assignment:
+
+```typescript
+// Default region for GKE
+const region = "us-central1";
+
+// Zone assignment for subnets
+private-1 -> us-central1-a
+private-2 -> us-central1-b
+private-3 -> us-central1-c
+public-1  -> us-central1-a
+public-2  -> us-central1-b
+public-3  -> us-central1-c
+```
+
+**Reference**: [GCP Regions and Zones](https://cloud.google.com/compute/docs/regions-zones)
 
 ---
 

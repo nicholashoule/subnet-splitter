@@ -502,6 +502,206 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 | **AKS** |  Supported | 5,000 | 200,000 (CNI Overlay) | Azure cloud |
 | **Kubernetes** |  Supported | Unlimited | Unlimited | Self-hosted, on-premises, alternative clouds |
 
+---
+
+## Region and Availability Zone Standards
+
+### Overview
+
+Each cloud provider uses different naming conventions for regions and availability zones. Our API automatically applies the correct format based on the selected provider.
+
+### AWS (EKS)
+
+**Region Format:** `{continent}-{direction}-{number}`
+- Regions use hyphens to separate all components
+- Examples: `us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`
+
+**Availability Zone Format:** `{region}{letter}`
+- AZs append a letter directly to the region (no hyphen)
+- Examples: `us-east-1a`, `us-east-1b`, `us-west-2c`, `eu-west-1a`
+
+**Common AWS Regions:**
+
+| Region Code | Location | AZ Count |
+|-------------|----------|----------|
+| `us-east-1` | N. Virginia | 6 |
+| `us-east-2` | Ohio | 3 |
+| `us-west-1` | N. California | 2 |
+| `us-west-2` | Oregon | 4 |
+| `eu-west-1` | Ireland | 3 |
+| `eu-central-1` | Frankfurt | 3 |
+| `ap-southeast-1` | Singapore | 3 |
+| `ap-northeast-1` | Tokyo | 3 |
+
+**Default Region:** `us-east-1` (if not specified)
+
+### GCP (GKE)
+
+**Region Format:** `{continent}-{direction}{number}` (NO hyphen before number)
+- Key difference from AWS: no hyphen between direction and number
+- Examples: `us-central1`, `us-east1`, `europe-west1`, `asia-east1`
+
+**Zone Format:** `{region}-{letter}`
+- Zones add a hyphen and letter after the region
+- Examples: `us-central1-a`, `us-central1-b`, `europe-west1-c`
+
+**Common GCP Regions:**
+
+| Region Code | Location | Zone Count |
+|-------------|----------|------------|
+| `us-central1` | Iowa | 4 |
+| `us-east1` | South Carolina | 4 |
+| `us-west1` | Oregon | 3 |
+| `europe-west1` | Belgium | 3 |
+| `europe-west4` | Netherlands | 3 |
+| `asia-east1` | Taiwan | 3 |
+| `asia-southeast1` | Singapore | 3 |
+| `australia-southeast1` | Sydney | 3 |
+
+**Default Region:** `us-central1` (if not specified)
+
+### Azure (AKS)
+
+**Region Format:** Lowercase concatenated (NO separators)
+- Azure uses simple concatenated names without hyphens
+- Examples: `eastus`, `westus2`, `northeurope`, `southeastasia`
+
+**Availability Zone Format:** `{region}-{number}` (numeric zones)
+- Azure uses numeric zone identifiers (1, 2, 3)
+- Examples: `eastus-1`, `eastus-2`, `westeurope-1`
+- Note: Zone numbers are logical (mapped per subscription)
+
+**Common Azure Regions:**
+
+| Region Code | Location | AZ Support |
+|-------------|----------|------------|
+| `eastus` | Virginia | Yes (1,2,3) |
+| `eastus2` | Virginia | Yes (1,2,3) |
+| `westus2` | Washington | Yes (1,2,3) |
+| `westus3` | Arizona | Yes (1,2,3) |
+| `centralus` | Iowa | Yes (1,2,3) |
+| `northeurope` | Ireland | Yes (1,2,3) |
+| `westeurope` | Netherlands | Yes (1,2,3) |
+| `southeastasia` | Singapore | Yes (1,2,3) |
+| `australiaeast` | Sydney | Yes (1,2,3) |
+
+**Default Region:** `eastus` (if not specified)
+
+### Generic Kubernetes
+
+**Region Format:** User-defined or generic
+- Default: `region-1`, `datacenter-1`
+
+**Zone Format:** `zone-{number}`
+- Default: `zone-1`, `zone-2`, `zone-3`
+
+**Default Region:** `region-1` (if not specified)
+
+### API Usage
+
+**Specifying a Region:**
+
+```bash
+# AWS EKS with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "eks",
+    "region": "us-west-2",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+
+# GCP GKE with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "gke",
+    "region": "europe-west1",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+
+# Azure AKS with specific region
+curl -X POST http://localhost:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "deploymentSize": "enterprise",
+    "provider": "aks",
+    "region": "westeurope",
+    "vpcCidr": "10.0.0.0/16"
+  }'
+```
+
+**Example Response (EKS us-west-2):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "eks",
+  "region": "us-west-2",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "us-west-2a" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "us-west-2b" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "us-west-2c" }
+    ],
+    "private": [
+      { "cidr": "10.0.3.0/21", "name": "private-1", "type": "private", "availabilityZone": "us-west-2a" },
+      { "cidr": "10.0.11.0/21", "name": "private-2", "type": "private", "availabilityZone": "us-west-2b" },
+      { "cidr": "10.0.19.0/21", "name": "private-3", "type": "private", "availabilityZone": "us-west-2c" }
+    ]
+  }
+}
+```
+
+**Example Response (GKE europe-west1):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "gke",
+  "region": "europe-west1",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "europe-west1-a" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "europe-west1-b" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "europe-west1-c" }
+    ],
+    "private": [...]
+  }
+}
+```
+
+**Example Response (AKS westeurope):**
+
+```json
+{
+  "deploymentSize": "enterprise",
+  "provider": "aks",
+  "region": "westeurope",
+  "subnets": {
+    "public": [
+      { "cidr": "10.0.0.0/24", "name": "public-1", "type": "public", "availabilityZone": "westeurope-1" },
+      { "cidr": "10.0.1.0/24", "name": "public-2", "type": "public", "availabilityZone": "westeurope-2" },
+      { "cidr": "10.0.2.0/24", "name": "public-3", "type": "public", "availabilityZone": "westeurope-3" }
+    ],
+    "private": [...]
+  }
+}
+```
+
+### Naming Convention Summary
+
+| Provider | Region Example | AZ Example | Key Difference |
+|----------|----------------|------------|----------------|
+| **AWS (EKS)** | `us-east-1` | `us-east-1a` | Hyphens everywhere, letter suffix |
+| **GCP (GKE)** | `us-central1` | `us-central1-a` | No hyphen before number |
+| **Azure (AKS)** | `eastus` | `eastus-1` | No separators, numeric zones |
+| **Kubernetes** | `region-1` | `zone-1` | Generic naming |
+
+---
+
 ### Provider-Specific Features
 
 **EKS (AWS)**

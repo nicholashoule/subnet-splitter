@@ -129,7 +129,7 @@ export const openApiSpec = {
                   },
                   region: {
                     type: "string",
-                    description: "Cloud region/location. Provider-specific: AWS (us-east-1), GCP (us-central1), Azure (eastus). Uses provider default if omitted.",
+                    description: "Cloud region/location (provider-specific naming). AWS: {continent}-{direction}-{number} (e.g., us-east-1, eu-west-2). GCP: {continent}-{direction}{number} - NO hyphen before number (e.g., us-central1, europe-west1). Azure: lowercase concatenated (e.g., eastus, westeurope, northcentralus). Uses provider default if omitted.",
                     examples: {
                       eks: "us-east-1",
                       gke: "us-central1",
@@ -349,7 +349,15 @@ export const openApiSpec = {
           cidr: { type: "string", example: "10.0.0.0/24" },
           name: { type: "string", example: "public-1" },
           type: { type: "string", enum: ["public", "private"] },
-          availabilityZone: { type: "string", example: "us-east-1a" }
+          availabilityZone: { 
+            type: "string", 
+            description: "Availability Zone (provider-specific format). AWS: {region}{letter} (e.g., us-east-1a, us-east-1b). GCP: {region}-{letter} (e.g., us-central1-a, us-central1-b). Azure: {region}-{number} (e.g., eastus-1, eastus-2).",
+            examples: {
+              eks: "us-east-1a",
+              gke: "us-central1-a",
+              aks: "eastus-1"
+            }
+          }
         }
       },
       TierInfo: {
