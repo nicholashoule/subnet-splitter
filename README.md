@@ -15,9 +15,10 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 
 ### Backend API (Production-Ready)
 - **Kubernetes Network Planning**: Generate optimized network plans for EKS, GKE, AKS, and generic Kubernetes
-- **Multi-Cloud Support**: Battle-tested configurations for all major cloud providers
+- **Multi-Cloud Support**: Battle-tested configurations for all major cloud providers (see [compliance audits](docs/compliance/))
 - **Deployment Tiers**: Pre-configured subnet allocations (Micro → Hyperscale)
 - **Provider Flexibility**: Same API works with AWS, Google Cloud, Azure, and self-hosted Kubernetes
+- **Compliance Documentation**: Full compliance audits for [EKS](docs/compliance/EKS_COMPLIANCE_AUDIT.md), [GKE](docs/compliance/GKE_COMPLIANCE_AUDIT.md), and [AKS](docs/compliance/AKS_COMPLIANCE_AUDIT.md)
 
 ## Network Information Provided
 
@@ -86,6 +87,8 @@ This application follows a **security by design** approach with multiple layers 
 │   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
 │   ├── integration/        # Integration tests (styles, API, config, security)
 │   ├── manual/             # PowerShell manual testing scripts
+│   │   ├── test-api-endpoints.ps1  # Comprehensive API validation
+│   │   └── test-api.ps1            # RFC 1918 enforcement testing
 │   └── README.md           # Testing documentation
 ├── scripts/                # Build and utility tools
 │   ├── build.ts            # Production build orchestration
@@ -266,19 +269,24 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite with **371 tests** (100% passing) covering:
+The project includes a comprehensive test suite with **391 tests** (100% passing) covering:
 
-**Unit Tests (121):**
-- **Subnet calculations (53 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
+**Unit Tests (218):**
+- **Subnet calculations (67 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
 - **Kubernetes network generation (57 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
+- **IP calculation compliance (56 tests)**: IP allocation formulas, deployment tier compliance, network sizing validation
+- **UI styles (19 tests)**: WCAG accessibility (pure math functions), HSL→RGB conversion, luminance calculations
 - **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
+- **Configuration (8 tests)**: Tailwind, PostCSS, Vite, TypeScript configuration validation
 
-**Integration Tests (250):**
+**Integration Tests (173):**
 - **API endpoints (38 tests)**: API infrastructure, health checks, OpenAPI spec, Swagger UI
-- **Kubernetes Network Planning API (89 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers, differentiated subnet sizing
-- **Security (65 tests)**: Rate limiting middleware, CSP enforcement, CSP violation endpoint, Swagger UI CSP middleware
-- **UI components (50 tests)**: Calculator UI behavior, WCAG accessibility compliance
-- **Configuration (8 tests)**: Build configuration validation, environment setup
+- **Calculator UI (37 tests)**: React component behavior, form validation, subnet operations, CSV export, hide parents feature
+- **Kubernetes Network Planning API (33 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Rate limiting (23 tests)**: Rate limiter configuration, request throttling, DoS protection
+- **Swagger UI CSP middleware (18 tests)**: Route-specific CSP, development vs production mode, CDN permissions
+- **Swagger UI theming (12 tests)**: Theme toggle, persistence, dark mode CSS loading
+- **CSP violation endpoint (12 tests)**: W3C spec compliance, rate limiting, schema validation
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/TEST_AUDIT.md](docs/TEST_AUDIT.md) for detailed test suite analysis.
 
@@ -570,6 +578,34 @@ The calculator includes pre-configured examples for the three RFC 1918 private a
 - `192.168.0.0/16` - Class C private network (65,536 addresses)
 - `192.168.1.0/24` - Class C subnet (256 addresses)
 
+## Project Documentation
+
+Comprehensive documentation is available to help developers understand and contribute to this project:
+
+### For Contributors & AI Agents
+- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** - Complete development guidelines including:
+  - Project architecture and structure
+  - Security protocols and audit requirements
+  - Code style and naming conventions
+  - Testing strategy and coverage requirements
+  - API planning and implementation details
+
+- **[.github/agent-reasoning.md](.github/agent-reasoning.md)** - Development history and decision log
+  - **Note**: This file captures major architectural decisions and complex problem-solving sessions
+  - Keep this lean by documenting only significant concepts that require substantial reasoning
+  - Use for understanding the "why" behind non-obvious design choices
+
+### Testing & Quality
+- **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
+- **[docs/TEST_AUDIT.md](docs/TEST_AUDIT.md)** - Detailed test suite analysis and health metrics
+
+### API & Compliance
+- **[docs/API.md](docs/API.md)** - Kubernetes Network Planning API reference
+- **[docs/compliance/](docs/compliance/)** - Platform-specific compliance audits:
+  - [EKS_COMPLIANCE_AUDIT.md](docs/compliance/EKS_COMPLIANCE_AUDIT.md) - AWS Elastic Kubernetes Service
+  - [GKE_COMPLIANCE_AUDIT.md](docs/compliance/GKE_COMPLIANCE_AUDIT.md) - Google Kubernetes Engine
+  - [AKS_COMPLIANCE_AUDIT.md](docs/compliance/AKS_COMPLIANCE_AUDIT.md) - Azure Kubernetes Service
+
 ## Author
 
 Created by [nicholashoule](https://github.com/nicholashoule)
@@ -580,13 +616,20 @@ We welcome contributions! Please follow these guidelines:
 
 ### Before You Start
 
-1. **Read the guidelines**: Review [.github/.copilot-instructions.md](.github/.copilot-instructions.md) for:
+1. **Read the development guidelines**: Review [.github/copilot-instructions.md](.github/copilot-instructions.md) for:
    - Project architecture and structure
    - Code style and naming conventions
    - Robustness and hardening principles
+   - Security audit requirements (mandatory)
    - API planning documentation
 
-2. **Understand commit conventions**: Follow [Conventional Commits](https://www.conventionalcommits.org/) as documented in [.github/.copilot-instructions.md](.github/.copilot-instructions.md#git-commit-message-conventions):
+2. **Review development history**: Check [.github/agent-reasoning.md](.github/agent-reasoning.md) to understand:
+   - Major architectural decisions and rationale
+   - Complex problem-solving approaches
+   - Historical context for non-obvious design choices
+   - **Note**: Only major concepts are documented here to keep the file lean and focused
+
+3. **Understand commit conventions**: Follow [Conventional Commits](https://www.conventionalcommits.org/) as documented in [.github/copilot-instructions.md](.github/copilot-instructions.md#git-commit-message-conventions):
    - Use `feat:` for new features
    - Use `fix:` for bug fixes
    - Use `docs:` for documentation
@@ -645,9 +688,10 @@ Before making changes, understand:
 
 ### Questions or Issues?
 
-- Review [.github/agent-reasoning.md](.github/agent-reasoning.md) for development history and decisions
-- Check existing issues for similar problems
-- Ask clearly and provide context in your issue description
+- Review the [Project Documentation](#project-documentation) section above for comprehensive guides
+- Check [.github/agent-reasoning.md](.github/agent-reasoning.md) for historical context on major decisions
+- Search existing issues for similar problems
+- When opening new issues, provide clear context and steps to reproduce
 
 ## License
 

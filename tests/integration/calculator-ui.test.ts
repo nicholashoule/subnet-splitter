@@ -395,3 +395,117 @@ describe("Performance and Limits", () => {
     expect(nodeCount).toBe(7); // 1 root + 2 children + 4 grandchildren
   });
 });
+
+describe("Hide Parents Feature", () => {
+  const collectVisibleSubnets = (subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] => {
+    const hasChildren = subnet.children && subnet.children.length > 0;
+    
+    // If hiding parents and this subnet has children, skip it and collect children
+    if (hideParents && hasChildren && subnet.children) {
+      const result: SubnetInfo[] = [];
+      for (const child of subnet.children) {
+        result.push(...collectVisibleSubnets(child, hideParents));
+      }
+      return result;
+    }
+    
+    // Otherwise, include this subnet
+    const result: SubnetInfo[] = [subnet];
+    if (hasChildren && subnet.isExpanded && subnet.children) {
+      for (const child of subnet.children) {
+        result.push(...collectVisibleSubnets(child, hideParents));
+      }
+    }
+    return result;
+  };
+
+  it("should include parent when hideParents is false", () => {
+    const root = calculateSubnet("192.168.0.0/22");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    const visibleSubnets = collectVisibleSubnets(root, false);
+    expect(visibleSubnets).toHaveLength(3); // parent + 2 children
+    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/22"); // parent is first
+  });
+
+  it("should exclude parent when hideParents is true", () => {
+    const root = calculateSubnet("192.168.0.0/22");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    const visibleSubnets = collectVisibleSubnets(root, true);
+    expect(visibleSubnets).toHaveLength(2); // only 2 children, no parent
+    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/23"); // first child
+    expect(visibleSubnets[1].cidr).toBe("192.168.2.0/23"); // second child
+  });
+
+  it("should recursively hide parents in nested splits", () => {
+    const root = calculateSubnet("192.168.0.0/22");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    // Split first child
+    root.children[0].children = splitSubnet(root.children[0]);
+    root.children[0].isExpanded = true;
+    
+    const visibleSubnets = collectVisibleSubnets(root, true);
+    expect(visibleSubnets).toHaveLength(3); // 2 grandchildren + 1 unsplit child
+    
+    // Should be the two grandchildren of first split and the second child
+    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/24"); // first grandchild
+    expect(visibleSubnets[1].cidr).toBe("192.168.1.0/24"); // second grandchild
+    expect(visibleSubnets[2].cidr).toBe("192.168.2.0/23"); // unsplit second child
+  });
+
+  it("should only show leaf subnets when hideParents is true", () => {
+    const root = calculateSubnet("10.0.0.0/20");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    // Split both children
+    root.children[0].children = splitSubnet(root.children[0]);
+    root.children[0].isExpanded = true;
+    root.children[1].children = splitSubnet(root.children[1]);
+    root.children[1].isExpanded = true;
+    
+    const visibleSubnets = collectVisibleSubnets(root, true);
+    expect(visibleSubnets).toHaveLength(4); // 4 leaf subnets only
+    
+    // All visible subnets should have no children (leaf nodes)
+    visibleSubnets.forEach(subnet => {
+      expect(subnet.children).toBeUndefined();
+    });
+  });
+
+  it("should affect select all behavior", () => {
+    const root = calculateSubnet("192.168.0.0/22");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    // With hideParents false: should select 3 (parent + 2 children)
+    const allSubnets = collectVisibleSubnets(root, false);
+    expect(allSubnets).toHaveLength(3);
+    
+    // With hideParents true: should select 2 (only children)
+    const leafSubnets = collectVisibleSubnets(root, true);
+    expect(leafSubnets).toHaveLength(2);
+  });
+
+  it("should affect CSV export selection", () => {
+    const root = calculateSubnet("10.50.192.0/18");
+    root.children = splitSubnet(root);
+    root.isExpanded = true;
+    
+    const selectedIds = new Set<string>();
+    
+    // Select all with hideParents false
+    const allSubnets = collectVisibleSubnets(root, false);
+    allSubnets.forEach(s => selectedIds.add(s.id));
+    
+    // Export with hideParents true should only get children
+    const exportSubnets = collectVisibleSubnets(root, true).filter(s => selectedIds.has(s.id));
+    expect(exportSubnets).toHaveLength(2); // only the 2 children
+    expect(exportSubnets.every(s => s.prefix === 19)).toBe(true); // both are /19
+  });
+});

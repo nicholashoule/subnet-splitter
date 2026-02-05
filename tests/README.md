@@ -4,11 +4,11 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Total Tests**: 371 tests across 13 test files  
-**Pass Rate**: 100% (371/371 passing)  
-**Execution Time**: ~3.5 seconds  
-**Test Distribution**: 121 unit tests (33%), 250 integration tests (67%)  
-**Overall Grade**: A (Comprehensive tier configuration testing)
+**Total Tests**: 391 tests across 13 test files  
+**Pass Rate**: 100% (391/391 passing)  
+**Execution Time**: ~3.8 seconds  
+**Test Distribution**: 218 unit tests (56%), 173 integration tests (44%)  
+**Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
 ## Test Categories
 
@@ -24,20 +24,21 @@ The project uses three types of tests:
 
 ```
 tests/
-├── unit/                          # Unit tests (121 total) - No server required
-│   ├── subnet-utils.test.ts      # Subnet calculation utilities (53 tests)
+├── unit/                          # Unit tests (218 total) - Pure functions, no I/O
+│   ├── subnet-utils.test.ts      # Subnet calculation utilities (67 tests)
 │   ├── kubernetes-network-generator.test.ts  # K8s network generation (57 tests)
-│   └── emoji-detection.test.ts   # Emoji validation (11 tests)
-├── integration/                   # Integration tests (250 total) - Self-contained with test servers
+│   ├── ip-calculation-compliance.test.ts  # IP allocation compliance (56 tests)
+│   ├── ui-styles.test.ts         # WCAG accessibility (19 tests)
+│   ├── emoji-detection.test.ts   # Emoji validation (11 tests)
+│   └── config.test.ts            # Configuration validation (8 tests)
+├── integration/                   # Integration tests (173 total) - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure (38 tests) - Starts own server
-│   ├── kubernetes-network-api.test.ts  # K8s API (89 tests) - Starts own server
+│   ├── calculator-ui.test.ts     # React components (37 tests) - No server
+│   ├── kubernetes-network-api.test.ts  # K8s API (33 tests) - Starts own server
 │   ├── rate-limiting.test.ts     # Rate limiting (23 tests) - Starts own server
-│   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests) - Starts own server
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests) - Starts own server
 │   ├── swagger-ui-theming.test.ts  # Swagger themes (12 tests) - WARNING REQUIRES WEBAPP
-│   ├── calculator-ui.test.ts     # React components (31 tests) - No server
-│   ├── ui-styles.test.ts         # WCAG accessibility (19 tests) - No server
-│   └── config.test.ts            # Configuration (8 tests) - No server
+│   └── csp-violation-endpoint.test.ts  # CSP violations (12 tests) - Starts own server
 ├── manual/                        # Manual testing scripts
 │   ├── test-api-endpoints.ps1    # PowerShell API validation (5 test cases)
 │   └── test-api.ps1              # PowerShell private IP validation (4 test cases)
@@ -105,14 +106,32 @@ If webapp is not running, these tests automatically skip with informative messag
 
 Unit tests verify individual functions and utilities in isolation.
 
-**subnet-utils.test.ts (53 tests):**
+**subnet-utils.test.ts (67 tests):**
 - IP conversion (ipToNumber, numberToIp)
 - Prefix/mask conversion (prefixToMask, maskToPrefix)
 - Subnet calculations (calculateSubnet, splitSubnet)
 - Network class identification (Class A-E)
-- Utility functions (formatNumber, getSubnetClass)
+- Utility functions (formatNumber, getSubnetClass, collectAllSubnets, collectVisibleSubnets)
+- Tree collection functions with hideParents logic
 - Error handling and validation
 - Edge cases (RFC 3021 /31, /32 networks)
+
+**kubernetes-network-generator.test.ts (57 tests):**
+- Network plan generation for all deployment tiers
+- RFC 1918 private IP enforcement
+- Subnet allocation algorithms
+- Provider support (EKS, GKE, AKS, Kubernetes)
+
+**ip-calculation-compliance.test.ts (56 tests):**
+- IP allocation formulas for pod and node capacity
+- Deployment tier compliance testing
+- Network sizing validation
+
+**ui-styles.test.ts (19 tests):**
+- WCAG accessibility compliance (contrast ratios)
+- Color palette consistency across light/dark modes
+- Design system validation
+- Pure math functions (HSL→RGB conversion, luminance calculations)
 
 **emoji-detection.test.ts (11 tests):**
 - Scans all markdown (.md) files for emoji
@@ -120,6 +139,12 @@ Unit tests verify individual functions and utilities in isolation.
 - Validates clean text-based documentation
 - Excludes meta-files (this test file and fix-emoji.ts)
 - Reports exact file location and line number of violations
+
+**config.test.ts (8 tests):**
+- Tailwind CSS configuration validation
+- PostCSS configuration validation
+- Vite configuration verification
+- Build tool setup testing
 
 ### Integration Tests (`tests/integration/`)
 
@@ -162,7 +187,7 @@ Integration tests verify system-wide features and API behavior.
 
 **Webapp-Dependent Tests (Require `npm run dev`)**:
 
-**swagger-ui-theming.test.ts (35 tests)** WARNING:
+**swagger-ui-theming.test.ts (12 tests)** WARNING:
 - HTML structure and theme scripts
 - Light/dark mode CSS loading
 - Theme persistence in localStorage
@@ -171,28 +196,12 @@ Integration tests verify system-wide features and API behavior.
 
 **Component Tests (No Server)**:
 
-**calculator-ui.test.ts (31 tests)**:
+**calculator-ui.test.ts (37 tests)**:
 - React component behavior
 - Form submission and validation
 - Subnet splitting operations
 - CSV export functionality
-
-**ui-styles.test.ts (19 tests)**:
-- WCAG contrast ratios
-- Color palette consistency
-- Design system validation
-
-**config.test.ts (8 tests)**:
-- Configuration file validation
-- CSS variable definitions (light/dark modes)
-- WCAG accessibility compliance
-- Color palette consistency
-- Tailwind integration
-
-**Other integration tests:**
-- header.test.ts, footer.test.ts - UI component tests
-- config.test.ts - Configuration validation
-- rate-limiting.test.ts - Security middleware tests
+- Hide parents feature
 
 ### Manual Testing Scripts (`tests/manual/`)
 

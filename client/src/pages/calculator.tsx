@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download, Loader2 } from "lucide-react";
+import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -48,7 +48,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { SubnetInfo, CidrInput } from "@shared/schema";
 import { cidrInputSchema } from "@shared/schema";
-import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes } from "@/lib/subnet-utils";
+import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectAllSubnets, collectVisibleSubnets } from "@/lib/subnet-utils";
 
 function SubnetRow({ 
   subnet, 
@@ -57,7 +57,8 @@ function SubnetRow({
   onToggle,
   onDelete,
   selectedIds,
-  onSelectChange
+  onSelectChange,
+  hideParents = false
 }: { 
   subnet: SubnetInfo; 
   depth?: number; 
@@ -66,6 +67,7 @@ function SubnetRow({
   onDelete: (id: string) => void;
   selectedIds: Set<string>;
   onSelectChange: (id: string, checked: boolean) => void;
+  hideParents?: boolean;
 }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { toast } = useToast();
@@ -110,6 +112,27 @@ function SubnetRow({
   );
 
   const hasChildren = subnet.children && subnet.children.length > 0;
+
+  // If hideParents is true and this subnet has children, only render the children
+  if (hideParents && hasChildren) {
+    return (
+      <>
+        {subnet.children?.map((child) => (
+          <SubnetRow
+            key={child.id}
+            subnet={child}
+            depth={depth + 1}
+            onSplit={onSplit}
+            onToggle={onToggle}
+            onDelete={onDelete}
+            selectedIds={selectedIds}
+            onSelectChange={onSelectChange}
+            hideParents={hideParents}
+          />
+        ))}
+      </>
+    );
+  }
 
   return (
     <>
@@ -240,6 +263,7 @@ function SubnetRow({
           onDelete={onDelete}
           selectedIds={selectedIds}
           onSelectChange={onSelectChange}
+          hideParents={hideParents}
         />
       ))}
     </>
@@ -294,6 +318,7 @@ export default function Calculator() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [hideParents, setHideParents] = useState(false);
   const { toast } = useToast();
 
   // Initialize theme from localStorage, default to light mode
@@ -513,25 +538,15 @@ export default function Calculator() {
     });
   }, []);
 
-  const collectAllSubnets = useCallback((subnet: SubnetInfo): SubnetInfo[] => {
-    const result: SubnetInfo[] = [subnet];
-    if (subnet.children && subnet.isExpanded) {
-      for (const child of subnet.children) {
-        result.push(...collectAllSubnets(child));
-      }
-    }
-    return result;
-  }, []);
-
   const handleSelectAll = useCallback((checked: boolean) => {
     if (!rootSubnet) return;
-    const allSubnets = collectAllSubnets(rootSubnet);
+    const allSubnets = collectVisibleSubnets(rootSubnet, hideParents);
     if (checked) {
       setSelectedIds(new Set(allSubnets.map(s => s.id)));
     } else {
       setSelectedIds(new Set());
     }
-  }, [rootSubnet, collectAllSubnets]);
+  }, [rootSubnet, hideParents]);
 
   const handleExportCSV = useCallback(() => {
     if (!rootSubnet || selectedIds.size === 0) {
@@ -546,8 +561,8 @@ export default function Calculator() {
     setIsExporting(true);
 
     try {
-      const allSubnets = collectAllSubnets(rootSubnet);
-      const selectedSubnets = allSubnets.filter(s => selectedIds.has(s.id));
+      const visibleSubnets = collectVisibleSubnets(rootSubnet, hideParents);
+      const selectedSubnets = visibleSubnets.filter(s => selectedIds.has(s.id));
 
       const headers = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
       const rows = selectedSubnets.map(s => [
@@ -585,7 +600,7 @@ export default function Calculator() {
     } finally {
       setIsExporting(false);
     }
-  }, [rootSubnet, selectedIds, collectAllSubnets, toast]);
+  }, [rootSubnet, selectedIds, hideParents, toast]);
 
   const loadExample = (cidr: string) => {
     form.setValue("cidr", cidr);
@@ -715,6 +730,25 @@ export default function Calculator() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setHideParents(!hideParents)}
+                      data-testid="button-toggle-view"
+                      aria-label={hideParents ? "Show all subnets including parents" : "Hide parent subnets after split"}
+                    >
+                      {hideParents ? (
+                        <>
+                          <Eye className="h-4 w-4 mr-2" />
+                          Show All
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="h-4 w-4 mr-2" />
+                          Hide Parents
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleExportCSV}
                       disabled={selectedIds.size === 0 || isExporting}
                       data-testid="button-export-csv"
@@ -755,7 +789,7 @@ export default function Calculator() {
                       <TableRow>
                         <TableHead className="w-10 text-xs py-2 px-2">
                           <Checkbox
-                            checked={rootSubnet ? selectedIds.size === collectAllSubnets(rootSubnet).length && selectedIds.size > 0 : false}
+                            checked={rootSubnet ? selectedIds.size === collectVisibleSubnets(rootSubnet, hideParents).length && selectedIds.size > 0 : false}
                             onCheckedChange={(checked) => handleSelectAll(checked === true)}
                             data-testid="checkbox-select-all"
                             aria-label="Select all subnets"
@@ -780,6 +814,7 @@ export default function Calculator() {
                         onDelete={handleDelete}
                         selectedIds={selectedIds}
                         onSelectChange={handleSelectChange}
+                        hideParents={hideParents}
                       />
                     </TableBody>
                   </Table>

@@ -193,3 +193,35 @@ export function getSubnetClass(cidr: string | SubnetInfo): string {
   if (firstOctet >= 240 && firstOctet <= 255) return 'E (Reserved)';
   return 'Unknown';
 }
+
+export function collectAllSubnets(subnet: SubnetInfo): SubnetInfo[] {
+  const result: SubnetInfo[] = [subnet];
+  if (subnet.children && subnet.isExpanded) {
+    for (const child of subnet.children) {
+      result.push(...collectAllSubnets(child));
+    }
+  }
+  return result;
+}
+
+export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] {
+  const hasChildren = subnet.children && subnet.children.length > 0;
+  
+  // If hiding parents and this subnet has children, skip it and collect children
+  if (hideParents && hasChildren && subnet.children) {
+    const result: SubnetInfo[] = [];
+    for (const child of subnet.children) {
+      result.push(...collectVisibleSubnets(child, hideParents));
+    }
+    return result;
+  }
+  
+  // Otherwise, include this subnet
+  const result: SubnetInfo[] = [subnet];
+  if (hasChildren && subnet.isExpanded && subnet.children) {
+    for (const child of subnet.children) {
+      result.push(...collectVisibleSubnets(child, hideParents));
+    }
+  }
+  return result;
+}
