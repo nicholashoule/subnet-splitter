@@ -269,7 +269,7 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite with **391 tests** (100% passing) covering:
+The project includes a comprehensive test suite with **406 tests** (100% passing) covering:
 
 **Unit Tests (218):**
 - **Subnet calculations (67 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
@@ -279,9 +279,9 @@ The project includes a comprehensive test suite with **391 tests** (100% passing
 - **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
 - **Configuration (8 tests)**: Tailwind, PostCSS, Vite, TypeScript configuration validation
 
-**Integration Tests (173):**
+**Integration Tests (188):**
 - **API endpoints (38 tests)**: API infrastructure, health checks, OpenAPI spec, Swagger UI
-- **Calculator UI (37 tests)**: React component behavior, form validation, subnet operations, CSV export, hide parents feature
+- **Calculator UI (52 tests)**: React component behavior, form validation, subnet operations, CSV export, hide parents feature, depth indicator visual hierarchy
 - **Kubernetes Network Planning API (33 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
 - **Rate limiting (23 tests)**: Rate limiter configuration, request throttling, DoS protection
 - **Swagger UI CSP middleware (18 tests)**: Route-specific CSP, development vs production mode, CDN permissions

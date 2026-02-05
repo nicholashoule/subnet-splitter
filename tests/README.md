@@ -4,10 +4,10 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Total Tests**: 391 tests across 13 test files  
-**Pass Rate**: 100% (391/391 passing)  
-**Execution Time**: ~3.8 seconds  
-**Test Distribution**: 218 unit tests (56%), 173 integration tests (44%)  
+**Total Tests**: 406 tests across 13 test files  
+**Pass Rate**: 100% (406/406 passing)  
+**Execution Time**: ~4.0 seconds  
+**Test Distribution**: 218 unit tests (54%), 188 integration tests (46%)  
 **Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
 ## Test Categories
@@ -31,9 +31,9 @@ tests/
 │   ├── ui-styles.test.ts         # WCAG accessibility (19 tests)
 │   ├── emoji-detection.test.ts   # Emoji validation (11 tests)
 │   └── config.test.ts            # Configuration validation (8 tests)
-├── integration/                   # Integration tests (173 total) - Self-contained with test servers
+├── integration/                   # Integration tests (188 total) - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure (38 tests) - Starts own server
-│   ├── calculator-ui.test.ts     # React components (37 tests) - No server
+│   ├── calculator-ui.test.ts     # React components (52 tests) - No server
 │   ├── kubernetes-network-api.test.ts  # K8s API (33 tests) - Starts own server
 │   ├── rate-limiting.test.ts     # Rate limiting (23 tests) - Starts own server
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests) - Starts own server
@@ -196,12 +196,13 @@ Integration tests verify system-wide features and API behavior.
 
 **Component Tests (No Server)**:
 
-**calculator-ui.test.ts (37 tests)**:
+**calculator-ui.test.ts (52 tests)**:
 - React component behavior
 - Form submission and validation
 - Subnet splitting operations
 - CSV export functionality
 - Hide parents feature
+- Depth indicator visual hierarchy (15 tests)
 
 ### Manual Testing Scripts (`tests/manual/`)
 
