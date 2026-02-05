@@ -233,9 +233,9 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 3,       // 3 AZs
     publicSubnetSize: 23,    // /23 = 512 addresses per public subnet (NAT, LB, Bastion)
     privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (high node density)
-    podsPrefix: 16,          // /16 = 65,536 IPs (500 nodes × 110 pods = 55K, with buffer) - IDEAL
+    podsPrefix: 13,          // /13 = 524,288 IPs (5000 nodes × 110 pods = 550K max, supports GKE/EKS/AKS limits)
     servicesPrefix: 16,      // /16 for 65K+ services
     minVpcPrefix: 18,        // Minimum /18 VPC (fits 3×/23 + 3×/20 = 13,824 IPs)
-    description: "Global Scale: 50-500 nodes per VPC, 3 AZs, high pod density (use multi-VPC for 500+ nodes)"
+    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
   }
 };

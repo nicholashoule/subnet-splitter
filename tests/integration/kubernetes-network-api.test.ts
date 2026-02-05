@@ -187,14 +187,15 @@ describe("Kubernetes Network Planning API Integration", () => {
       // Realistic hyperscale: 3 AZs (same as enterprise, but larger subnet sizes)
       expect(hyperscale.publicSubnets).toBe(3);
 
-      // Pod CIDR progression: micro (/20) -> professional (/18) -> enterprise & hyperscale (/16)
+      // Pod CIDR progression: micro (/20) -> professional (/18) -> enterprise (/16) -> hyperscale (/13)
       expect(micro.podsPrefix).toBe(20); // 4,096 IPs for 1-2 nodes
       expect(professional.podsPrefix).toBe(18); // 16,384 IPs for 10 nodes
       expect(enterprise.podsPrefix).toBe(16); // 65,536 IPs (IDEAL)
-      expect(hyperscale.podsPrefix).toBe(16); // 65,536 IPs (IDEAL)
+      expect(hyperscale.podsPrefix).toBe(13); // 524,288 IPs (supports 5000 nodes at 110 pods/node)
       // Larger tiers have more IP space (smaller prefix number)
       expect(professional.podsPrefix).toBeLessThan(micro.podsPrefix);
       expect(enterprise.podsPrefix).toBeLessThan(professional.podsPrefix);
+      expect(hyperscale.podsPrefix).toBeLessThan(enterprise.podsPrefix);
     });
   });
 
