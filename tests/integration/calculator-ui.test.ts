@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { calculateSubnet, splitSubnet, countSubnetNodes, SubnetCalculationError } from "@/lib/subnet-utils";
+import { calculateSubnet, splitSubnet, countSubnetNodes, SubnetCalculationError, collectAllSubnets, collectVisibleSubnets, getDepthIndicatorClasses } from "@/lib/subnet-utils";
 import type { SubnetInfo } from "@shared/schema";
 
 describe("Calculator Form Validation", () => {
@@ -511,53 +511,6 @@ describe("Hide Parents Feature", () => {
 });
 
 describe("Depth Indicator Visual Hierarchy", () => {
-  // Helper function to extract depth indicator classes from the depth indicator logic
-  // This mimics the className logic in calculator.tsx lines 152-191
-  function getDepthIndicatorClasses(depth: number, prefix: number): string {
-    const baseClasses = "w-1.5 h-7 rounded-full shadow-sm border";
-    
-    if (depth === 0) return `${baseClasses} border-transparent bg-transparent`;
-    
-    let colorClasses: string;
-    switch (prefix) {
-      case 1: colorClasses = "border-red-300/30 bg-red-600"; break;
-      case 2: colorClasses = "border-orange-300/30 bg-orange-600"; break;
-      case 3: colorClasses = "border-yellow-300/30 bg-yellow-500"; break;
-      case 4: colorClasses = "border-lime-300/30 bg-lime-500"; break;
-      case 5: colorClasses = "border-green-300/30 bg-green-600"; break;
-      case 6: colorClasses = "border-emerald-300/30 bg-emerald-600"; break;
-      case 7: colorClasses = "border-teal-300/30 bg-teal-500"; break;
-      case 8: colorClasses = "border-cyan-300/30 bg-cyan-500"; break;
-      case 9: colorClasses = "border-sky-300/30 bg-sky-500"; break;
-      case 10: colorClasses = "border-blue-300/30 bg-blue-600"; break;
-      case 11: colorClasses = "border-indigo-300/30 bg-indigo-600"; break;
-      case 12: colorClasses = "border-violet-300/30 bg-violet-600"; break;
-      case 13: colorClasses = "border-purple-300/30 bg-purple-600"; break;
-      case 14: colorClasses = "border-fuchsia-300/30 bg-fuchsia-600"; break;
-      case 15: colorClasses = "border-pink-300/30 bg-pink-600"; break;
-      case 16: colorClasses = "border-rose-300/30 bg-rose-600"; break;
-      case 17: colorClasses = "border-red-300/30 bg-red-500"; break;
-      case 18: colorClasses = "border-orange-300/30 bg-orange-500"; break;
-      case 19: colorClasses = "border-amber-300/30 bg-amber-500"; break;
-      case 20: colorClasses = "border-yellow-300/30 bg-yellow-600"; break;
-      case 21: colorClasses = "border-lime-300/30 bg-lime-600"; break;
-      case 22: colorClasses = "border-green-300/30 bg-green-500"; break;
-      case 23: colorClasses = "border-emerald-300/30 bg-emerald-500"; break;
-      case 24: colorClasses = "border-teal-300/30 bg-teal-600"; break;
-      case 25: colorClasses = "border-cyan-300/30 bg-cyan-600"; break;
-      case 26: colorClasses = "border-sky-300/30 bg-sky-600"; break;
-      case 27: colorClasses = "border-blue-300/30 bg-blue-500"; break;
-      case 28: colorClasses = "border-indigo-300/30 bg-indigo-500"; break;
-      case 29: colorClasses = "border-violet-300/30 bg-violet-500"; break;
-      case 30: colorClasses = "border-purple-300/30 bg-purple-500"; break;
-      case 31: colorClasses = "border-fuchsia-300/30 bg-fuchsia-500"; break;
-      case 32: colorClasses = "border-pink-300/30 bg-pink-500"; break;
-      default: colorClasses = "border-slate-300/30 bg-slate-500";
-    }
-    
-    return `${baseClasses} ${colorClasses}`;
-  }
-
   it("should render transparent indicator for root subnets (depth === 0)", () => {
     const subnet = calculateSubnet("192.168.1.0/24");
     const classes = getDepthIndicatorClasses(0, subnet.prefix);
@@ -634,12 +587,12 @@ describe("Depth Indicator Visual Hierarchy", () => {
     expect(classes).toContain("bg-emerald-500");
   });
 
-  it("should use teal-600 color for prefix === 24", () => {
+  it("should use teal-500 color for prefix === 24", () => {
     const subnet = calculateSubnet("192.168.1.0/24");
     const classes = getDepthIndicatorClasses(1, subnet.prefix);
     
     expect(classes).toContain("border-teal-300/30");
-    expect(classes).toContain("bg-teal-600");
+    expect(classes).toContain("bg-teal-500");
   });
 
   it("should use pink-500 color for prefix === 32", () => {

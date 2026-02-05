@@ -48,7 +48,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { SubnetInfo, CidrInput } from "@shared/schema";
 import { cidrInputSchema } from "@shared/schema";
-import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectAllSubnets, collectVisibleSubnets } from "@/lib/subnet-utils";
+import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectAllSubnets, collectVisibleSubnets, getDepthIndicatorClasses } from "@/lib/subnet-utils";
 
 function SubnetRow({ 
   subnet, 
@@ -151,44 +151,7 @@ function SubnetRow({
         <TableCell className="py-2 px-2">
           <div className="flex items-center gap-2">
             {/* Color-coded depth indicator - High contrast colors for maximum distinction */}
-            <div 
-              className={`w-1.5 h-7 rounded-full shadow-sm border ${
-                depth === 0 ? 'border-transparent bg-transparent' :
-                subnet.prefix === 1 ? 'border-red-300/30 bg-red-600' :
-                subnet.prefix === 2 ? 'border-orange-300/30 bg-orange-600' :
-                subnet.prefix === 3 ? 'border-yellow-300/30 bg-yellow-500' :
-                subnet.prefix === 4 ? 'border-lime-300/30 bg-lime-600' :
-                subnet.prefix === 5 ? 'border-green-300/30 bg-green-600' :
-                subnet.prefix === 6 ? 'border-emerald-300/30 bg-emerald-600' :
-                subnet.prefix === 7 ? 'border-teal-300/30 bg-teal-600' :
-                subnet.prefix === 8 ? 'border-cyan-300/30 bg-cyan-600' :
-                subnet.prefix === 9 ? 'border-sky-300/30 bg-sky-600' :
-                subnet.prefix === 10 ? 'border-blue-300/30 bg-blue-600' :
-                subnet.prefix === 11 ? 'border-indigo-300/30 bg-indigo-600' :
-                subnet.prefix === 12 ? 'border-violet-300/30 bg-violet-600' :
-                subnet.prefix === 13 ? 'border-purple-300/30 bg-purple-600' :
-                subnet.prefix === 14 ? 'border-fuchsia-300/30 bg-fuchsia-600' :
-                subnet.prefix === 15 ? 'border-pink-300/30 bg-pink-600' :
-                subnet.prefix === 16 ? 'border-rose-300/30 bg-rose-600' :
-                subnet.prefix === 17 ? 'border-red-300/30 bg-red-500' :
-                subnet.prefix === 18 ? 'border-orange-300/30 bg-orange-500' :
-                subnet.prefix === 19 ? 'border-amber-300/30 bg-amber-500' :
-                subnet.prefix === 20 ? 'border-yellow-300/30 bg-yellow-400' :
-                subnet.prefix === 21 ? 'border-lime-300/30 bg-lime-500' :
-                subnet.prefix === 22 ? 'border-green-300/30 bg-green-500' :
-                subnet.prefix === 23 ? 'border-emerald-300/30 bg-emerald-500' :
-                subnet.prefix === 24 ? 'border-teal-300/30 bg-teal-500' :
-                subnet.prefix === 25 ? 'border-cyan-300/30 bg-cyan-500' :
-                subnet.prefix === 26 ? 'border-sky-300/30 bg-sky-500' :
-                subnet.prefix === 27 ? 'border-blue-300/30 bg-blue-500' :
-                subnet.prefix === 28 ? 'border-indigo-300/30 bg-indigo-500' :
-                subnet.prefix === 29 ? 'border-violet-300/30 bg-violet-500' :
-                subnet.prefix === 30 ? 'border-purple-300/30 bg-purple-500' :
-                subnet.prefix === 31 ? 'border-fuchsia-300/30 bg-fuchsia-500' :
-                subnet.prefix === 32 ? 'border-pink-300/30 bg-pink-500' :
-                'border-slate-300/30 bg-slate-500'
-              }`}
-            />
+            <div className={getDepthIndicatorClasses(depth, subnet.prefix)} />
             
             <Badge 
               variant="outline" 
