@@ -10,7 +10,7 @@
  * - Pods share VPC subnet IPs with nodes (no separate pod CIDR)
  * - Each pod gets secondary IP from node's ENI
  * - High IP exhaustion risk for large clusters
- * - Our API does NOT generate configs for this model
+ * - Our API generates a separate pod CIDR which requires Model 2 implementation (custom CNI or secondary VPC CIDR blocks)
  * 
  * Model 2 - Custom CNI or Secondary CIDR (Our API):
  * - Pods use separate CIDR range (this API's pods.cidr field)

@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Moon, Sun, Network, Split, ChevronDown, ChevronRight, Copy, Check, Info, Trash2, Download, Loader2, Eye, EyeOff } from "lucide-react";
+import { Moon, Sun, Network, Split, Copy, Check, Info, Trash2, Download, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -48,7 +48,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { SubnetInfo, CidrInput } from "@shared/schema";
 import { cidrInputSchema } from "@shared/schema";
-import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectAllSubnets, collectVisibleSubnets, getDepthIndicatorClasses } from "@/lib/subnet-utils";
+import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectVisibleSubnets, getDepthIndicatorClasses } from "@/lib/subnet-utils";
 
 function SubnetRow({ 
   subnet, 
@@ -752,7 +752,11 @@ export default function Calculator() {
                       <TableRow>
                         <TableHead className="w-10 text-xs py-2 px-2">
                           <Checkbox
-                            checked={rootSubnet ? selectedIds.size === collectVisibleSubnets(rootSubnet, hideParents).length && selectedIds.size > 0 : false}
+                            checked={
+                              selectedIds.size > 0 &&
+                              selectedIds.size ===
+                                collectVisibleSubnets(rootSubnet!, hideParents).length
+                            }
                             onCheckedChange={(checked) => handleSelectAll(checked === true)}
                             data-testid="checkbox-select-all"
                             aria-label="Select all subnets"

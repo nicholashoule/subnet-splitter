@@ -397,28 +397,6 @@ describe("Performance and Limits", () => {
 });
 
 describe("Hide Parents Feature", () => {
-  const collectVisibleSubnets = (subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] => {
-    const hasChildren = subnet.children && subnet.children.length > 0;
-    
-    // If hiding parents and this subnet has children, skip it and collect children
-    if (hideParents && hasChildren && subnet.children) {
-      const result: SubnetInfo[] = [];
-      for (const child of subnet.children) {
-        result.push(...collectVisibleSubnets(child, hideParents));
-      }
-      return result;
-    }
-    
-    // Otherwise, include this subnet
-    const result: SubnetInfo[] = [subnet];
-    if (hasChildren && subnet.isExpanded && subnet.children) {
-      for (const child of subnet.children) {
-        result.push(...collectVisibleSubnets(child, hideParents));
-      }
-    }
-    return result;
-  };
-
   it("should include parent when hideParents is false", () => {
     const root = calculateSubnet("192.168.0.0/22");
     root.children = splitSubnet(root);
