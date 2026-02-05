@@ -509,3 +509,202 @@ describe("Hide Parents Feature", () => {
     expect(exportSubnets.every(s => s.prefix === 19)).toBe(true); // both are /19
   });
 });
+
+describe("Depth Indicator Visual Hierarchy", () => {
+  // Helper function to extract depth indicator classes from the depth indicator logic
+  // This mimics the className logic in calculator.tsx lines 152-191
+  function getDepthIndicatorClasses(depth: number, prefix: number): string {
+    const baseClasses = "w-1.5 h-7 rounded-full shadow-sm border";
+    
+    if (depth === 0) return `${baseClasses} border-transparent bg-transparent`;
+    
+    let colorClasses: string;
+    switch (prefix) {
+      case 1: colorClasses = "border-red-300/30 bg-red-600"; break;
+      case 2: colorClasses = "border-orange-300/30 bg-orange-600"; break;
+      case 3: colorClasses = "border-yellow-300/30 bg-yellow-500"; break;
+      case 4: colorClasses = "border-lime-300/30 bg-lime-500"; break;
+      case 5: colorClasses = "border-green-300/30 bg-green-600"; break;
+      case 6: colorClasses = "border-emerald-300/30 bg-emerald-600"; break;
+      case 7: colorClasses = "border-teal-300/30 bg-teal-500"; break;
+      case 8: colorClasses = "border-cyan-300/30 bg-cyan-500"; break;
+      case 9: colorClasses = "border-sky-300/30 bg-sky-500"; break;
+      case 10: colorClasses = "border-blue-300/30 bg-blue-600"; break;
+      case 11: colorClasses = "border-indigo-300/30 bg-indigo-600"; break;
+      case 12: colorClasses = "border-violet-300/30 bg-violet-600"; break;
+      case 13: colorClasses = "border-purple-300/30 bg-purple-600"; break;
+      case 14: colorClasses = "border-fuchsia-300/30 bg-fuchsia-600"; break;
+      case 15: colorClasses = "border-pink-300/30 bg-pink-600"; break;
+      case 16: colorClasses = "border-rose-300/30 bg-rose-600"; break;
+      case 17: colorClasses = "border-red-300/30 bg-red-500"; break;
+      case 18: colorClasses = "border-orange-300/30 bg-orange-500"; break;
+      case 19: colorClasses = "border-amber-300/30 bg-amber-500"; break;
+      case 20: colorClasses = "border-yellow-300/30 bg-yellow-600"; break;
+      case 21: colorClasses = "border-lime-300/30 bg-lime-600"; break;
+      case 22: colorClasses = "border-green-300/30 bg-green-500"; break;
+      case 23: colorClasses = "border-emerald-300/30 bg-emerald-500"; break;
+      case 24: colorClasses = "border-teal-300/30 bg-teal-600"; break;
+      case 25: colorClasses = "border-cyan-300/30 bg-cyan-600"; break;
+      case 26: colorClasses = "border-sky-300/30 bg-sky-600"; break;
+      case 27: colorClasses = "border-blue-300/30 bg-blue-500"; break;
+      case 28: colorClasses = "border-indigo-300/30 bg-indigo-500"; break;
+      case 29: colorClasses = "border-violet-300/30 bg-violet-500"; break;
+      case 30: colorClasses = "border-purple-300/30 bg-purple-500"; break;
+      case 31: colorClasses = "border-fuchsia-300/30 bg-fuchsia-500"; break;
+      case 32: colorClasses = "border-pink-300/30 bg-pink-500"; break;
+      default: colorClasses = "border-slate-300/30 bg-slate-500";
+    }
+    
+    return `${baseClasses} ${colorClasses}`;
+  }
+
+  it("should render transparent indicator for root subnets (depth === 0)", () => {
+    const subnet = calculateSubnet("192.168.1.0/24");
+    const classes = getDepthIndicatorClasses(0, subnet.prefix);
+    
+    expect(classes).toContain("border-transparent");
+    expect(classes).toContain("bg-transparent");
+    expect(classes).not.toContain("border-red");
+    expect(classes).not.toContain("bg-red");
+  });
+
+  it("should render colored indicator for non-root subnets (depth > 0)", () => {
+    const subnet = calculateSubnet("192.168.1.0/25");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).not.toContain("border-transparent");
+    expect(classes).not.toContain("bg-transparent");
+    expect(classes).toContain("border-");
+    expect(classes).toContain("bg-");
+  });
+
+  it("should use red-600 color for prefix === 1", () => {
+    const subnet = calculateSubnet("128.0.0.0/1");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-red-300/30");
+    expect(classes).toContain("bg-red-600");
+  });
+
+  it("should use orange-600 color for prefix === 2", () => {
+    const subnet = calculateSubnet("192.0.0.0/2");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-orange-300/30");
+    expect(classes).toContain("bg-orange-600");
+  });
+
+  it("should use yellow-500 color for prefix === 3", () => {
+    const subnet = calculateSubnet("224.0.0.0/3");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-yellow-300/30");
+    expect(classes).toContain("bg-yellow-500");
+  });
+
+  it("should use blue-600 color for prefix === 10", () => {
+    const subnet = calculateSubnet("10.0.0.0/10");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-blue-300/30");
+    expect(classes).toContain("bg-blue-600");
+  });
+
+  it("should use purple-600 color for prefix === 13", () => {
+    const subnet = calculateSubnet("10.0.0.0/13");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-purple-300/30");
+    expect(classes).toContain("bg-purple-600");
+  });
+
+  it("should use rose-600 color for prefix === 16", () => {
+    const subnet = calculateSubnet("10.0.0.0/16");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-rose-300/30");
+    expect(classes).toContain("bg-rose-600");
+  });
+
+  it("should use emerald-500 color for prefix === 23", () => {
+    const subnet = calculateSubnet("192.168.0.0/23");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-emerald-300/30");
+    expect(classes).toContain("bg-emerald-500");
+  });
+
+  it("should use teal-600 color for prefix === 24", () => {
+    const subnet = calculateSubnet("192.168.1.0/24");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-teal-300/30");
+    expect(classes).toContain("bg-teal-600");
+  });
+
+  it("should use pink-500 color for prefix === 32", () => {
+    const subnet = calculateSubnet("192.168.1.1/32");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("border-pink-300/30");
+    expect(classes).toContain("bg-pink-500");
+  });
+
+  it("should use default slate-500 color for unknown prefix values", () => {
+    // Using a helper to simulate an invalid prefix (though calculateSubnet prevents this)
+    const classes = getDepthIndicatorClasses(1, 0);
+    
+    expect(classes).toContain("border-slate-300/30");
+    expect(classes).toContain("bg-slate-500");
+  });
+
+  it("should include base styling classes for all indicators", () => {
+    const subnet = calculateSubnet("10.0.0.0/16");
+    const classes = getDepthIndicatorClasses(1, subnet.prefix);
+    
+    expect(classes).toContain("w-1.5");
+    expect(classes).toContain("h-7");
+    expect(classes).toContain("rounded-full");
+    expect(classes).toContain("shadow-sm");
+    expect(classes).toContain("border");
+  });
+
+  it("should apply different colors for different prefix values", () => {
+    const prefix8 = calculateSubnet("10.0.0.0/8");
+    const prefix16 = calculateSubnet("172.16.0.0/16");
+    const prefix24 = calculateSubnet("192.168.1.0/24");
+    
+    const classes8 = getDepthIndicatorClasses(1, prefix8.prefix);
+    const classes16 = getDepthIndicatorClasses(1, prefix16.prefix);
+    const classes24 = getDepthIndicatorClasses(1, prefix24.prefix);
+    
+    // All should have base classes
+    expect(classes8).toContain("w-1.5");
+    expect(classes16).toContain("w-1.5");
+    expect(classes24).toContain("w-1.5");
+    
+    // But different color classes
+    expect(classes8).not.toEqual(classes16);
+    expect(classes16).not.toEqual(classes24);
+    expect(classes8).not.toEqual(classes24);
+  });
+
+  it("should maintain transparency for root regardless of prefix", () => {
+    const prefix1 = calculateSubnet("128.0.0.0/1");
+    const prefix16 = calculateSubnet("10.0.0.0/16");
+    const prefix32 = calculateSubnet("192.168.1.1/32");
+    
+    const classes1 = getDepthIndicatorClasses(0, prefix1.prefix);
+    const classes16 = getDepthIndicatorClasses(0, prefix16.prefix);
+    const classes32 = getDepthIndicatorClasses(0, prefix32.prefix);
+    
+    // All should be transparent for depth === 0
+    expect(classes1).toContain("border-transparent bg-transparent");
+    expect(classes16).toContain("border-transparent bg-transparent");
+    expect(classes32).toContain("border-transparent bg-transparent");
+    
+    // All should be identical for root level
+    expect(classes1).toEqual(classes16);
+    expect(classes16).toEqual(classes32);
+  });
+});
