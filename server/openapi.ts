@@ -139,7 +139,7 @@ export const openApiSpec = {
                   vpcCidr: {
                     type: "string",
                     pattern: "^(10|172\\.1[6-9]|172\\.2[0-9]|172\\.3[0-1]|192\\.168)\\.",
-                    example: "10.0.0.0/16",
+                    example: "10.100.0.0/18",
                     description: "Private RFC 1918 CIDR (auto-generated if omitted)"
                   },
                   deploymentName: {
@@ -156,7 +156,7 @@ export const openApiSpec = {
                     deploymentSize: "enterprise",
                     provider: "eks",
                     region: "us-east-1",
-                    vpcCidr: "10.0.0.0/16",
+                    vpcCidr: "10.100.0.0/18",
                     deploymentName: "prod-eks-us-east-1"
                   }
                 },
@@ -166,7 +166,7 @@ export const openApiSpec = {
                     deploymentSize: "enterprise",
                     provider: "gke",
                     region: "us-central1",
-                    vpcCidr: "10.0.0.0/16",
+                    vpcCidr: "10.100.0.0/18",
                     deploymentName: "prod-gke-us-central1"
                   }
                 },
@@ -176,7 +176,7 @@ export const openApiSpec = {
                     deploymentSize: "enterprise",
                     provider: "aks",
                     region: "eastus",
-                    vpcCidr: "10.0.0.0/16",
+                    vpcCidr: "10.100.0.0/18",
                     deploymentName: "prod-aks-eastus"
                   }
                 },
@@ -222,7 +222,7 @@ export const openApiSpec = {
                       provider: "eks",
                       region: "us-east-1",
                       deploymentName: "prod-eks-us-east-1",
-                      vpc: { cidr: "10.0.0.0/16" },
+                      vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
                           { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
@@ -247,7 +247,7 @@ export const openApiSpec = {
                       provider: "gke",
                       region: "us-central1",
                       deploymentName: "prod-gke-us-central1",
-                      vpc: { cidr: "10.0.0.0/16" },
+                      vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
                           { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-central1-a" },
@@ -272,7 +272,7 @@ export const openApiSpec = {
                       provider: "aks",
                       region: "eastus",
                       deploymentName: "prod-aks-eastus",
-                      vpc: { cidr: "10.0.0.0/16" },
+                      vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
                           { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "eastus-1" },
@@ -453,7 +453,7 @@ export const openApiSpec = {
             type: "object",
             description: "VPC/VNet configuration",
             properties: {
-              cidr: { type: "string", example: "10.0.0.0/16", description: "VPC CIDR block (RFC 1918 private range)" }
+              cidr: { type: "string", example: "10.100.0.0/18", description: "VPC CIDR block (RFC 1918 private range)" }
             }
           },
           subnets: {
@@ -478,16 +478,25 @@ export const openApiSpec = {
           },
           pods: {
             type: "object",
-            description: "Pod network configuration (CNI plugin IP range)",
+            description: "Pod network configuration. **EKS Note**: This represents a SEPARATE pod CIDR (Model 2 - Custom CNI or Secondary VPC CIDR), NOT default AWS VPC CNI where pods share VPC subnet IPs. Requires custom CNI plugin (Calico, Cilium) or secondary VPC CIDR blocks.",
             properties: {
-              cidr: { type: "string", example: "10.1.0.0/16", description: "CIDR for pod IPs (AWS VPC CNI, Calico, etc.)" }
+              cidr: { 
+                type: "string", 
+                example: "10.1.0.0/16", 
+                description: "CIDR for pod IPs. For EKS: Use with custom CNI (Calico, Cilium, Weave) or secondary VPC CIDR blocks. For GKE/AKS: Always separate from VPC/VNet." 
+              }
             }
           },
           services: {
             type: "object",
-            description: "Kubernetes service network configuration",
+            description: "Kubernetes service network configuration. **EKS-specific**: Must be RFC 1918 private IP, /24 to /12 prefix, no overlap with VPC/Pod CIDR. Can only be set at cluster creation (immutable).",
             properties: {
-              cidr: { type: "string", example: "10.2.0.0/16", description: "ClusterIP service range" }
+              cidr: { 
+                type: "string", 
+                example: "10.2.0.0/16", 
+                description: "Service IPv4 CIDR for Kubernetes ClusterIP services. Defaults: EKS auto-assigns 10.100.0.0/16 or 172.20.0.0/16 if not specified. Our API uses 10.2.0.0/16 to avoid conflicts. **Requirements**: RFC 1918 private IPs only, prefix between /24 and /12, must not overlap with VPC CIDR. **Critical**: Cannot be changed after cluster creation.",
+                pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[2-9]|2[0-4])$"
+              }
             }
           },
           metadata: {
@@ -504,7 +513,7 @@ export const openApiSpec = {
           provider: "eks",
           region: "us-east-1",
           deploymentName: "prod-eks-us-east-1",
-          vpc: { cidr: "10.0.0.0/16" },
+          vpc: { cidr: "10.100.0.0/18" },
           subnets: {
             public: [
               { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },

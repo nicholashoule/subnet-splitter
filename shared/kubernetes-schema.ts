@@ -4,11 +4,22 @@
  * Schema definitions for Kubernetes network planning API
  * Supports battle-tested configurations for EKS, GKE, AKS, and generic Kubernetes
  * 
- * EKS VPC CNI Model:
- * - Pods and Nodes share the same VPC CIDR space (AWS VPC CNI)
- * - Each Pod gets a secondary private IP from the Node's ENI
- * - Services use a separate virtual IP range (ClusterIP, internal routing only)
- * - For high pod density (>100 pods/node), use /18 or /16 subnets to avoid IP exhaustion
+ * EKS Pod Networking (Two Models):
+ * 
+ * Model 1 - AWS VPC CNI (Default):
+ * - Pods share VPC subnet IPs with nodes (no separate pod CIDR)
+ * - Each pod gets secondary IP from node's ENI
+ * - High IP exhaustion risk for large clusters
+ * - Our API generates a separate pod CIDR which requires Model 2 implementation (custom CNI or secondary VPC CIDR blocks)
+ * 
+ * Model 2 - Custom CNI or Secondary CIDR (Our API):
+ * - Pods use separate CIDR range (this API's pods.cidr field)
+ * - Does NOT consume VPC primary subnet IPs
+ * - Requires custom CNI plugin (Calico, Cilium, Weave) OR secondary VPC CIDR blocks
+ * - Recommended for clusters >1000 nodes or high pod density
+ * 
+ * Services:
+ * - Always use separate virtual IP range (ClusterIP, internal routing only)
  * 
  * GKE Alias IP Model:
  * - Pods use alias IP ranges (automatic secondary ranges)
@@ -147,8 +158,8 @@ export const KubernetesNetworkPlanSchema = z.object({
     cidr: z.string().describe("Pod network CIDR for CNI plugin (e.g., AWS VPC CNI, Calico)")
   }).describe("Pod IP range for container networking"),
   services: z.object({
-    cidr: z.string().describe("Service ClusterIP range for internal DNS/service discovery")
-  }).describe("Service IP range"),
+    cidr: z.string().describe("Service ClusterIP range for internal DNS/service discovery. EKS: Must be RFC 1918, /24 to /12, set at creation only. Defaults: EKS uses 10.100.0.0/16 or 172.20.0.0/16, our API uses 10.2.0.0/16.")
+  }).describe("Service IP range for Kubernetes ClusterIP services (immutable after cluster creation)"),
   metadata: z.object({
     generatedAt: z.string().describe("ISO 8601 timestamp"),
     version: z.string().describe("API version")
@@ -182,7 +193,7 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 1,
     publicSubnetSize: 26,    // /26 = 64 addresses (plenty for 1 NAT + LB)
     privateSubnetSize: 25,   // /25 = 128 addresses (1 node + pods)
-    podsPrefix: 18,          // /18 for small clusters
+    podsPrefix: 20,          // /20 = 4,096 IPs (1-2 nodes × 110 pods + buffer)
     servicesPrefix: 16,      // /16 for services
     minVpcPrefix: 24,        // Minimum /24 VPC
     description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
@@ -192,7 +203,7 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 1,
     publicSubnetSize: 25,    // /25 = 128 addresses
     privateSubnetSize: 24,   // /24 = 256 addresses (1-3 nodes + pods)
-    podsPrefix: 16,          // /16 for pods
+    podsPrefix: 16,          // /16 = 65,536 IPs (1-3 nodes × 110 pods, generous buffer)
     servicesPrefix: 16,      // /16 for services
     minVpcPrefix: 23,        // Minimum /23 VPC
     description: "Development/Testing: 1-3 nodes, minimal subnet allocation"
@@ -202,7 +213,7 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 2,
     publicSubnetSize: 25,    // /25 = 128 addresses per public subnet
     privateSubnetSize: 23,   // /23 = 512 addresses per private subnet
-    podsPrefix: 16,
+    podsPrefix: 18,          // /18 = 16,384 IPs (10 nodes × 110 pods + 50% buffer)
     servicesPrefix: 16,
     minVpcPrefix: 21,        // Minimum /21 VPC
     description: "Small Production: 3-10 nodes, dual AZ ready"
@@ -212,7 +223,7 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 3,
     publicSubnetSize: 24,    // /24 = 256 addresses per public subnet
     privateSubnetSize: 21,   // /21 = 2048 addresses per private subnet
-    podsPrefix: 16,
+    podsPrefix: 16,          // /16 = 65,536 IPs (50 nodes × 110 pods + 50% buffer) - IDEAL
     servicesPrefix: 16,
     minVpcPrefix: 18,        // Minimum /18 VPC
     description: "Large Production: 10-50 nodes, triple AZ ready with HA"
@@ -222,9 +233,9 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     privateSubnets: 3,       // 3 AZs
     publicSubnetSize: 23,    // /23 = 512 addresses per public subnet (NAT, LB, Bastion)
     privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (high node density)
-    podsPrefix: 13,          // /13 for massive pod IP space
+    podsPrefix: 13,          // /13 = 524,288 IPs (5000 nodes × 110 pods = 550K max, supports GKE/EKS/AKS limits)
     servicesPrefix: 16,      // /16 for 65K+ services
     minVpcPrefix: 18,        // Minimum /18 VPC (fits 3×/23 + 3×/20 = 13,824 IPs)
-    description: "Global Scale: 50-500 nodes per VPC, 3 AZs, high pod density (use multi-VPC for 500+ nodes)"
+    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
   }
 };

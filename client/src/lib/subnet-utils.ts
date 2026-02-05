@@ -193,3 +193,88 @@ export function getSubnetClass(cidr: string | SubnetInfo): string {
   if (firstOctet >= 240 && firstOctet <= 255) return 'E (Reserved)';
   return 'Unknown';
 }
+
+export function collectAllSubnets(subnet: SubnetInfo): SubnetInfo[] {
+  const result: SubnetInfo[] = [subnet];
+  if (subnet.children && subnet.isExpanded) {
+    for (const child of subnet.children) {
+      result.push(...collectAllSubnets(child));
+    }
+  }
+  return result;
+}
+
+export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] {
+  const hasChildren = subnet.children && subnet.children.length > 0;
+  
+  // If hiding parents and this subnet has children, skip it and collect children
+  if (hideParents && hasChildren && subnet.children) {
+    const result: SubnetInfo[] = [];
+    for (const child of subnet.children) {
+      result.push(...collectVisibleSubnets(child, hideParents));
+    }
+    return result;
+  }
+  
+  // Otherwise, include this subnet
+  const result: SubnetInfo[] = [subnet];
+  if (hasChildren && subnet.isExpanded && subnet.children) {
+    for (const child of subnet.children) {
+      result.push(...collectVisibleSubnets(child, hideParents));
+    }
+  }
+  return result;
+}
+
+/**
+ * Get Tailwind CSS classes for depth indicator visual hierarchy
+ * @param depth - Tree depth (0 = root, >0 = child)
+ * @param prefix - CIDR prefix length (1-32)
+ * @returns Tailwind CSS className string
+ */
+export function getDepthIndicatorClasses(depth: number, prefix: number): string {
+  const baseClasses = "w-1.5 h-7 rounded-full shadow-sm border";
+  
+  if (depth === 0) {
+    return `${baseClasses} border-transparent bg-transparent`;
+  }
+  
+  let colorClasses: string;
+  switch (prefix) {
+    case 1: colorClasses = "border-red-300/30 bg-red-600"; break;
+    case 2: colorClasses = "border-orange-300/30 bg-orange-600"; break;
+    case 3: colorClasses = "border-yellow-300/30 bg-yellow-500"; break;
+    case 4: colorClasses = "border-lime-300/30 bg-lime-600"; break;
+    case 5: colorClasses = "border-green-300/30 bg-green-600"; break;
+    case 6: colorClasses = "border-emerald-300/30 bg-emerald-600"; break;
+    case 7: colorClasses = "border-teal-300/30 bg-teal-600"; break;
+    case 8: colorClasses = "border-cyan-300/30 bg-cyan-600"; break;
+    case 9: colorClasses = "border-sky-300/30 bg-sky-600"; break;
+    case 10: colorClasses = "border-blue-300/30 bg-blue-600"; break;
+    case 11: colorClasses = "border-indigo-300/30 bg-indigo-600"; break;
+    case 12: colorClasses = "border-violet-300/30 bg-violet-600"; break;
+    case 13: colorClasses = "border-purple-300/30 bg-purple-600"; break;
+    case 14: colorClasses = "border-fuchsia-300/30 bg-fuchsia-600"; break;
+    case 15: colorClasses = "border-pink-300/30 bg-pink-600"; break;
+    case 16: colorClasses = "border-rose-300/30 bg-rose-600"; break;
+    case 17: colorClasses = "border-red-300/30 bg-red-500"; break;
+    case 18: colorClasses = "border-orange-300/30 bg-orange-500"; break;
+    case 19: colorClasses = "border-amber-300/30 bg-amber-500"; break;
+    case 20: colorClasses = "border-yellow-300/30 bg-yellow-400"; break;
+    case 21: colorClasses = "border-lime-300/30 bg-lime-500"; break;
+    case 22: colorClasses = "border-green-300/30 bg-green-500"; break;
+    case 23: colorClasses = "border-emerald-300/30 bg-emerald-500"; break;
+    case 24: colorClasses = "border-teal-300/30 bg-teal-500"; break;
+    case 25: colorClasses = "border-cyan-300/30 bg-cyan-500"; break;
+    case 26: colorClasses = "border-sky-300/30 bg-sky-500"; break;
+    case 27: colorClasses = "border-blue-300/30 bg-blue-500"; break;
+    case 28: colorClasses = "border-indigo-300/30 bg-indigo-500"; break;
+    case 29: colorClasses = "border-violet-300/30 bg-violet-500"; break;
+    case 30: colorClasses = "border-purple-300/30 bg-purple-500"; break;
+    case 31: colorClasses = "border-fuchsia-300/30 bg-fuchsia-500"; break;
+    case 32: colorClasses = "border-pink-300/30 bg-pink-500"; break;
+    default: colorClasses = "border-slate-300/30 bg-slate-500";
+  }
+  
+  return `${baseClasses} ${colorClasses}`;
+}

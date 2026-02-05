@@ -387,7 +387,82 @@ Based on AWS EKS documentation and best practices:
 
 ## 3. EKS VPC CNI Architecture
 
+### CRITICAL: EKS Pod Networking Models
+
+**Our API generates configurations for Model 2 (Custom CNI / Secondary CIDR), NOT Model 1 (default AWS VPC CNI).**
+
+#### Model 1: AWS VPC CNI (Default EKS Behavior)
+
+**Pod IP Allocation**:
+- [PASS] Pods share VPC IP space with nodes
+- [PASS] Each pod gets a secondary IP from node's ENI
+- [PASS] Pods consume IPs from the SAME subnets as worker nodes
+- [FAIL] **NO separate pod CIDR** - pods use VPC subnet IPs directly
+- [FAIL] **High IP exhaustion risk** - nodes and pods compete for same IPs
+
+**When to Use**:
+- Default EKS setup (no custom CNI)
+- Simpler networking (fewer moving parts)
+- Willing to accept IP exhaustion risk
+
+**Configuration**:
+```hcl
+resource "aws_eks_cluster" "main" {
+  # No kubernetes_network_config needed
+  # Pods use VPC subnet IPs by default
+}
+```
+
+#### Model 2: Custom CNI or Secondary VPC CIDR (Our API Output)
+
+**Pod IP Allocation**:
+- [PASS] Pods use SEPARATE CIDR range (not VPC subnets)
+- [PASS] Does NOT consume VPC primary subnet IPs
+- [PASS] No IP exhaustion risk
+- [PASS] Requires custom CNI plugin OR secondary VPC CIDR blocks
+
+**When to Use**:
+- Large clusters (1000+ nodes)
+- High pod density (>100 pods/node)
+- Want to avoid VPC IP exhaustion
+- Using custom CNI (Calico, Cilium, Weave)
+- Multi-VPC deployments
+
+**Configuration Options**:
+
+**Option A: Custom CNI Plugin**
+```bash
+# Install Calico CNI
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+# Configure pod CIDR in Calico config
+kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=interface=eth0
+kubectl set env daemonset/calico-node -n kube-system CALICO_IPV4POOL_CIDR=10.42.246.0/13
+```
+
+**Option B: Secondary VPC CIDR Blocks**
+```hcl
+resource "aws_vpc_ipv4_cidr_block_association" "pods" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.42.246.0/13"  # Our API-generated pod CIDR
+}
+
+resource "aws_subnet" "pod_subnet" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.42.246.0/16"  # Subset of secondary CIDR
+  availability_zone = "us-east-1a"
+
+  tags = {
+    "kubernetes.io/role/cni" = "1"
+  }
+}
+```
+
+**Our API Assumption**: Users will implement Model 2 via custom CNI or secondary CIDR blocks.
+
 ### Network Architecture
+
+**For Model 1 (AWS VPC CNI - Default)**:
 
 EKS uses the AWS VPC CNI (Container Network Interface) plugin for pod networking:
 
@@ -693,6 +768,134 @@ Service_Capacity = 2^16 = 65,536 services
 AWS Recommendation: /20 minimum = 4,096 services
 Our Provision: 65,536 / 4,096 = 16x recommended 
 ```
+
+---
+
+## 4.1. EKS Service IPv4 CIDR Configuration
+
+### Overview
+
+EKS allows customization of the Kubernetes service IPv4 CIDR block during cluster creation. This CIDR range is used for ClusterIP services and is separate from the VPC CIDR.
+
+### Terraform Configuration
+
+**Specifying Custom Service CIDR**:
+```hcl
+resource "aws_eks_cluster" "example" {
+  name     = "example-cluster"
+  role_arn = aws_iam_role.example.arn
+  # ... other required configurations ...
+
+  kubernetes_network_config {
+    service_ipv4_cidr = "10.96.0.0/16"  # Custom service CIDR
+  }
+}
+```
+
+### Default Behavior
+
+If `service_ipv4_cidr` is **not specified**, Kubernetes automatically assigns addresses from:
+- **Default Option 1**: `10.100.0.0/16` (preferred)
+- **Default Option 2**: `172.20.0.0/16` (fallback)
+
+**Our API Default**: `10.2.0.0/16` (different from AWS defaults to avoid conflicts)
+
+### Requirements and Constraints
+
+**CRITICAL**: The service CIDR block **can only be specified during cluster creation**. Changing this value after cluster creation forces destruction and recreation of the entire cluster.
+
+#### RFC 1918 Private IP Requirement
+
+Service CIDR **must** be within designated private IP address blocks:
+- [PASS] `10.0.0.0/8` (Class A private)
+- [PASS] `172.16.0.0/12` (Class B private - 172.16.0.0 through 172.31.255.255)
+- [PASS] `192.168.0.0/16` (Class C private)
+
+#### Non-Overlapping Requirement
+
+Service CIDR **must not overlap** with:
+1. VPC CIDR block
+2. Pod CIDR block (if using custom pod networking)
+3. Any connected VPCs (peering, transit gateway)
+4. On-premises networks (VPN, Direct Connect)
+
+**Example Conflict**:
+```
+VPC CIDR:     10.0.0.0/16
+Service CIDR: 10.0.0.0/20  [FAIL] OVERLAPS - Invalid configuration
+Service CIDR: 10.2.0.0/16  [PASS] No overlap - Valid
+```
+
+#### Subnet Mask Constraints
+
+Service CIDR prefix length **must be between /24 and /12** (inclusive):
+
+| Prefix | Status | Addresses | Use Case |
+|--------|--------|-----------|----------|
+| **/11** | [FAIL] Too large | 2,097,152 | Not allowed |
+| **/12** | [PASS] Maximum | 1,048,576 | Massive deployments |
+| **/16** | [PASS] Recommended | 65,536 | Production (our default) |
+| **/20** | [PASS] AWS Minimum | 4,096 | Small clusters |
+| **/24** | [PASS] Minimum | 256 | Development/POC |
+| **/25** | [FAIL] Too small | 128 | Not allowed |
+
+### Our API Implementation
+
+**All Deployment Tiers Use `/16`** (65,536 services):
+- **Micro**: `10.2.0.0/16` - Over-provisioned for single-node POC
+- **Standard**: `10.2.0.0/16` - Appropriate for dev/test
+- **Professional**: `10.2.0.0/16` - Production-ready
+- **Enterprise**: `10.2.0.0/16` - Large-scale production
+- **Hyperscale**: `10.2.0.0/16` - Global-scale deployments
+
+**Rationale for /16**:
+1. [PASS] Exceeds AWS `/20` minimum recommendation by 16x
+2. [PASS] Provides headroom for service mesh expansion (Istio, Linkerd)
+3. [PASS] Supports multi-tenancy with namespace isolation
+4. [PASS] No risk of service IP exhaustion in production
+5. [PASS] Consistent across all tiers (simpler operations)
+
+### Validation in Infrastructure Code
+
+**Terraform Validation**:
+```hcl
+variable "service_ipv4_cidr" {
+  type        = string
+  default     = "10.2.0.0/16"
+  description = "Service IPv4 CIDR for EKS cluster (must be /24 to /12, RFC 1918, no overlap with VPC)"
+  
+  validation {
+    condition     = can(regex("^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)", var.service_ipv4_cidr))
+    error_message = "Service CIDR must use RFC 1918 private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)."
+  }
+  
+  validation {
+    condition     = can(regex("/([12][0-9]|2[0-4])$", var.service_ipv4_cidr)) && tonumber(regex("/([0-9]+)$", var.service_ipv4_cidr)[0]) >= 12 && tonumber(regex("/([0-9]+)$", var.service_ipv4_cidr)[0]) <= 24
+    error_message = "Service CIDR prefix must be between /12 and /24 (inclusive)."
+  }
+}
+```
+
+### Cross-Provider Comparison
+
+| Provider | Service CIDR Config | Default | Changeable | Our API |
+|----------|-------------------|---------|------------|----------|
+| **EKS** | `service_ipv4_cidr` | 10.100.0.0/16 or 172.20.0.0/16 | [FAIL] Cluster creation only | 10.2.0.0/16 |
+| **GKE** | `services-ipv4-cidr` | 10.0.0.0/20 | [FAIL] Cluster creation only | 10.2.0.0/16 |
+| **AKS** | `serviceCidr` | 10.0.0.0/16 | [FAIL] Cluster creation only | 10.2.0.0/16 |
+
+**Key Takeaway**: All major cloud providers restrict service CIDR changes after cluster creation. Plan carefully during initial deployment.
+
+### Migration Considerations
+
+If service CIDR needs to change:
+1. Cannot modify existing cluster
+2. Must create new cluster with desired service CIDR
+3. Migrate workloads to new cluster (blue-green deployment)
+4. Update DNS and load balancer targets
+5. Decommission old cluster
+
+**Risk**: Downtime required for stateful workloads without proper planning
 
 ---
 

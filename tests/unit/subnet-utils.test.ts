@@ -16,6 +16,8 @@ import {
   formatNumber,
   getSubnetClass,
   countSubnetNodes,
+  collectAllSubnets,
+  collectVisibleSubnets,
   SubnetCalculationError,
 } from "@/lib/subnet-utils";
 
@@ -521,6 +523,205 @@ describe("Edge Cases & Robustness", () => {
       expect(multicastHost.totalHosts).toBe(1);
       expect(multicastHost.usableHosts).toBe(1);
       expect(multicastHost.networkAddress).toBe("224.0.0.1");
+    });
+  });
+});
+
+describe("Tree Collection Functions", () => {
+  describe("collectAllSubnets", () => {
+    it("should return single subnet when no children exist", () => {
+      const subnet = calculateSubnet("192.168.1.0/24");
+      const result = collectAllSubnets(subnet);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+    });
+
+    it("should return parent and children when expanded", () => {
+      const parent = calculateSubnet("192.168.1.0/24");
+      const children = splitSubnet(parent);
+      parent.children = children;
+      parent.isExpanded = true;
+      
+      const result = collectAllSubnets(parent);
+      
+      expect(result).toHaveLength(3); // Parent + 2 children
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+      expect(result[1].cidr).toBe("192.168.1.0/25");
+      expect(result[2].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should only return parent when not expanded", () => {
+      const parent = calculateSubnet("192.168.1.0/24");
+      const children = splitSubnet(parent);
+      parent.children = children;
+      parent.isExpanded = false;
+      
+      const result = collectAllSubnets(parent);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+    });
+
+    it("should handle deep nesting with all expanded", () => {
+      const root = calculateSubnet("192.168.1.0/24");
+      root.children = splitSubnet(root);
+      root.isExpanded = true;
+      
+      // Split first child
+      root.children[0].children = splitSubnet(root.children[0]);
+      root.children[0].isExpanded = true;
+      
+      const result = collectAllSubnets(root);
+      
+      expect(result).toHaveLength(5); // Root + 2 children + 2 grandchildren
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+      expect(result[1].cidr).toBe("192.168.1.0/25");
+      expect(result[2].cidr).toBe("192.168.1.0/26");
+      expect(result[3].cidr).toBe("192.168.1.64/26");
+      expect(result[4].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should handle mixed expanded and collapsed nodes", () => {
+      const root = calculateSubnet("192.168.1.0/24");
+      root.children = splitSubnet(root);
+      root.isExpanded = true;
+      
+      // Split first child but don't expand
+      root.children[0].children = splitSubnet(root.children[0]);
+      root.children[0].isExpanded = false;
+      
+      const result = collectAllSubnets(root);
+      
+      expect(result).toHaveLength(3); // Root + 2 children (grandchildren hidden)
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+      expect(result[1].cidr).toBe("192.168.1.0/25");
+      expect(result[2].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should handle undefined children gracefully", () => {
+      const subnet = calculateSubnet("192.168.1.0/24");
+      subnet.children = undefined;
+      
+      const result = collectAllSubnets(subnet);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+    });
+  });
+
+  describe("collectVisibleSubnets", () => {
+    it("should return all subnets when hideParents is false", () => {
+      const parent = calculateSubnet("192.168.1.0/24");
+      parent.children = splitSubnet(parent);
+      parent.isExpanded = true;
+      
+      const result = collectVisibleSubnets(parent, false);
+      
+      expect(result).toHaveLength(3); // Parent + 2 children
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+      expect(result[1].cidr).toBe("192.168.1.0/25");
+      expect(result[2].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should hide parent when hideParents is true and has children", () => {
+      const parent = calculateSubnet("192.168.1.0/24");
+      parent.children = splitSubnet(parent);
+      parent.isExpanded = true;
+      
+      const result = collectVisibleSubnets(parent, true);
+      
+      expect(result).toHaveLength(2); // Only children
+      expect(result[0].cidr).toBe("192.168.1.0/25");
+      expect(result[1].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should include subnet when hideParents is true but has no children", () => {
+      const subnet = calculateSubnet("192.168.1.0/24");
+      
+      const result = collectVisibleSubnets(subnet, true);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].cidr).toBe("192.168.1.0/24");
+    });
+
+    it("should recursively hide all parents in nested structure", () => {
+      const root = calculateSubnet("192.168.1.0/24");
+      root.children = splitSubnet(root);
+      root.isExpanded = true;
+      
+      // Split first child
+      root.children[0].children = splitSubnet(root.children[0]);
+      root.children[0].isExpanded = true;
+      
+      const result = collectVisibleSubnets(root, true);
+      
+      // Should only show leaf nodes (grandchildren of first child + second child)
+      expect(result).toHaveLength(3);
+      expect(result[0].cidr).toBe("192.168.1.0/26");
+      expect(result[1].cidr).toBe("192.168.1.64/26");
+      expect(result[2].cidr).toBe("192.168.1.128/25");
+    });
+
+    it("should handle mixed tree with some splits and some leaf nodes", () => {
+      const root = calculateSubnet("10.0.0.0/16");
+      root.children = splitSubnet(root);
+      root.isExpanded = true;
+      
+      // Only split the first child
+      root.children[0].children = splitSubnet(root.children[0]);
+      root.children[0].isExpanded = true;
+      
+      const result = collectVisibleSubnets(root, true);
+      
+      // Should show grandchildren of first child + second child (leaf)
+      expect(result).toHaveLength(3);
+      expect(result[0].cidr).toBe("10.0.0.0/18");
+      expect(result[1].cidr).toBe("10.0.64.0/18");
+      expect(result[2].cidr).toBe("10.0.128.0/17");
+    });
+
+    it("should handle empty children array", () => {
+      const subnet = calculateSubnet("192.168.1.0/24");
+      subnet.children = [];
+      
+      const resultHide = collectVisibleSubnets(subnet, true);
+      const resultShow = collectVisibleSubnets(subnet, false);
+      
+      expect(resultHide).toHaveLength(1);
+      expect(resultShow).toHaveLength(1);
+    });
+
+    it("should handle undefined children gracefully", () => {
+      const subnet = calculateSubnet("192.168.1.0/24");
+      subnet.children = undefined;
+      
+      const resultHide = collectVisibleSubnets(subnet, true);
+      const resultShow = collectVisibleSubnets(subnet, false);
+      
+      expect(resultHide).toHaveLength(1);
+      expect(resultShow).toHaveLength(1);
+    });
+
+    it("should maintain correct depth traversal when hiding parents", () => {
+      const root = calculateSubnet("10.0.0.0/8");
+      root.children = splitSubnet(root);
+      root.isExpanded = true;
+      
+      // Split both children
+      root.children[0].children = splitSubnet(root.children[0]);
+      root.children[0].isExpanded = true;
+      root.children[1].children = splitSubnet(root.children[1]);
+      root.children[1].isExpanded = true;
+      
+      const result = collectVisibleSubnets(root, true);
+      
+      // Should show all 4 grandchildren (leaves)
+      expect(result).toHaveLength(4);
+      expect(result[0].cidr).toBe("10.0.0.0/10");
+      expect(result[1].cidr).toBe("10.64.0.0/10");
+      expect(result[2].cidr).toBe("10.128.0.0/10");
+      expect(result[3].cidr).toBe("10.192.0.0/10");
     });
   });
 });
