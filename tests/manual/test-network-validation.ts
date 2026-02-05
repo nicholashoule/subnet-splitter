@@ -4,6 +4,7 @@
  */
 
 import { generateKubernetesNetworkPlan } from "../../client/src/lib/kubernetes-network-generator";
+import { ipToNumber, numberToIp } from "../../client/src/lib/subnet-utils";
 
 async function testNetworkPlan() {
   console.log("Testing Kubernetes Network Plan Generation\n");
@@ -104,24 +105,6 @@ function isWithinRange(inner: { start: string, end: string }, outer: { start: st
   const outerEnd = ipToNumber(outer.end);
   
   return innerStart >= outerStart && innerEnd <= outerEnd;
-}
-
-function ipToNumber(ip: string): number {
-  const octets = ip.split('.');
-  let result = 0;
-  for (const octet of octets) {
-    result = ((result << 8) + parseInt(octet, 10)) >>> 0;
-  }
-  return result;
-}
-
-function numberToIp(num: number): string {
-  return [
-    (num >>> 24) & 255,
-    (num >>> 16) & 255,
-    (num >>> 8) & 255,
-    num & 255
-  ].join('.');
 }
 
 testNetworkPlan().catch(console.error);
