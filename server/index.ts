@@ -15,7 +15,7 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -72,18 +72,14 @@ const httpServer = createServer(app);
 //
 // Configuration via environment variables (default to secure-by-default):
 // - TRUST_PROXY=false (default): Don't trust any proxy headers, use direct socket IP
-// - TRUST_PROXY=loopback: Trust only loopback (127.0.0.1, ::1) - for development
 // - TRUST_PROXY=<N>: Trust N hops through proxies (e.g., 1 for single reverse proxy)
 // - TRUST_PROXY="<IP1>,<IP2>,...": Trust specific proxy IPs/CIDRs (e.g., "10.0.0.0/8,127.0.0.1")
-const trustProxyConfig = process.env.TRUST_PROXY || (isDevelopment ? 'loopback' : 'false');
+const trustProxyConfig = process.env.TRUST_PROXY || 'false';
 
 if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
   // Default: don't trust any proxies - use direct socket IP
-  // Safe for direct internet exposure or when running behind unknown proxies
+  // Safe for direct internet exposure, local development, or when running behind unknown proxies
   app.set('trust proxy', false);
-} else if (trustProxyConfig === 'loopback') {
-  // Development mode: trust only localhost (safe for local development)
-  app.set('trust proxy', ['127.0.0.1', '::1']);
 } else if (/^\d+$/.test(trustProxyConfig)) {
   // Numeric value: trust N hops through proxies
   app.set('trust proxy', parseInt(trustProxyConfig, 10));
@@ -111,6 +107,9 @@ if (isDevelopment) {
     legacyHeaders: false,
     skipSuccessfulRequests: false, // Count all requests, even successful ones
     message: "Too many CSP violation reports. Please try again later.",
+    // Custom key generator: handle undefined IPs gracefully and normalize IPv6
+    // When trust proxy = false, req.ip may be undefined for some connections
+    keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'localhost-dev',
   });
 
   app.post('/__csp-violation', cspViolationLimiter, (req: Request, res: Response) => {

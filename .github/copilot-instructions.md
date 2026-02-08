@@ -52,7 +52,6 @@ This file provides instructions and context for GitHub Copilot and AI agents wor
 
 ### Development Tools
 - TypeScript with strict mode
-- Drizzle ORM (configured but not in use currently)
 - Tailwind CSS with PostCSS
 - tsx for TypeScript execution
 
@@ -71,7 +70,7 @@ client/
   │   │   └── use-toast.ts
   │   ├── lib/              # Utility functions
   │   │   ├── subnet-utils.ts   # Core CIDR calculation logic
-  │   │   ├── queryClient.ts    # React Query configuration
+  │   │   ├── queryClient.ts    # React Query client and API request utility
   │   │   └── utils.ts          # Helper functions
   │   └── pages/            # Page components
   ├── index.html            # HTML entry point
@@ -79,13 +78,16 @@ client/
 
 server/
   ├── index.ts              # Express server setup with fallback listen logic
-  ├── routes.ts             # API route definitions
+  ├── routes.ts             # API route definitions (shared handler functions)
   ├── vite.ts               # Vite dev server integration
-  ├── static.ts             # Static file serving
+  ├── static.ts             # Static file serving with file-extension guard
+  ├── csp-config.ts         # Centralized CSP directive configuration
+  ├── openapi.ts            # OpenAPI 3.0 specification
+  ├── logger.ts             # Structured logging system
   └── storage.ts            # In-memory storage
 
 shared/
-  ├── schema.ts             # Shared TypeScript types/schemas
+  ├── schema.ts             # Shared TypeScript types and Zod validation schemas
   └── kubernetes-schema.ts  # Kubernetes API schemas
 
 scripts/
@@ -93,13 +95,15 @@ scripts/
   └── fix-emoji.ts          # Emoji detection and auto-fix CLI tool
 
 tests/
-  ├── unit/                 # Unit tests (subnet-utils, kubernetes-network-generator, emoji-detection)
-  ├── integration/          # Integration tests (styles, API, config, security)
+  ├── unit/                 # Unit tests (6 files: subnet-utils, kubernetes-network-generator, ip-calculation-compliance, ui-styles, emoji-detection, config)
+  ├── integration/          # Integration tests (7 files: API, K8s API, calculator UI, rate limiting, CSP, Swagger theming)
   ├── manual/               # PowerShell manual testing scripts
   └── README.md             # Testing documentation
 
 docs/
   ├── API.md                # Kubernetes Network Planning API reference
+  ├── TEST_AUDIT.md         # Comprehensive test suite analysis
+  ├── SWAGGER_UI_THEMING.md # Swagger UI theming documentation
   └── compliance/           # Platform-specific compliance audits
       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
@@ -108,15 +112,18 @@ docs/
 Root Config Files:
   ├── tsconfig.json         # TypeScript configuration
   ├── vite.config.ts        # Vite configuration
+  ├── vitest.config.ts      # Vitest test configuration
   ├── tailwind.config.ts    # Tailwind CSS customization
   ├── postcss.config.js     # PostCSS configuration
-  ├── package.json          # Dependencies and scripts
-  └── drizzle.config.ts     # Drizzle ORM configuration
+  └── package.json          # Dependencies and scripts
 ```
 
 ## Current Development State
 
 ### Completed Features (from agent-reasoning.md)
+
+See [.github/agent-reasoning.md](agent-reasoning.md) for agent reasoning and decision-making process.
+
 1. Core CIDR subnet calculation functionality
 2. Interactive table with expand/collapse for split subnets
 3. Copy-to-clipboard for all field values
@@ -169,6 +176,13 @@ npm.cmd run check           # Run TypeScript type checker
 ```bash
 npm.cmd run test            # Run test suite with Vitest
 npm.cmd run test:ui         # Run tests with Vitest UI
+```
+### Emoji Detection CLI
+
+See [.github/EMOJI-PREVENTION.md](EMOJI-PREVENTION.md) for instructions on using the emoji detection and auto-fix CLI tool.
+
+```bash
+npx ts-node scripts/fix-emoji.ts --fix # Automatically fix all emoji
 ```
 
 ## Security & Dependency Audit Requirements
@@ -498,12 +512,13 @@ app.post('/__csp-violation', cspViolationLimiter, (req, res) => {
 
 | Setting | Use Case | Security |
 |---------|----------|----------|
-| `TRUST_PROXY=false` (default production) | Direct internet or unknown proxies |  Safe - uses direct socket IP, prevents spoofing |
-| `TRUST_PROXY=loopback` (default development) | Local development only |  Safe - trusts only localhost (127.0.0.1, ::1) |
+| `TRUST_PROXY=false` (default) | Direct connections, local development, or unknown proxies |  Safe - uses direct socket IP, prevents spoofing |
 | `TRUST_PROXY=1` | Single reverse proxy (e.g., Nginx) |  Safe - trusts 1 hop |
 | `TRUST_PROXY="10.0.0.0/8,127.0.0.1"` | Specific proxy IPs/CIDRs |  Safe - allowlist specific proxies |
 
-**WARNING -  CRITICAL SECURITY WARNING**: Never set `trust proxy = true` in production without understanding the risks. This allows attackers to spoof client IPs via `X-Forwarded-For` header, breaking per-IP rate limiting and enabling:
+**Development Mode IP Handling**: When `trust proxy = false` (default for local development), `req.ip` may be undefined for some connections. All rate limiters use custom `keyGenerator` functions that provide fallback values (`'localhost-dev'` or `'unknown'`) when `req.ip` is undefined, ensuring rate limiting remains functional without requiring permissive trust proxy settings.
+
+**WARNING -  CRITICAL SECURITY WARNING**: Never set `trust proxy = true` in any environment. This allows attackers to spoof client IPs via `X-Forwarded-For` header, breaking per-IP rate limiting and enabling:
 - Bypassing rate limits completely
 - Causing collateral damage (blocking legitimate users)
 - Exhausting server resources
@@ -671,20 +686,21 @@ Tests are organized in a dedicated `tests/` directory with clear organization:
 
 ```
 tests/
-├── unit/                        # Unit tests for individual functions (3 files, 121 tests)
-│   ├── subnet-utils.test.ts     # Core calculation logic (53 tests)
+├── unit/                        # Unit tests for individual functions (6 files, 218 tests)
+│   ├── subnet-utils.test.ts     # Core calculation logic (67 tests)
 │   ├── kubernetes-network-generator.test.ts  # K8s network logic (57 tests)
-│   └── emoji-detection.test.ts  # Emoji validation (11 tests)
-├── integration/                 # Integration tests for system-wide features (9 files, 194 tests)
+│   ├── ip-calculation-compliance.test.ts  # IP allocation compliance (56 tests)
+│   ├── ui-styles.test.ts         # WCAG accessibility (19 tests)
+│   ├── emoji-detection.test.ts   # Emoji validation (11 tests)
+│   └── config.test.ts            # Configuration validation (8 tests)
+├── integration/                 # Integration tests for system-wide features (7 files, 188 tests)
+│   ├── calculator-ui.test.ts     # React components (52 tests)
 │   ├── api-endpoints.test.ts    # API infrastructure (38 tests)
 │   ├── kubernetes-network-api.test.ts  # K8s API (33 tests)
-│   ├── calculator-ui.test.ts    # React components (31 tests)
 │   ├── rate-limiting.test.ts    # Security middleware (23 tests)
-│   ├── ui-styles.test.ts        # WCAG accessibility (19 tests)
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests)
 │   ├── swagger-ui-theming.test.ts  # Swagger UI themes (12 tests)
-│   ├── csp-violation-endpoint.test.ts  # CSP violations (12 tests)
-│   └── config.test.ts           # Configuration (8 tests)
+│   └── csp-violation-endpoint.test.ts  # CSP violations (12 tests)
 ├── manual/                      # PowerShell testing scripts (2 files)
 └── README.md                    # Testing documentation
 
@@ -698,12 +714,12 @@ npm run test               # Run tests in watch mode (default)
 npm run test -- --run      # Run tests once and exit
 npm run test:ui            # Run tests with interactive UI
 npm run test -- tests/unit/subnet-utils.test.ts        # Run only unit tests
-npm run test -- tests/integration/styles.test.ts       # Run only integration tests
+npm run test -- tests/unit/ui-styles.test.ts            # Run only style tests
 ```
 
 ### Test Coverage
 
-**Current Suite: 371 comprehensive tests (121 unit + 250 integration) - 100% pass rate [PASS]**
+**Current Suite: 406 comprehensive tests (218 unit + 188 integration) - 100% pass rate [PASS]**
 
 **Unit Tests** (`tests/unit/subnet-utils.test.ts` - 53 tests):
 - **IP Conversion**: ipToNumber, numberToIp with roundtrip validation
@@ -718,7 +734,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 - **Error Handling**: Invalid CIDR formats, octets, prefix values with clear error messages
 - **Robustness**: Wildcard mask calculations, usable host calculations, tree operations
 
-**Integration Tests** (`tests/integration/styles.test.ts` - 27 tests):
+**Unit Tests** (`tests/unit/ui-styles.test.ts` - 19 tests):
 - **CSS Variables**: All color variables defined correctly in light and dark modes
   - Primary, secondary-accent, destructive, background, foreground, muted colors
   - Border and accent border colors with proper HSL-to-RGB conversions
@@ -736,16 +752,13 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 371 |
-| **Unit Tests** | 121 |
-| **Integration Tests** | 250 |
+| **Total Tests** | 406 |
+| **Unit Tests** | 218 |
+| **Integration Tests** | 188 |
 | **Pass Rate** | 100% |
-| **Execution Time** | ~3.2 seconds |
-| **Test Files** | 12 (3 unit, 9 integration) |
-| **Lines of Test Code** | 4,225 lines |
-| **Average Lines/Test** | 13.4 (efficient) |
-| **Bloat Reduction** | -7% (consolidated from 338 tests) |
-| **Overall Grade** | A- |
+| **Execution Time** | ~3.5 seconds |
+| **Test Files** | 13 (6 unit, 7 integration) |
+| **Overall Grade** | A |
 | **WCAG Compliance** | AAA for primary text, AA for secondary elements |
 | **Code Type Safety** | TypeScript strict mode enabled throughout |
 | **Core Logic Coverage** | 100% (subnet-utils, kubernetes-network-generator) |
@@ -754,7 +767,7 @@ npm run test -- tests/integration/styles.test.ts       # Run only integration te
 ### Test Success Criteria
 
 For the test suite to be considered passing:
-- [PASS] All 371 tests must pass
+- [PASS] All 406 tests must pass
 - [PASS] No skipped or pending tests (except during development)
 - [PASS] WCAG accessibility standards maintained
 - [PASS] All calculation logic validated
@@ -873,12 +886,12 @@ When adding new tests:
 ```bash
 npm audit                  # Security audit (0 vulnerabilities required)
 npm run check              # TypeScript type checking (no errors)
-npm run test -- --run      # Run full test suite (all 371 tests must pass)
+npm run test -- --run      # Run full test suite (all 406 tests must pass)
 npm run build              # Verify production build succeeds
 ```
 
 **Quality Gates:**
-- [PASS] All 371 tests passing (121 unit + 250 integration)
+- [PASS] All 406 tests passing (218 unit + 188 integration)
 - [PASS] Zero TypeScript errors in strict mode
 - [PASS] Zero npm audit vulnerabilities
 - [PASS] Production build succeeds without warnings
@@ -2241,23 +2254,32 @@ Currently all subnet calculations happen client-side. The following REST API end
 
 ## Latest Status
 
-**As of January 31, 2026 (Final):**
+**As of February 8, 2026:**
 
  **Complete Project State**:
 - Development environment fully configured (Windows compatible)
 - All TypeScript type definitions installed and working
 - Core CIDR calculation functionality complete and thoroughly tested
 - Server binding fallback logic implemented and tested
-- Comprehensive test suite: 80 tests (53 unit + 27 integration), 100% passing
+- Comprehensive test suite: 406 tests (218 unit + 188 integration), 100% passing
 - Design system implemented with secondary accent color (teal)
 - Robustness improvements complete (validation, error boundaries, state validation)
 - Documentation comprehensive and current across all files
 
+ **Code Review Cleanup (February 2026)**:
+- Removed dead Drizzle ORM code from `shared/schema.ts` (unused users table, schemas, imports)
+- Removed unused auth handling from `client/src/lib/queryClient.ts` (credentials, 401 logic, `getQueryFn`)
+- Deduplicated 4x copy-pasted route handlers in `server/routes.ts` into shared `handleNetworkPlan`/`handleTiers` functions (~200 lines removed)
+- Added file-extension guard to `server/static.ts` for production SPA fallback (matching `server/vite.ts` behavior)
+- Added `nanoid` as explicit dependency (was only a transitive dep from postcss)
+- Fixed rate-limit configuration to use `ipKeyGenerator` from express-rate-limit for IPv6 normalization
+- Trust proxy set to `false` by default (configurable via `TRUST_PROXY` env var)
+
  **Test Suite Status**:
-- **Unit Tests**: 53 tests covering all calculation logic (100% code coverage)
-- **Integration Tests**: 27 tests validating design system and WCAG accessibility
-- **Total Tests**: 80/80 passing
-- **Execution Time**: ~1.3 seconds
+- **Unit Tests**: 218 tests across 6 files (subnet-utils, k8s-generator, ip-compliance, ui-styles, emoji-detection, config)
+- **Integration Tests**: 188 tests across 7 files (API, calculator-ui, k8s-api, rate-limiting, CSP, Swagger)
+- **Total Tests**: 406/406 passing
+- **Execution Time**: ~3.5 seconds
 - **WCAG Compliance**: AAA for primary text (7.2:1), AA+ for all other elements
 
  **Security & Quality**:
@@ -2268,9 +2290,9 @@ Currently all subnet calculations happen client-side. The following REST API end
 - No console errors in dev or production environments
 
  **Documentation**:
-- `.github/copilot-instructions.md`: Comprehensive guidelines (updated with full test coverage info)
-- `.github/agent-reasoning.md`: Complete development history
+- `.github/copilot-instructions.md`: Comprehensive guidelines (updated with current test counts and code review changes)
 - `tests/README.md`: Testing framework documentation
+- `docs/TEST_AUDIT.md`: Test suite analysis
 - `README.md`: User-facing documentation with Windows compatibility notes
 
 **Ready For**:
@@ -2281,6 +2303,6 @@ Currently all subnet calculations happen client-side. The following REST API end
 
 ---
 
-**Last Updated**: January 31, 2026 (Final Session)  
+**Last Updated**: February 8, 2026  
 **Maintained By**: Development Team  
 **Related Files**: [agent-reasoning.md](agent-reasoning.md), [../README.md](../README.md), [../tests/README.md](../tests/README.md)

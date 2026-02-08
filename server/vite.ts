@@ -18,7 +18,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 const viteLogger = createLogger();
 
@@ -52,6 +52,9 @@ export async function setupVite(server: Server, app: Express) {
     max: 100, // More generous limit for development (100 vs production 30)
     standardHeaders: true,
     legacyHeaders: false,
+    // Custom key generator: handle undefined IPs gracefully and normalize IPv6
+    // When trust proxy = false, req.ip may be undefined for some connections
+    keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'localhost-dev',
     skip: (req): boolean => {
       // Skip rate limiting for requests with file extensions
       // NOTE: This only skips rate limiting; the SPA fallback handler has its own

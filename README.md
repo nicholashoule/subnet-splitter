@@ -206,7 +206,7 @@ npm.cmd run test -- --run
 
 # Run specific test file
 npm run test -- tests/unit/subnet-utils.test.ts
-npm run test -- tests/integration/styles.test.ts
+npm run test -- tests/unit/ui-styles.test.ts
 
 # Run API tests specifically (JSON/YAML validation)
 npm run test -- tests/integration/kubernetes-network-api.test.ts --run
