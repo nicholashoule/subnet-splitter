@@ -25,9 +25,12 @@ import path from "path";
 // Configuration - Match tests/unit/emoji-detection.test.ts
 // ============================================
 
-const FORBIDDEN_EMOJI_PATTERN = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}]/gu;
+const FORBIDDEN_EMOJI_PATTERN = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{2139}\u{203C}\u{2049}\u{231A}-\u{231B}\u{23E9}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}]/gu;
 
 const EMOJI_REPLACEMENTS: Record<string, string> = {
+  // Information
+  "\u2139\ufe0f": "INFO",
+  "\u2139": "INFO",
   // Warning and alerts
   "\u26a0\ufe0f": "WARNING",
   "\u26a0": "WARNING",

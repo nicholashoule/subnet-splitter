@@ -27,10 +27,20 @@ import path from "path";
 // - U+1F300-U+1F5FF: Misc Symbols and Pictographs
 // - U+1F680-U+1F6FF: Transport and Map Symbols
 // - U+1F900-U+1F9FF: Supplemental Symbols and Pictographs
-const FORBIDDEN_EMOJI_PATTERN = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}]/gu;
+// Additional emoji from Letterlike/Technical/Geometric blocks (U+2000-U+25FF):
+// - U+2139: Information Source (ℹ)
+// - U+203C: Double Exclamation Mark (‼)
+// - U+2049: Exclamation Question Mark (⁉)
+// - U+231A-U+231B: Watch, Hourglass
+// - U+23E9-U+23FA: Media control symbols
+// - U+25AA-U+25AB, U+25B6, U+25C0, U+25FB-U+25FE: Geometric shapes used as emoji
+const FORBIDDEN_EMOJI_PATTERN = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{2139}\u{203C}\u{2049}\u{231A}-\u{231B}\u{23E9}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}]/gu;
 
 // Emoji to text replacement map for auto-fixing
 const EMOJI_REPLACEMENTS: Record<string, string> = {
+  // Information
+  "ℹ️": "INFO",
+  "ℹ": "INFO",
   // Warning and alerts
   "⚠️": "WARNING",
   "⚠": "WARNING",
