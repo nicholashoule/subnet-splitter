@@ -269,7 +269,7 @@ describe("IP Calculation Compliance Validation", () => {
      * Pod space must accommodate: nodes * pods_per_node
      */
     describe("Pod Space Capacity", () => {
-      it("should have sufficient pod space for hyperscale tier (500 nodes, 110 pods)", () => {
+      it("should have sufficient pod space for hyperscale tier (5000 nodes, 110 pods)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const podAddresses = calculateTotalAddresses(config.podsPrefix);
         const maxNodes = 5000;
@@ -550,7 +550,7 @@ describe("IP Calculation Compliance Validation", () => {
         // Hyperscale tier (50-5000 nodes): /13 supports GKE Standard max cluster size
       });
 
-      it("should support 1,024 nodes with /16 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
+      it("should support 8,192 nodes with /13 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         // Autopilot: M = 26 (32 pods), HM = 6
         const HD = 32 - config.podsPrefix; // 19

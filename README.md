@@ -517,7 +517,7 @@ curl http://localhost:5000/api/k8s/tiers
 | **Standard** | 1-3 | 1 | 1 | /25 (126 IPs) | /24 (254 IPs) | /16 (65K IPs) | /16 (65K IPs) | Dev/Testing |
 | **Professional** | 3-10 | 2 | 2 | /25 (126 IPs) | /23 (510 IPs) | /18 (16K IPs) | /16 (65K IPs) | Small Production (HA-ready) |
 | **Enterprise** | 10-50 | 3 | 3 | /24 (254 IPs) | /21 (2K IPs) | /16 (65K IPs) | /16 (65K IPs) | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 3 | 3 | /23 (510 IPs) | /20 (4K IPs) | /16 (65K IPs) | /16 (65K IPs) | Global Scale (EKS/GKE max) |
+| **Hyperscale** | 50-5000 | 3 | 3 | /23 (510 IPs) | /20 (4K IPs) | /13 (524K IPs) | /16 (65K IPs) | Global Scale (EKS/GKE max) |
 
 **Network Sizing Notes:**
 - **Pod CIDR**: Separate IP range for container networking (via CNI plugins like AWS VPC CNI, Calico, or Cilium)

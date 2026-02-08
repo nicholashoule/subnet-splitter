@@ -54,7 +54,6 @@ function SubnetRow({
   subnet, 
   depth = 0, 
   onSplit, 
-  onToggle,
   onDelete,
   selectedIds,
   onSelectChange,
@@ -63,7 +62,6 @@ function SubnetRow({
   subnet: SubnetInfo; 
   depth?: number; 
   onSplit: (id: string) => void;
-  onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   selectedIds: Set<string>;
   onSelectChange: (id: string, checked: boolean) => void;
@@ -123,7 +121,6 @@ function SubnetRow({
             subnet={child}
             depth={depth + 1}
             onSplit={onSplit}
-            onToggle={onToggle}
             onDelete={onDelete}
             selectedIds={selectedIds}
             onSelectChange={onSelectChange}
@@ -222,7 +219,6 @@ function SubnetRow({
           subnet={child}
           depth={depth + 1}
           onSplit={onSplit}
-          onToggle={onToggle}
           onDelete={onDelete}
           selectedIds={selectedIds}
           onSelectChange={onSelectChange}
@@ -439,18 +435,6 @@ export default function Calculator() {
       });
     }
   }, [rootSubnet, findSubnetById, findAndUpdateSubnet, toast]);
-
-  const handleToggle = useCallback((id: string) => {
-    if (!rootSubnet) return;
-
-    setRootSubnet(prev => {
-      if (!prev) return prev;
-      return findAndUpdateSubnet(prev, id, (subnet) => ({
-        ...subnet,
-        isExpanded: !subnet.isExpanded,
-      }));
-    });
-  }, [rootSubnet, findAndUpdateSubnet]);
 
   const handleDelete = useCallback((id: string) => {
     if (!rootSubnet) return;
@@ -777,7 +761,6 @@ export default function Calculator() {
                       <SubnetRow 
                         subnet={rootSubnet} 
                         onSplit={handleSplit}
-                        onToggle={handleToggle}
                         onDelete={handleDelete}
                         selectedIds={selectedIds}
                         onSelectChange={handleSelectChange}
