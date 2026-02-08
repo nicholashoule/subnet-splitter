@@ -252,6 +252,8 @@ Get information about all deployment tiers and their configurations.
 ---
 
 ## Deployment Tiers
+
+```json
   metadata: {
     generatedAt: string,            // ISO 8601 timestamp
     version: string                 // API version

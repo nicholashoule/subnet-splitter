@@ -1,8 +1,8 @@
 # Cloud Provider IPv4 Allocation Cross-Reference
 
-> **Note**: Tier configurations updated February 4, 2026. See [API.md](../API.md) for current subnet sizes and VPC requirements.
+> **Note**: Tier configurations updated February 8, 2026. See [API.md](../API.md) for current subnet sizes and VPC requirements.
 
-**Date**: February 2, 2026  
+**Date**: February 8, 2026  
 **Purpose**: Comprehensive comparison of how IPv4 addresses are consumed across EKS, GKE, and AKS
 
 ---
@@ -157,15 +157,15 @@ Recommended CIDR: /13 (524,288 IPs) - minimum
                   /12 (1,048,576 IPs) - safer
 ```
 
-### Our API Tier Configurations (Updated February 4, 2026)
+### Our API Tier Configurations (Updated February 8, 2026)
 
 | Tier | Max Nodes | Pod CIDR | Total IPs | Rationale |
 |------|-----------|----------|-----------|------------|
-| **Micro** | 1-2 | /20 | 4,096 | Small dev/test (35 nodes capacity at 110 pods/node) |
+| **Micro** | 1 | /20 | 4,096 | Small dev/test (35 nodes capacity at 110 pods/node) |
 | **Standard** | 1-3 | /16 | 65,536 | Development/testing with generous headroom |
 | **Professional** | 3-10 | /18 | 16,384 | Small production (140 nodes capacity) |
 | **Enterprise** | 10-50 | /16 | 65,536 | **IDEAL** - Large production, supports 500+ nodes |
-| **Hyperscale** | 50-500 | /16 | 65,536 | Global scale with high density (500 nodes × 110 pods) |
+| **Hyperscale** | 50-5000 | /13 | 524,288 | Global scale with high density (5000 nodes x 110 pods) |
 
 ### Alternative: CG-NAT Ranges for Pod Networks
 

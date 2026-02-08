@@ -1,12 +1,12 @@
-# Test Suite Audit - February 4, 2026
+# Test Suite Audit - February 8, 2026
 
 ## Executive Summary
 
-**Current State**: 391 tests across 13 test files  
+**Current State**: 406 tests across 13 test files  
 **Status**: All tests passing  
 **Assessment**: **A** - Test suite is healthy with comprehensive coverage and proper organization  
-**Execution Time**: ~4 seconds total  
-**Pass Rate**: 100% (391/391)
+**Execution Time**: ~3.5 seconds total  
+**Pass Rate**: 100% (406/406)
 
 ---
 
@@ -23,19 +23,19 @@
 | [emoji-detection.test.ts](#emoji-detectionts) | 11 | 391 | Emoji validation | [PASS] Keep as-is |
 | [config.test.ts](#configts) | 8 | 98 | Configuration validation | [PASS] MOVED from integration |
 
-### Integration Tests (7 files, 173 tests, ~2,500 lines)
+### Integration Tests (7 files, 188 tests, ~2,500 lines)
 
 | File | Tests | Lines | Purpose | Status |
 |------|-------|-------|---------|--------|
 | [api-endpoints.test.ts](#api-endpointsts) | 38 | 517 | API infrastructure & health checks | [PASS] Keep as-is |
-| [calculator-ui.test.ts](#calculator-uits) | 37 | ~400 | React component behavior | [PASS] Keep as-is |
+| [calculator-ui.test.ts](#calculator-uits) | 52 | ~550 | React component behavior | [PASS] Keep as-is |
 | [kubernetes-network-api.test.ts](#kubernetes-network-apits) | 33 | ~500 | K8s API integration | [PASS] Keep as-is |
 | [rate-limiting.test.ts](#rate-limitingts) | 23 | 281 | Security middleware | [PASS] Keep as-is |
 | [swagger-ui-csp-middleware.test.ts](#swagger-ui-csp-middlewarets) | 18 | 301 | CSP middleware | [PASS] Keep as-is |
 | [swagger-ui-theming.test.ts](#swagger-ui-themingts) | 12 | 175 | Swagger UI themes | [PASS] Keep as-is |
 | [csp-violation-endpoint.test.ts](#csp-violation-endpointts) | 12 | 351 | CSP security endpoint | [PASS] Keep as-is |
 
-**Total**: 391 tests across 13 files
+**Total**: 406 tests across 13 files
 
 ---
 
@@ -66,9 +66,9 @@
 ---
 
 #### calculator-ui.test.ts
-**Tests**: 37 | **Lines**: ~400 | **Lines/Test**: ~10.8
+**Tests**: 52 | **Lines**: ~550 | **Lines/Test**: ~10.6
 
-**Purpose**: React component tests for subnet calculator UI including form validation, subnet operations, row selection, CSV export, hide parents feature, and error handling.
+**Purpose**: React component tests for subnet calculator UI including form validation, subnet operations, row selection, CSV export, hide parents feature, depth indicator visual hierarchy, and error handling.
 
 **Test Groups**:
 - Form validation (5 tests): CIDR input, error display
@@ -76,6 +76,7 @@
 - Split operations (5 tests): Tree expansion, validation
 - Tree expansion (3 tests): Toggle behavior, state management
 - Hide parents feature (6 tests): Visibility toggling, proper filtering, edge cases
+- Depth indicator (15 tests): Visual hierarchy, indentation, nesting levels
 - Row selection (4 tests): Checkbox behavior, select all
 - CSV export (3 tests): File generation, selected rows
 - Copy to clipboard (2 tests): User interaction feedback
@@ -88,8 +89,6 @@
 **Reduction Potential**: None
 
 **Recommendation**: **Keep as-is** - Component tests are efficient and focused. Each test validates specific user-facing behavior.
-
----
 
 ---
 
@@ -491,7 +490,7 @@ tests/
 1. [PASS] **Fix CSP violation endpoint tests** (missing logger mock)
 2. WARNING **Audit swagger-ui-theming.test.ts** for redundancy
 3. WARNING **Add E2E test category** for webapp-dependent tests
-4. ℹ️ **Document test strategy** in tests/README.md
+4. INFO **Document test strategy** in tests/README.md
 
 ---
 
@@ -544,7 +543,7 @@ The test suite is **generally healthy** but has **moderate bloat** in Swagger UI
 | **Core Business Logic** | 3 | 143 | [PASS] Excellent | Keep as-is |
 | **Security Testing** | 4 | 65 | [PASS] Excellent | Keep as-is |
 | **API Infrastructure** | 2 | 71 | [PASS] Good | Keep as-is |
-| **UI Components** | 2 | 50 | [PASS] Excellent | Keep as-is |
+| **UI Components** | 2 | 71 | [PASS] Excellent | Keep as-is |
 | **Configuration** | 1 | 8 | [PASS] Excellent | Keep as-is |
 | **Theming** | 1 | 12 | [PASS] Good (consolidated) | Already optimized |
 
@@ -553,17 +552,17 @@ The test suite is **generally healthy** but has **moderate bloat** in Swagger UI
 | Metric | Value | Grade |
 |--------|-------|-------|
 | **Average Lines/Test** | 13.4 | [PASS] A |
-| **Execution Time** | 3.2 seconds | [PASS] A+ |
-| **Pass Rate** | 100% (371/371) | [PASS] A+ |
+| **Execution Time** | 3.5 seconds | [PASS] A+ |
+| **Pass Rate** | 100% (406/406) | [PASS] A+ |
 | **Test Organization** | 3 categories (unit/integration/manual) | [PASS] A |
 | **Documentation** | Comprehensive README + this audit | [PASS] A |
 | **Bloat Reduction** | -7% (23 tests removed) | [PASS] A |
 
 ### Reduction Opportunities: None Remaining
 
-After comprehensive analysis of all 12 test files:
+After comprehensive analysis of all 13 test files:
 - **1 file** was bloated (swagger-ui-theming.test.ts) -> Already consolidated
-- **11 files** are justified and efficient -> No changes needed
+- **12 files** are justified and efficient -> No changes needed
 
 **Key Findings**:
 - Most tests are **business-critical** (core logic, security, API)
@@ -574,121 +573,14 @@ After comprehensive analysis of all 12 test files:
 
 ---
 
-## Issues Identified (Original Analysis - Now Resolved)
-
-### 1. ~~CRITICAL: Inconsistent Server Requirement Handling~~ [RESOLVED]
-
-**Original Problem**: Tests had different server strategies without documentation.
-
-**Resolution**:
-- Documented in tests/README.md: 11 files self-contained, 1 file webapp-dependent
-- Added clear SERVER REQUIREMENTS section to README
-- Confirmed swagger-ui-theming.test.ts has proper skip logic
-- All other tests use self-contained Express servers on random ports
-
-**Status**: [PASS] **RESOLVED** - Documentation now clearly explains server patterns
-
----
-
-### 2. ~~Test File Naming Inconsistency~~ [RESOLVED]
-
-**Original Concern**: Some files in wrong category.
-
-**Resolution**: After review, naming is correct:
-- Unit tests: Pure functions, no I/O [PASS]
-- Integration tests: API, security, components with test servers [PASS]
-- Manual tests: PowerShell scripts for human validation [PASS]
-
-**Status**: [PASS] **NO ACTION NEEDED** - Naming is consistent and appropriate
-
----
-
-### 3. **Test File Bloat Analysis** [RESOLVED]
-
-#### ~~swagger-ui-theming.test.ts~~ **[COMPLETED]**
-- **Before**: 35 tests, 493 lines - Testing DOM structure, CSS classes, color counts
-- **After**: 12 tests, 175 lines - Focused on essential theme behavior
-- **Removed**: 23 tests (-66%), 318 lines (-65%)
-- **Kept**: Theme toggle, persistence, CSS loading, dark mode functionality
-
-**Bloat Removed**:
-- Detailed DOM structure tests (fragile, low value)
-- CSS class existence tests (implementation details)
-- Color counting tests (not behavior-focused)
-- Redundant contrast tests (covered by ui-styles.test.ts)
-
-**Status**: [PASS] **COMPLETED** - Successfully consolidated
-
-#### ~~api-endpoints.test.ts~~ [NO ACTION NEEDED]
-- **Original Assessment**: Potential to reduce by 5-8 tests
-- **Detailed Analysis**: Each test validates specific API behavior
-- **Conclusion**: Comprehensive coverage is justified for production API
-
-**Status**: [PASS] **JUSTIFIED** - Keep as-is
-
-#### kubernetes-network-generator.test.ts [NO ACTION NEEDED]
-- **Assessment**: Core business logic with thorough RFC 1918 validation
-- **Conclusion**: Comprehensive testing required for security-critical functionality
-
-**Status**: [PASS] **JUSTIFIED** - Keep as-is
-
----
-
-### 4. ~~Redundant Test Coverage~~ [RESOLVED]
-
-**Original Concern**: Overlap between ui-styles.test.ts and swagger-ui-theming.test.ts
-
-**Resolution**:
-- Removed contrast/color tests from swagger-ui-theming.test.ts
-- ui-styles.test.ts now sole owner of WCAG testing
-- swagger-ui-theming.test.ts focused on Swagger UI-specific behavior only
-
-**Status**: [PASS] **RESOLVED** - No redundancy remains
-
----
-
-### 5. ~~Missing Test Organization~~ [NOT NEEDED]
-
-**Original Recommendation**: Create tests/e2e/ directory for webapp-dependent tests
-
-**Decision**: **NOT NEEDED** - Only 1 file requires webapp (swagger-ui-theming.test.ts), and it already has proper skip logic. Creating a new category for 1 file adds complexity without benefit.
-
-**Status**: [PASS] **DECIDED** - Current structure is optimal
-
----
-
-## Optimization Recommendations
-
-### ~~Priority 1: Fix Failing Tests~~ [COMPLETED]
-- [PASS] **csp-violation-endpoint.test.ts**: Fixed content-length header and empty payload bugs
-- [PASS] **Impact**: All 371 tests passing (100%)
-
-### ~~Priority 2: Reduce swagger-ui-theming.test.ts Bloat~~ [COMPLETED]
-- [PASS] **Before**: 493 lines, 35 tests
-- [PASS] **After**: 175 lines, 12 tests
-- [PASS] **Removed**: Redundant, fragile, and low-value tests
-- [PASS] **Impact**: -23 tests (-66%), -318 lines (-65%)
-
-### ~~Priority 3: Create E2E Test Category~~ [DECIDED NOT NEEDED]
-- Decision: Current structure is optimal for 1 webapp-dependent file
-- Status: No action required
-
-### ~~Priority 4: Document Test Strategy~~ [COMPLETED]
-- [PASS] **tests/README.md**: Complete documentation of test categories
-- [PASS] **Server requirements**: Clearly documented (11 self-contained, 1 webapp-dependent)
-- [PASS] **Test organization**: Unit, integration, manual categories explained
-- [PASS] **Running tests**: Comprehensive instructions added
-
----
-
 ## Final Test Count Status
 
 | Category | Before | After | Change | Grade |
 |----------|--------|-------|--------|-------|
 | Unit | 121 | 218 | +97 (+80%) | [PASS] A+ |
-| Integration | 194 | 173 | -21 (-11%) | [PASS] A |
+| Integration | 194 | 188 | -6 (-3%) | [PASS] A |
 | Manual | 2 scripts | 2 scripts | 0 | [PASS] A |
-| **Total Tests** | **315** | **391** | **+76 (+24%)** | **A+** |
+| **Total Tests** | **315** | **406** | **+91 (+29%)** | **A+** |
 
 **Lines of Code**:
 - Before: 4,543 lines
@@ -715,30 +607,31 @@ After comprehensive analysis of all 12 test files:
 2. [PASS] **Added tree collection tests**: 14 new tests for collectAllSubnets and collectVisibleSubnets
 3. [PASS] **Added hide parents tests**: 6 new tests for visibility toggle feature
 4. [PASS] **Added IP calculation compliance**: 56 tests validating deployment tier formulas
-5. [PASS] **Proper unit/integration separation**: 218 unit tests (56%), 173 integration tests (44%)
+5. [PASS] **Proper unit/integration separation**: 218 unit tests (54%), 188 integration tests (46%)
 6. [PASS] **Updated all documentation**: tests/README.md and TEST_AUDIT.md reflect current state
 
 ### What Stayed the Same:
 - [PASS] **13 test files**: All justified and efficient
 - [PASS] **Core coverage maintained**: Business logic, security, API fully tested
-- [PASS] **Test execution speed**: ~4 seconds total
-- [PASS] **100% pass rate**: All 391 tests passing
+- [PASS] **Test execution speed**: ~3.5 seconds total
+- [PASS] **100% pass rate**: All 406 tests passing
 
 ### Key Metrics:
-- **Total Tests**: 391 (expanded from 315, +24%)
-- **Pass Rate**: 100% (391/391 passing)
-- **Execution Time**: ~4 seconds
+- **Total Tests**: 406 (expanded from 315, +29%)
+- **Pass Rate**: 100% (406/406 passing)
+- **Execution Time**: ~3.5 seconds
 - **Average Lines/Test**: ~10.5 (efficient)
-- **Unit Test Coverage**: 56% (proper separation achieved)
-- **Integration Test Coverage**: 44% (self-contained servers)
+- **Unit Test Coverage**: 54% (proper separation achieved)
+- **Integration Test Coverage**: 46% (self-contained servers)
 
 ### Impact of Recent Changes:
 - [PASS] Better test organization (proper unit/integration separation)
 - [PASS] Improved test discoverability (clear categorization)
 - [PASS] Higher unit test coverage (218 vs 121, +80%)
-- [PASS] More efficient integration tests (173 vs 194, -11%)
+- [PASS] More efficient integration tests (188 vs 194, -3%)
 - [PASS] Comprehensive tree function testing (no gaps)
 - [PASS] Hide parents feature fully validated
+- [PASS] Depth indicator visual hierarchy tests (15 tests)
 
 ### Future Maintenance:
 - **Test organization validated**: Unit tests are pure functions, integration tests use servers
@@ -753,7 +646,7 @@ After comprehensive analysis of all 12 test files:
 
 ---
 
-**Audit Completed**: February 2, 2026  
-**Auditor**: AI Agent (Claude 4.5 Opus)  
-**Files Analyzed**: 12/12 (100%)  
+**Audit Completed**: February 8, 2026  
+**Auditor**: AI Agent (Claude Opus 4.6)  
+**Files Analyzed**: 13/13 (100%)  
 **Status**: [PASS] COMPLETE

@@ -229,16 +229,6 @@ describe("Row Selection", () => {
     root.children = splitSubnet(root);
     root.isExpanded = true;
     
-    const collectAllSubnets = (subnet: SubnetInfo): SubnetInfo[] => {
-      const subnets = [subnet];
-      if (subnet.isExpanded && subnet.children) {
-        subnet.children.forEach(child => {
-          subnets.push(...collectAllSubnets(child));
-        });
-      }
-      return subnets;
-    };
-    
     const allSubnets = collectAllSubnets(root);
     expect(allSubnets).toHaveLength(3); // root + 2 children
   });

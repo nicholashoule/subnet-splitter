@@ -1,5 +1,5 @@
 /**
- * tests/integration/config.test.ts
+ * tests/unit/config.test.ts
  * 
  * Configuration validation tests to ensure build configs are properly set up.
  * These tests catch configuration issues that could break styling or compilation.
