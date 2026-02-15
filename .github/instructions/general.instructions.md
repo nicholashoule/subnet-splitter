@@ -136,5 +136,5 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Agent reasoning](docs/archive/agent-reasoning.md)
 - [Emoji prevention](.github/emoji-prevention.md)
 - [Security reference](docs/compliance/security-reference.md)
-- [Test audit](docs/TEST_AUDIT.md)
+- [Test suite analysis](docs/test-suite-analysis.md)
 - [API reference](docs/api.md)

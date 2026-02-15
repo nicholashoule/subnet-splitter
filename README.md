@@ -98,13 +98,20 @@ This application follows a **security by design** approach with multiple layers 
 │   ├── build.ts            # Production build orchestration
 │   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
 ├── docs/                   # Reference documentation
-│   ├── API.md              # Kubernetes Network Planning API reference
-│   ├── TEST_AUDIT.md       # Test suite analysis
-│   ├── SWAGGER_UI_THEMING.md  # Swagger UI theming documentation
-│   └── compliance/         # Platform-specific compliance audits
-│       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
-│       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
-│       └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
+│   ├── api.md              # Kubernetes Network Planning API reference
+│   ├── test-suite-analysis.md # Test suite health analysis
+│   ├── git-conventions.md  # Git commit message conventions
+│   ├── test-templates.md   # Test patterns and examples
+│   ├── ui-examples.md      # UI code and design system
+│   ├── archive/            # Historical documentation
+│   │   └── agent-reasoning.md # Development history and decisions
+│   └── compliance/         # Compliance and platform-specific documentation
+│       ├── kubernetes-network-reference.md # K8s network formulas
+│       ├── security-reference.md # CSP and security configuration
+│       ├── ip-allocation-cross-reference.md # Cross-provider IP comparison
+│       ├── AKS_COMPLIANCE_AUDIT.md # Azure Kubernetes Service
+│       ├── EKS_COMPLIANCE_AUDIT.md # AWS Elastic Kubernetes Service
+│       └── GKE_COMPLIANCE_AUDIT.md # Google Kubernetes Engine
 ├── shared/                 # Shared code
 │   ├── schema.ts           # TypeScript types and Zod schemas
 │   └── kubernetes-schema.ts # Kubernetes API schemas
@@ -294,7 +301,7 @@ The project includes a comprehensive test suite with **406 tests** (100% passing
 - **Swagger UI theming (12 tests)**: Theme toggle, persistence, dark mode CSS loading
 - **CSP violation endpoint (12 tests)**: W3C spec compliance, rate limiting, schema validation
 
-See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/TEST_AUDIT.md](docs/TEST_AUDIT.md) for detailed test suite analysis.
+See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/test-suite-analysis.md](docs/test-suite-analysis.md) for detailed test suite analysis.
 
 ## Windows Compatibility
 
@@ -602,7 +609,7 @@ Comprehensive documentation is available to help developers understand and contr
 
 ### Testing & Quality
 - **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
-- **[docs/TEST_AUDIT.md](docs/TEST_AUDIT.md)** - Detailed test suite analysis and health metrics
+- **[docs/test-suite-analysis.md](docs/test-suite-analysis.md)** - Detailed test suite analysis and health metrics
 
 ### API & Compliance
 - **[docs/api.md](docs/api.md)** - Kubernetes Network Planning API reference

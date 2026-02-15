@@ -84,7 +84,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - `GET /api/kubernetes/tiers` -- deployment tier information
 - Supports providers: `eks`, `gke`, `aks`, `kubernetes`/`k8s`
 - RFC 1918 private addressing, deterministic generation
-- See [docs/API.md](../../docs/API.md) for full API reference
+- See [docs/api.md](../../docs/api.md) for full API reference
 - See [docs/compliance/kubernetes-network-reference.md](../../docs/compliance/kubernetes-network-reference.md) for provider compliance formulas
 
 ### Planned Endpoints (Future)

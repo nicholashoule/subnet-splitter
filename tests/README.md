@@ -318,7 +318,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 
 ## Test Quality & Audit
 
-**For detailed analysis of test suite health, see [TEST_AUDIT.md](../docs/TEST_AUDIT.md)**
+**For detailed analysis of test suite health, see [test-suite-analysis.md](../docs/test-suite-analysis.md)**
 
 **Current Assessment** (February 14, 2026):
 - **Grade**: A (Comprehensive coverage with proper organization)
@@ -335,7 +335,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 - [PASS] Proper unit/integration separation
 - [PASS] WCAG accessibility compliance validated
 
-See [TEST_AUDIT.md](../docs/TEST_AUDIT.md) for complete analysis and recommendations.
+See [test-suite-analysis.md](../docs/test-suite-analysis.md) for complete analysis and recommendations.
 
 ### Strengths
 

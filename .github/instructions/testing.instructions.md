@@ -72,7 +72,7 @@ See [docs/test-templates.md](../../docs/test-templates.md) for full templates an
 | **Total** | 406 | 13 |
 | **Pass Rate** | 100% | |
 
-See [docs/TEST_AUDIT.md](../../docs/TEST_AUDIT.md) for detailed analysis.
+See [docs/test-suite-analysis.md](../../docs/test-suite-analysis.md) for detailed analysis.
 
 ## Quality Gates
 
