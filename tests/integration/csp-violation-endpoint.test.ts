@@ -13,10 +13,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import express from "express";
-import { createServer, type Server as HttpServer } from "http";
 import { rateLimit } from "express-rate-limit";
 import { cspViolationReportSchema } from "@shared/schema";
+import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
 
 /**
  * CSP Violation Report Integration Test Suite
@@ -25,19 +24,11 @@ import { cspViolationReportSchema } from "@shared/schema";
  * and make HTTP requests to verify actual endpoint behavior.
  */
 describe("CSP Violation Endpoint Integration", () => {
-  let app: express.Express;
-  let httpServer: HttpServer;
+  let server: TestServer;
   let baseUrl: string;
   let loggedViolations: any[] = [];
 
   beforeAll(async () => {
-    // Create test server with CSP violation endpoint (development mode)
-    app = express();
-    // Parse JSON bodies for application/json and application/csp-report
-    // This matches production configuration to accurately test browser behavior
-    app.use(express.json({ type: ['application/json', 'application/csp-report'] }));
-    httpServer = createServer(app);
-
     // Mock logger to capture violations
     loggedViolations = [];
     const mockLogger = {
@@ -56,51 +47,48 @@ describe("CSP Violation Endpoint Integration", () => {
       message: "Too many CSP violation reports. Please try again later.",
     });
 
-    // Register CSP violation endpoint
-    app.post('/__csp-violation', cspViolationLimiter, (req, res) => {
-      const validationResult = cspViolationReportSchema.safeParse(req.body);
-      
-      if (!validationResult.success) {
-        mockLogger.warn('Invalid CSP violation report received');
-        // Always return 204 per W3C spec, even for invalid reports
-        res.status(204).end();
-        return;
-      }
+    // Create test server with CSP violation endpoint (development mode)
+    server = await createTestServer({
+      // Parse JSON bodies for application/json and application/csp-report
+      // This matches production configuration to accurately test browser behavior
+      jsonOptions: { type: ['application/json', 'application/csp-report'] },
+      setup: (app) => {
+        // Register CSP violation endpoint
+        app.post('/__csp-violation', cspViolationLimiter, (req, res) => {
+          const validationResult = cspViolationReportSchema.safeParse(req.body);
+          
+          if (!validationResult.success) {
+            mockLogger.warn('Invalid CSP violation report received');
+            // Always return 204 per W3C spec, even for invalid reports
+            res.status(204).end();
+            return;
+          }
 
-      // Extract violation data from wrapper
-      const violation = validationResult.data['csp-report'];
-      
-      if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
-        mockLogger.warn('CSP Violation Detected', {
-          blockedUri: violation['blocked-uri'],
-          violatedDirective: violation['violated-directive'],
-          sourceFile: violation['source-file'],
-          lineNumber: violation['line-number'],
-          columnNumber: violation['column-number'],
-          documentUri: violation['document-uri'],
-          originalPolicy: violation['original-policy'],
-          disposition: violation.disposition,
+          // Extract violation data from wrapper
+          const violation = validationResult.data['csp-report'];
+          
+          if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+            mockLogger.warn('CSP Violation Detected', {
+              blockedUri: violation['blocked-uri'],
+              violatedDirective: violation['violated-directive'],
+              sourceFile: violation['source-file'],
+              lineNumber: violation['line-number'],
+              columnNumber: violation['column-number'],
+              documentUri: violation['document-uri'],
+              originalPolicy: violation['original-policy'],
+              disposition: violation.disposition,
+            });
+          }
+
+          res.status(204).end();
         });
       }
-
-      res.status(204).end();
     });
-
-    // Start server on random available port
-    await new Promise<void>((resolve) => {
-      httpServer.listen(0, "127.0.0.1", () => {
-        const address = httpServer.address();
-        const port = typeof address === "object" && address ? address.port : 5001;
-        baseUrl = `http://127.0.0.1:${port}`;
-        resolve();
-      });
-    });
+    baseUrl = server.baseUrl;
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => {
-      httpServer.close(() => resolve());
-    });
+    await closeTestServer(server);
   });
 
   describe("Valid CSP Violation Reports", () => {

@@ -11,36 +11,24 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import express from "express";
-import { createServer, type Server as HttpServer } from "http";
 import { registerRoutes } from "../../server/routes";
+import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
 
 describe("API Endpoints Integration", () => {
-  let app: express.Express;
-  let httpServer: HttpServer;
+  let server: TestServer;
   let baseUrl: string;
 
   beforeAll(async () => {
-    app = express();
-    app.use(express.json());
-    httpServer = createServer(app);
-    await registerRoutes(httpServer, app);
-
-    // Start server on random available port
-    await new Promise<void>((resolve) => {
-      httpServer.listen(0, "127.0.0.1", () => {
-        const address = httpServer.address();
-        const port = typeof address === "object" && address ? address.port : 5001;
-        baseUrl = `http://127.0.0.1:${port}`;
-        resolve();
-      });
+    server = await createTestServer({
+      setup: async (app, httpServer) => {
+        await registerRoutes(httpServer, app);
+      }
     });
+    baseUrl = server.baseUrl;
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => {
-      httpServer.close(() => resolve());
-    });
+    await closeTestServer(server);
   });
 
   describe("Health Check Endpoints", () => {
