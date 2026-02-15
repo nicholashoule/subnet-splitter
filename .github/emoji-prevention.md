@@ -74,22 +74,22 @@ The tool is included in the project and requires no additional dependencies.
 
 ```bash
 # Detect emoji (dry-run, no changes)
-npx ts-node scripts/fix-emoji.ts
+npx tsx scripts/fix-emoji.ts
 
 # Automatically fix all emoji
-npx ts-node scripts/fix-emoji.ts --fix
+npx tsx scripts/fix-emoji.ts --fix
 
 # Detailed output
-npx ts-node scripts/fix-emoji.ts --fix --verbose
+npx tsx scripts/fix-emoji.ts --fix --verbose
 
 # Show help
-npx ts-node scripts/fix-emoji.ts --help
+npx tsx scripts/fix-emoji.ts --help
 ```
 
 ### Example Output
 
 ```
-$ npx ts-node scripts/fix-emoji.ts --fix --verbose
+$ npx tsx scripts/fix-emoji.ts --fix --verbose
 
 Scanning project for emoji violations...
 
@@ -189,7 +189,7 @@ This ensures no accidental emoji slips into the repository.
 
 ```bash
 # Pre-commit hook example
-npx ts-node scripts/fix-emoji.ts --fix
+npx tsx scripts/fix-emoji.ts --fix
 ```
 
 ## Integration with Your Workflow
@@ -201,7 +201,7 @@ npx ts-node scripts/fix-emoji.ts --fix
 npm run test -- tests/unit/emoji-detection.test.ts --run
 
 # If failures, auto-fix
-npx ts-node scripts/fix-emoji.ts --fix
+npx tsx scripts/fix-emoji.ts --fix
 
 # Commit the auto-fixed files
 git add -A
@@ -261,9 +261,9 @@ If you have questions about the emoji prevention system or run into issues, chec
 
 First, scan the project to see what emoji are present:
 
-\\\ash
-npx ts-node scripts/fix-emoji.ts
-\\\
+```bash
+npx tsx scripts/fix-emoji.ts
+```
 
 **Output shows:**
 - Number of files with emoji
@@ -274,9 +274,9 @@ npx ts-node scripts/fix-emoji.ts
 
 Once you've reviewed what needs fixing, automatically replace all emoji:
 
-\\\ash
-npx ts-node scripts/fix-emoji.ts --fix
-\\\
+```bash
+npx tsx scripts/fix-emoji.ts --fix
+```
 
 **Output shows:**
 - Which files were fixed
@@ -286,6 +286,6 @@ npx ts-node scripts/fix-emoji.ts --fix
 ### Protected Files
 
 These files are NEVER auto-fixed:
-- \	ests/unit/emoji-detection.test.ts\ - Emoji test mappings
+- \tests/unit/emoji-detection.test.ts\ - Emoji test mappings
 - \scripts/fix-emoji.ts\ - Auto-fix script definitions
 

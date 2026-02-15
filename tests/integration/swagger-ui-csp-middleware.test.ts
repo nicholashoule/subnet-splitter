@@ -15,9 +15,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import express from "express";
-import { createServer, type Server as HttpServer } from "http";
 import { buildSwaggerUICSP } from "../../server/csp-config";
+import { createTestServers, closeTestServers, type TestServer } from "../helpers/test-server";
 
 /**
  * Swagger UI CSP Middleware Integration Test Suite
@@ -28,78 +27,60 @@ import { buildSwaggerUICSP } from "../../server/csp-config";
  * Tests make real HTTP requests to a test server to verify CSP headers.
  */
 describe("Swagger UI CSP Middleware Integration", () => {
-  let developmentApp: express.Express;
-  let productionApp: express.Express;
-  let developmentServer: HttpServer;
-  let productionServer: HttpServer;
+  let developmentServer: TestServer;
+  let productionServer: TestServer;
   let developmentBaseUrl: string;
   let productionBaseUrl: string;
 
   beforeAll(async () => {
-    // Create development test server with 'unsafe-inline' for Swagger UI
-    developmentApp = express();
-    developmentServer = createServer(developmentApp);
+    // Create development and production test servers in parallel
+    [developmentServer, productionServer] = await createTestServers([
+      // Development server with 'unsafe-inline' for Swagger UI
+      {
+        setup: (app) => {
+          // Swagger UI route with development CSP middleware
+          app.get("/api/docs/ui", (req, res, next) => {
+            res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
+            next();
+          }, (req, res) => {
+            res.setHeader('Content-Type', 'text/html');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.send('<html><body>Swagger UI (Development)</body></html>');
+          });
 
-    // Swagger UI route with development CSP middleware
-    developmentApp.get("/api/docs/ui", (req, res, next) => {
-      res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
-      next();
-    }, (req, res) => {
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.send('<html><body>Swagger UI (Development)</body></html>');
-    });
+          // Other API route without Swagger CSP middleware
+          app.post("/api/k8s/plan", (req, res) => {
+            res.json({ message: "Network plan endpoint" });
+          });
+        }
+      },
+      // Production server without 'unsafe-inline'
+      {
+        setup: (app) => {
+          // Swagger UI route with production CSP middleware
+          app.get("/api/docs/ui", (req, res, next) => {
+            res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
+            next();
+          }, (req, res) => {
+            res.setHeader('Content-Type', 'text/html');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.send('<html><body>Swagger UI (Production)</body></html>');
+          });
 
-    // Other API route without Swagger CSP middleware
-    developmentApp.post("/api/k8s/plan", (req, res) => {
-      res.json({ message: "Network plan endpoint" });
-    });
-
-    // Start development server
-    await new Promise<void>((resolve) => {
-      developmentServer.listen(0, "127.0.0.1", () => {
-        const address = developmentServer.address();
-        const port = typeof address === "object" && address ? address.port : 5001;
-        developmentBaseUrl = `http://127.0.0.1:${port}`;
-        resolve();
-      });
-    });
-
-    // Create production test server without 'unsafe-inline'
-    productionApp = express();
-    productionServer = createServer(productionApp);
-
-    // Swagger UI route with production CSP middleware
-    productionApp.get("/api/docs/ui", (req, res, next) => {
-      res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
-      next();
-    }, (req, res) => {
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.send('<html><body>Swagger UI (Production)</body></html>');
-    });
-
-    // Other API route without Swagger CSP middleware
-    productionApp.post("/api/k8s/plan", (req, res) => {
-      res.json({ message: "Network plan endpoint" });
-    });
-
-    // Start production server
-    await new Promise<void>((resolve) => {
-      productionServer.listen(0, "127.0.0.1", () => {
-        const address = productionServer.address();
-        const port = typeof address === "object" && address ? address.port : 5002;
-        productionBaseUrl = `http://127.0.0.1:${port}`;
-        resolve();
-      });
-    });
+          // Other API route without Swagger CSP middleware
+          app.post("/api/k8s/plan", (req, res) => {
+            res.json({ message: "Network plan endpoint" });
+          });
+        }
+      }
+    ]);
+    
+    developmentBaseUrl = developmentServer.baseUrl;
+    productionBaseUrl = productionServer.baseUrl;
   });
 
   afterAll(async () => {
-    await Promise.all([
-      new Promise<void>((resolve) => developmentServer.close(() => resolve())),
-      new Promise<void>((resolve) => productionServer.close(() => resolve()))
-    ]);
+    await closeTestServers([developmentServer, productionServer]);
   });
 
   describe("CSP Header Presence and Format", () => {

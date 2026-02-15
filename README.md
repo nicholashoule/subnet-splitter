@@ -88,19 +88,30 @@ This application follows a **security by design** approach with multiple layers 
 ├── tests/                  # Comprehensive unit and integration test suite
 │   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
 │   ├── integration/        # Integration tests (styles, API, config, security)
-│   ├── manual/             # PowerShell manual testing scripts
+│   ├── manual/             # Manual testing scripts (2 PowerShell, 2 TypeScript)
 │   │   ├── test-api-endpoints.ps1  # Comprehensive API validation
-│   │   └── test-api.ps1            # RFC 1918 enforcement testing
+│   │   ├── test-api.ps1            # RFC 1918 enforcement testing
+│   │   ├── test-network-comparison.ts  # Network comparison utility
+│   │   └── test-network-validation.ts  # Network validation utility
 │   └── README.md           # Testing documentation
 ├── scripts/                # Build and utility tools
 │   ├── build.ts            # Production build orchestration
 │   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
 ├── docs/                   # Reference documentation
-│   ├── API.md              # Kubernetes Network Planning API reference
-│   └── compliance/         # Platform-specific compliance audits
-│       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
-│       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
-│       └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
+│   ├── api.md              # Kubernetes Network Planning API reference
+│   ├── test-suite-analysis.md # Test suite health analysis
+│   ├── git-conventions.md  # Git commit message conventions
+│   ├── test-templates.md   # Test patterns and examples
+│   ├── ui-examples.md      # UI code and design system
+│   ├── archive/            # Historical documentation
+│   │   └── agent-reasoning.md # Development history and decisions
+│   └── compliance/         # Compliance and platform-specific documentation
+│       ├── kubernetes-network-reference.md # K8s network formulas
+│       ├── security-reference.md # CSP and security configuration
+│       ├── ip-allocation-cross-reference.md # Cross-provider IP comparison
+│       ├── AKS_COMPLIANCE_AUDIT.md # Azure Kubernetes Service
+│       ├── EKS_COMPLIANCE_AUDIT.md # AWS Elastic Kubernetes Service
+│       └── GKE_COMPLIANCE_AUDIT.md # Google Kubernetes Engine
 ├── shared/                 # Shared code
 │   ├── schema.ts           # TypeScript types and Zod schemas
 │   └── kubernetes-schema.ts # Kubernetes API schemas
@@ -290,7 +301,7 @@ The project includes a comprehensive test suite with **406 tests** (100% passing
 - **Swagger UI theming (12 tests)**: Theme toggle, persistence, dark mode CSS loading
 - **CSP violation endpoint (12 tests)**: W3C spec compliance, rate limiting, schema validation
 
-See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/TEST_AUDIT.md](docs/TEST_AUDIT.md) for detailed test suite analysis.
+See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/test-suite-analysis.md](docs/test-suite-analysis.md) for detailed test suite analysis.
 
 ## Windows Compatibility
 
@@ -317,7 +328,7 @@ All development tools and commands work identically on Windows, macOS, and Linux
 
 The application provides production-ready REST endpoints for generating optimized network configurations across EKS, GKE, AKS, and self-hosted Kubernetes.
 
-**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/API.md) for details.
+**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/api.md) for details.
 
 #### Endpoint 1: Generate Network Plan
 
@@ -592,17 +603,16 @@ Comprehensive documentation is available to help developers understand and contr
   - Testing strategy and coverage requirements
   - API planning and implementation details
 
-- **[.github/agent-reasoning.md](.github/agent-reasoning.md)** - Development history and decision log
+- **[docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md)** - Development history and decision log (archived)
   - **Note**: This file captures major architectural decisions and complex problem-solving sessions
-  - Keep this lean by documenting only significant concepts that require substantial reasoning
-  - Use for understanding the "why" behind non-obvious design choices
+  - Historical reference for understanding the "why" behind non-obvious design choices
 
 ### Testing & Quality
 - **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
-- **[docs/TEST_AUDIT.md](docs/TEST_AUDIT.md)** - Detailed test suite analysis and health metrics
+- **[docs/test-suite-analysis.md](docs/test-suite-analysis.md)** - Detailed test suite analysis and health metrics
 
 ### API & Compliance
-- **[docs/API.md](docs/API.md)** - Kubernetes Network Planning API reference
+- **[docs/api.md](docs/api.md)** - Kubernetes Network Planning API reference
 - **[docs/compliance/](docs/compliance/)** - Platform-specific compliance audits:
   - [EKS_COMPLIANCE_AUDIT.md](docs/compliance/EKS_COMPLIANCE_AUDIT.md) - AWS Elastic Kubernetes Service
   - [GKE_COMPLIANCE_AUDIT.md](docs/compliance/GKE_COMPLIANCE_AUDIT.md) - Google Kubernetes Engine
@@ -625,7 +635,7 @@ We welcome contributions! Please follow these guidelines:
    - Security audit requirements (mandatory)
    - API planning documentation
 
-2. **Review development history**: Check [.github/agent-reasoning.md](.github/agent-reasoning.md) to understand:
+2. **Review development history**: Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) to understand:
    - Major architectural decisions and rationale
    - Complex problem-solving approaches
    - Historical context for non-obvious design choices
@@ -691,7 +701,7 @@ Before making changes, understand:
 ### Questions or Issues?
 
 - Review the [Project Documentation](#project-documentation) section above for comprehensive guides
-- Check [.github/agent-reasoning.md](.github/agent-reasoning.md) for historical context on major decisions
+- Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) for historical context on major decisions
 - Search existing issues for similar problems
 - When opening new issues, provide clear context and steps to reproduce
 

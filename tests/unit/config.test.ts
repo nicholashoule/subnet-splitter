@@ -107,7 +107,7 @@ describe("Configuration Validation", () => {
     it("should not reference simple browser as primary dev environment", () => {
       // This is a documentation check - the copilot instructions should mention
       // using real browsers for dev work
-      const instructionsPath = path.join(projectRoot, ".github/copilot-instructions.md");
+      const instructionsPath = path.join(projectRoot, ".github/instructions/frontend.instructions.md");
       const instructions = fs.readFileSync(instructionsPath, "utf-8");
 
       // Should mention Simple Browser limitations

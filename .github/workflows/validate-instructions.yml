@@ -1,0 +1,73 @@
+name: Validate Instruction Files
+
+on:
+  pull_request:
+    paths:
+      - '.github/instructions/**'
+      - '.github/copilot-instructions.md'
+  push:
+    paths:
+      - '.github/instructions/**'
+      - '.github/copilot-instructions.md'
+
+jobs:
+  validate-instructions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check .instructions.md files for applyTo and line count
+        run: |
+          EXIT_CODE=0
+
+          for file in $(find .github/instructions -name '*.instructions.md' 2>/dev/null); do
+            echo "Checking $file..."
+
+            # Check applyTo frontmatter
+            if ! head -20 "$file" | grep -q 'applyTo'; then
+              echo "ERROR: $file is missing 'applyTo' YAML frontmatter"
+              EXIT_CODE=1
+            fi
+
+            # Check YAML frontmatter delimiters
+            if ! head -1 "$file" | grep -q '^---'; then
+              echo "ERROR: $file does not start with YAML frontmatter '---'"
+              EXIT_CODE=1
+            fi
+
+            # Check line count
+            LINES=$(wc -l < "$file")
+            if [ "$LINES" -gt 200 ]; then
+              echo "ERROR: $file has $LINES lines (max 200)"
+              EXIT_CODE=1
+            else
+              echo "  OK: $LINES lines"
+            fi
+          done
+
+          # Verify root copilot-instructions.md is a short index
+          ROOT=".github/copilot-instructions.md"
+          if [ -f "$ROOT" ]; then
+            ROOT_LINES=$(wc -l < "$ROOT")
+            if [ "$ROOT_LINES" -gt 10 ]; then
+              echo "ERROR: $ROOT has $ROOT_LINES lines (should be a short index, max 10)"
+              EXIT_CODE=1
+            else
+              echo "OK: $ROOT is $ROOT_LINES lines (short index)"
+            fi
+          fi
+
+          # Check no instruction files reference ssh/agent concerns
+          for file in $(find .github/instructions -name '*.instructions.md' 2>/dev/null); do
+            if grep -qi 'ssh\|ssh-agent\|ssh_agent' "$file"; then
+              echo "ERROR: $file references ssh/agent concerns"
+              EXIT_CODE=1
+            fi
+          done
+
+          if [ "$EXIT_CODE" -eq 0 ]; then
+            echo ""
+            echo "All instruction files passed validation."
+          fi
+
+          exit $EXIT_CODE

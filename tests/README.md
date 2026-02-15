@@ -41,8 +41,9 @@ tests/
 │   └── csp-violation-endpoint.test.ts  # CSP violations (12 tests) - Starts own server
 ├── manual/                        # Manual testing scripts
 │   ├── test-api-endpoints.ps1    # PowerShell API validation (5 test cases)
-│   └── test-api.ps1              # PowerShell private IP validation (4 test cases)
-├── TEST_AUDIT.md                  # Comprehensive test suite analysis and optimization plan
+│   ├── test-api.ps1              # PowerShell private IP validation (4 test cases)
+│   ├── test-network-comparison.ts  # TypeScript network comparison utility
+│   └── test-network-validation.ts  # TypeScript network validation utility
 └── README.md                      # This file
 ```
 
@@ -206,7 +207,7 @@ Integration tests verify system-wide features and API behavior.
 
 ### Manual Testing Scripts (`tests/manual/`)
 
-PowerShell scripts for manual API validation and testing.
+Scripts for manual API validation and testing.
 
 **test-api-endpoints.ps1 (5 test cases):**
 - Comprehensive API endpoint validation
@@ -220,6 +221,14 @@ PowerShell scripts for manual API validation and testing.
 - Tests Class A (10.0.0.0/8), Class B (172.16.0.0/12), Class C (192.168.0.0/16)
 - Public IP rejection testing (8.8.8.0/16)
 - Security compliance verification
+
+**test-network-comparison.ts:**
+- TypeScript utility for comparing network plan outputs
+- Cross-provider network configuration analysis
+
+**test-network-validation.ts:**
+- TypeScript utility for validating network plan correctness
+- Subnet overlap detection and CIDR validation
 
 **Running Manual Tests:**
 ```powershell
@@ -309,9 +318,9 @@ Tests are configured in `vitest.config.ts` at the project root:
 
 ## Test Quality & Audit
 
-**For detailed analysis of test suite health, see [TEST_AUDIT.md](../docs/TEST_AUDIT.md)**
+**For detailed analysis of test suite health, see [test-suite-analysis.md](../docs/test-suite-analysis.md)**
 
-**Current Assessment** (February 8, 2026):
+**Current Assessment** (February 14, 2026):
 - **Grade**: A (Comprehensive coverage with proper organization)
 - **Total Tests**: 406 (218 unit + 188 integration)
 - **Pass Rate**: 100% (406/406)
@@ -326,7 +335,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 - [PASS] Proper unit/integration separation
 - [PASS] WCAG accessibility compliance validated
 
-See [TEST_AUDIT.md](../docs/TEST_AUDIT.md) for complete analysis and recommendations.
+See [test-suite-analysis.md](../docs/test-suite-analysis.md) for complete analysis and recommendations.
 
 ### Strengths
 
@@ -377,4 +386,4 @@ npm run build              # Production build
 
 ---
 
-**Last Updated**: February 8, 2026
+**Last Updated**: February 14, 2026

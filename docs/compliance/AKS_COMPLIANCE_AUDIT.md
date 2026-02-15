@@ -290,7 +290,7 @@ Example: /16 = 65,536 ClusterIP addresses
 6. **Service CIDR**: Virtual IPs only, do NOT consume VNet space
 7. **LoadBalancers**: External resources, do NOT consume VNet space (except internal LBs use separate subnet)
 
-**Cross-Reference**: For detailed comparison of IPv4 allocation across all three platforms, see [IP_ALLOCATION_CROSS_REFERENCE.md](IP_ALLOCATION_CROSS_REFERENCE.md).
+**Cross-Reference**: For detailed comparison of IPv4 allocation across all three platforms, see [ip-allocation-cross-reference.md](ip-allocation-cross-reference.md).
 
 ---
 
