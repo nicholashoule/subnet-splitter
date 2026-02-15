@@ -130,11 +130,11 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 
 ## Key References
 
-- [Backend instructions](.github/instructions/backend.instructions.md)
-- [Frontend instructions](.github/instructions/frontend.instructions.md)
-- [Testing instructions](.github/instructions/testing.instructions.md)
-- [Agent reasoning](docs/archive/agent-reasoning.md)
-- [Emoji prevention](.github/emoji-prevention.md)
-- [Security reference](docs/compliance/security-reference.md)
-- [Test suite analysis](docs/test-suite-analysis.md)
-- [API reference](docs/api.md)
+- [Backend instructions](backend.instructions.md)
+- [Frontend instructions](frontend.instructions.md)
+- [Testing instructions](testing.instructions.md)
+- [Agent reasoning](../../docs/archive/agent-reasoning.md)
+- [Emoji prevention](../emoji-prevention.md)
+- [Security reference](../../docs/compliance/security-reference.md)
+- [Test suite analysis](../../docs/test-suite-analysis.md)
+- [API reference](../../docs/api.md)
