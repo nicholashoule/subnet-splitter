@@ -97,7 +97,7 @@ scripts/
 tests/
   ├── unit/                 # Unit tests (6 files: subnet-utils, kubernetes-network-generator, ip-calculation-compliance, ui-styles, emoji-detection, config)
   ├── integration/          # Integration tests (7 files: API, K8s API, calculator UI, rate limiting, CSP, Swagger theming)
-  ├── manual/               # PowerShell manual testing scripts
+  ├── manual/               # Manual testing scripts (4 files: 2 PowerShell, 2 TypeScript)
   └── README.md             # Testing documentation
 
 docs/
@@ -105,9 +105,10 @@ docs/
   ├── TEST_AUDIT.md         # Comprehensive test suite analysis
   ├── SWAGGER_UI_THEMING.md # Swagger UI theming documentation
   └── compliance/           # Platform-specific compliance audits
-      ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
-      ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
-      └── GKE_COMPLIANCE_AUDIT.md   # Google Kubernetes Engine
+      ├── AKS_COMPLIANCE_AUDIT.md           # Azure Kubernetes Service
+      ├── EKS_COMPLIANCE_AUDIT.md           # AWS Elastic Kubernetes Service
+      ├── GKE_COMPLIANCE_AUDIT.md           # Google Kubernetes Engine
+      └── IP_ALLOCATION_CROSS_REFERENCE.md  # Cross-provider IP allocation comparison
 
 Root Config Files:
   ├── tsconfig.json         # TypeScript configuration
@@ -182,7 +183,7 @@ npm.cmd run test:ui         # Run tests with Vitest UI
 See [.github/EMOJI-PREVENTION.md](EMOJI-PREVENTION.md) for instructions on using the emoji detection and auto-fix CLI tool.
 
 ```bash
-npx ts-node scripts/fix-emoji.ts --fix # Automatically fix all emoji
+npx tsx scripts/fix-emoji.ts --fix # Automatically fix all emoji
 ```
 
 ## Security & Dependency Audit Requirements
@@ -230,6 +231,8 @@ npm audit
 **Current Status**: **0 vulnerabilities**
 
 **Historical Issues** (all resolved):
+- **qs 6.14.1**: Transitive dependency via express 5.2.1 and supertest 7.2.2. arrayLimit bypass in comma parsing allows denial of service (GHSA-w7fw-mjwx-w883)
+- **Resolution**: Added `"qs": "6.14.2"` to `overrides` in `package.json` to force patched version across all dependency paths
 - **Vitest 2.1.8**: Had 5 moderate vulnerabilities related to esbuild/vite
 - **Resolution**: Updated to Vitest ^3.0.0 which includes patched dependencies
 - **Fix Applied**: `npm audit fix --force` updated 11 packages, removed 7 packages
@@ -256,13 +259,16 @@ npm audit
 ```json
 {
   "dev": "cross-env NODE_ENV=development tsx server/index.ts",
-  "build": "tsx script/build.ts",
-  "start": "node dist/server/index.js",
-  "check": "tsc --noEmit",
+  "build": "tsx scripts/build.ts",
+  "start": "NODE_ENV=production node dist/index.cjs",
+  "check": "tsc",
   "test": "vitest",
   "test:ui": "vitest --ui",
+  "test:emoji": "vitest run tests/unit/emoji-detection.test.ts",
+  "emoji:check": "tsx scripts/fix-emoji.ts",
+  "emoji:fix": "tsx scripts/fix-emoji.ts --fix",
   "audit": "npm audit",
-  "audit:fix": "npm audit fix --force"
+  "audit:fix": "npm audit fix"
 }
 ```
 
@@ -701,7 +707,7 @@ tests/
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware (18 tests)
 │   ├── swagger-ui-theming.test.ts  # Swagger UI themes (12 tests)
 │   └── csp-violation-endpoint.test.ts  # CSP violations (12 tests)
-├── manual/                      # PowerShell testing scripts (2 files)
+├── manual/                      # Manual testing scripts (4 files: 2 PowerShell, 2 TypeScript)
 └── README.md                    # Testing documentation
 
 See [docs/TEST_AUDIT.md](../docs/TEST_AUDIT.md) for comprehensive test suite analysis.
@@ -798,7 +804,7 @@ When adding new tests:
 
 ### Test Configuration
 
-- **Framework**: Vitest 3.2.4
+- **Framework**: Vitest 3+ (^3.0.0)
 - **Pattern**: `tests/**/*.test.ts` (automatic discovery)
 - **Environment**: Node.js (browser emulation not required)
 - **Globals**: `describe`, `it`, `expect` available without imports
@@ -2254,7 +2260,7 @@ Currently all subnet calculations happen client-side. The following REST API end
 
 ## Latest Status
 
-**As of February 8, 2026:**
+**As of February 14, 2026:**
 
  **Complete Project State**:
 - Development environment fully configured (Windows compatible)
@@ -2274,6 +2280,11 @@ Currently all subnet calculations happen client-side. The following REST API end
 - Added `nanoid` as explicit dependency (was only a transitive dep from postcss)
 - Fixed rate-limit configuration to use `ipKeyGenerator` from express-rate-limit for IPv6 normalization
 - Trust proxy set to `false` by default (configurable via `TRUST_PROXY` env var)
+
+ **Dependency Security Fix (February 14, 2026)**:
+- Fixed `qs` 6.14.1 transitive vulnerability (GHSA-w7fw-mjwx-w883: arrayLimit bypass DoS)
+- Added `"qs": "6.14.2"` to `overrides` in `package.json` to force patched version
+- Affects dependency paths: `express 5.2.1 -> qs` and `supertest 7.2.2 -> superagent -> qs`
 
  **Test Suite Status**:
 - **Unit Tests**: 218 tests across 6 files (subnet-utils, k8s-generator, ip-compliance, ui-styles, emoji-detection, config)
@@ -2303,6 +2314,6 @@ Currently all subnet calculations happen client-side. The following REST API end
 
 ---
 
-**Last Updated**: February 8, 2026  
+**Last Updated**: February 14, 2026  
 **Maintained By**: Development Team  
 **Related Files**: [agent-reasoning.md](agent-reasoning.md), [../README.md](../README.md), [../tests/README.md](../tests/README.md)

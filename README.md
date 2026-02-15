@@ -88,15 +88,19 @@ This application follows a **security by design** approach with multiple layers 
 ├── tests/                  # Comprehensive unit and integration test suite
 │   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
 │   ├── integration/        # Integration tests (styles, API, config, security)
-│   ├── manual/             # PowerShell manual testing scripts
+│   ├── manual/             # Manual testing scripts (2 PowerShell, 2 TypeScript)
 │   │   ├── test-api-endpoints.ps1  # Comprehensive API validation
-│   │   └── test-api.ps1            # RFC 1918 enforcement testing
+│   │   ├── test-api.ps1            # RFC 1918 enforcement testing
+│   │   ├── test-network-comparison.ts  # Network comparison utility
+│   │   └── test-network-validation.ts  # Network validation utility
 │   └── README.md           # Testing documentation
 ├── scripts/                # Build and utility tools
 │   ├── build.ts            # Production build orchestration
 │   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
 ├── docs/                   # Reference documentation
 │   ├── API.md              # Kubernetes Network Planning API reference
+│   ├── TEST_AUDIT.md       # Test suite analysis
+│   ├── SWAGGER_UI_THEMING.md  # Swagger UI theming documentation
 │   └── compliance/         # Platform-specific compliance audits
 │       ├── AKS_COMPLIANCE_AUDIT.md   # Azure Kubernetes Service
 │       ├── EKS_COMPLIANCE_AUDIT.md   # AWS Elastic Kubernetes Service
