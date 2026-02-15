@@ -240,7 +240,7 @@ VPC Subnet: 10.0.0.0/20 (4,096 total IPs per private subnet, 3 AZs)
 5.  **IP Prefix Delegation REQUIRED** for high-density (>100 pods/node)
 6.  **Hyperscale tier uses `/20` private subnets** (4,096 IPs each × 3 AZs = 12,288 total)
 
-**Cross-Reference**: See `docs/compliance/IP_ALLOCATION_CROSS_REFERENCE.md` for detailed cross-provider comparison.
+**Cross-Reference**: See `docs/compliance/ip-allocation-cross-reference.md` for detailed cross-provider comparison.
 
 ---
 

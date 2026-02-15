@@ -321,7 +321,7 @@ All development tools and commands work identically on Windows, macOS, and Linux
 
 The application provides production-ready REST endpoints for generating optimized network configurations across EKS, GKE, AKS, and self-hosted Kubernetes.
 
-**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/API.md) for details.
+**WARNING Security Requirement:** All VPC CIDRs **must use private RFC 1918 IP ranges**. Public IPs are rejected with security guidance. See full [API documentation](docs/api.md) for details.
 
 #### Endpoint 1: Generate Network Plan
 
@@ -596,17 +596,16 @@ Comprehensive documentation is available to help developers understand and contr
   - Testing strategy and coverage requirements
   - API planning and implementation details
 
-- **[.github/agent-reasoning.md](.github/agent-reasoning.md)** - Development history and decision log
+- **[docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md)** - Development history and decision log (archived)
   - **Note**: This file captures major architectural decisions and complex problem-solving sessions
-  - Keep this lean by documenting only significant concepts that require substantial reasoning
-  - Use for understanding the "why" behind non-obvious design choices
+  - Historical reference for understanding the "why" behind non-obvious design choices
 
 ### Testing & Quality
 - **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
 - **[docs/TEST_AUDIT.md](docs/TEST_AUDIT.md)** - Detailed test suite analysis and health metrics
 
 ### API & Compliance
-- **[docs/API.md](docs/API.md)** - Kubernetes Network Planning API reference
+- **[docs/api.md](docs/api.md)** - Kubernetes Network Planning API reference
 - **[docs/compliance/](docs/compliance/)** - Platform-specific compliance audits:
   - [EKS_COMPLIANCE_AUDIT.md](docs/compliance/EKS_COMPLIANCE_AUDIT.md) - AWS Elastic Kubernetes Service
   - [GKE_COMPLIANCE_AUDIT.md](docs/compliance/GKE_COMPLIANCE_AUDIT.md) - Google Kubernetes Engine
@@ -629,7 +628,7 @@ We welcome contributions! Please follow these guidelines:
    - Security audit requirements (mandatory)
    - API planning documentation
 
-2. **Review development history**: Check [.github/agent-reasoning.md](.github/agent-reasoning.md) to understand:
+2. **Review development history**: Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) to understand:
    - Major architectural decisions and rationale
    - Complex problem-solving approaches
    - Historical context for non-obvious design choices
@@ -695,7 +694,7 @@ Before making changes, understand:
 ### Questions or Issues?
 
 - Review the [Project Documentation](#project-documentation) section above for comprehensive guides
-- Check [.github/agent-reasoning.md](.github/agent-reasoning.md) for historical context on major decisions
+- Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) for historical context on major decisions
 - Search existing issues for similar problems
 - When opening new issues, provide clear context and steps to reproduce
 

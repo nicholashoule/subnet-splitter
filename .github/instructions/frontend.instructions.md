@@ -1,6 +1,5 @@
 ---
-applyTo:
-  - "client/**"
+applyTo: "client/**"
 ---
 
 # Frontend Instructions

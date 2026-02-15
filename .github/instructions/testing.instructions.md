@@ -1,7 +1,5 @@
 ---
-applyTo:
-  - "tests/**"
-  - "vitest.config.ts"
+applyTo: "tests/**"
 ---
 
 # Testing Instructions

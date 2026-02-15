@@ -1,7 +1,5 @@
 ---
-applyTo:
-  - "server/**"
-  - "shared/**"
+applyTo: "server/**"
 ---
 
 # Backend Instructions

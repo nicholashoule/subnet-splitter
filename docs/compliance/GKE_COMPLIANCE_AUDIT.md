@@ -261,7 +261,7 @@ Pod CIDR: 10.1.0.0/13 (524K IPs for Pods - separate alias range)
 6.  **Pod density assumptions**: 110 pods/node (Standard), 32 pods/node (Autopilot)
 7.  **Node subnet sizing is simple**: Just accommodate Node count
 
-**Cross-Reference**: See `docs/compliance/IP_ALLOCATION_CROSS_REFERENCE.md` for detailed cross-provider comparison.
+**Cross-Reference**: See `docs/compliance/ip-allocation-cross-reference.md` for detailed cross-provider comparison.
 
 ---
 

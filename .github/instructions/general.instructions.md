@@ -1,6 +1,5 @@
 ---
-applyTo:
-  - "**"
+applyTo: "**"
 ---
 
 # General Project Instructions
@@ -96,7 +95,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 4. **UI/UX** -- no horizontal scrollbars, shadcn/ui components, dark/light mode support
 5. **Testing** -- run `npm run dev`, `npm run check`, test both themes
 6. **Icons** -- use Lucide React only, no unicode icons
-7. **Emoji** -- use text alternatives (`[PASS]`, `[FAIL]`, `WARNING:`) per [EMOJI-PREVENTION.md](../EMOJI-PREVENTION.md)
+7. **Emoji** -- use text alternatives (`[PASS]`, `[FAIL]`, `WARNING:`) per [emoji-prevention.md](../emoji-prevention.md)
 
 ## Agent Token Optimization
 
@@ -134,8 +133,8 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Backend instructions](.github/instructions/backend.instructions.md)
 - [Frontend instructions](.github/instructions/frontend.instructions.md)
 - [Testing instructions](.github/instructions/testing.instructions.md)
-- [Agent reasoning](.github/agent-reasoning.md)
-- [Emoji prevention](.github/EMOJI-PREVENTION.md)
+- [Agent reasoning](docs/archive/agent-reasoning.md)
+- [Emoji prevention](.github/emoji-prevention.md)
 - [Security reference](docs/security-reference.md)
 - [Test audit](docs/TEST_AUDIT.md)
-- [API reference](docs/API.md)
+- [API reference](docs/api.md)

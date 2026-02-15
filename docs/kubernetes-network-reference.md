@@ -1,6 +1,6 @@
 # Kubernetes Network Reference
 
-Detailed provider compliance formulas, IP calculation algorithms, and deployment tier specifications for the Kubernetes Network Planning API. See [API.md](API.md) for endpoint documentation.
+Detailed provider compliance formulas, IP calculation algorithms, and deployment tier specifications for the Kubernetes Network Planning API. See [api.md](api.md) for endpoint documentation.
 
 ## Deployment Tiers
 
