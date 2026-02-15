@@ -51,7 +51,7 @@ Windows doesn't support `0.0.0.0` binding. Fallback order: `127.0.0.1` then `loc
 3. Check browser DevTools for blocked resources
 4. Test in Chrome/Edge/Firefox (enforcement varies)
 
-See [docs/security-reference.md](../../docs/security-reference.md) for detailed CSP examples, rate limiting code, and security issue history.
+See [docs/compliance/security-reference.md](../../docs/compliance/security-reference.md) for detailed CSP examples, rate limiting code, and security issue history.
 
 ## Security: Rate Limiting
 
@@ -85,7 +85,7 @@ See [docs/security-reference.md](../../docs/security-reference.md) for detailed 
 - Supports providers: `eks`, `gke`, `aks`, `kubernetes`/`k8s`
 - RFC 1918 private addressing, deterministic generation
 - See [docs/API.md](../../docs/API.md) for full API reference
-- See [docs/kubernetes-network-reference.md](../../docs/kubernetes-network-reference.md) for provider compliance formulas
+- See [docs/compliance/kubernetes-network-reference.md](../../docs/compliance/kubernetes-network-reference.md) for provider compliance formulas
 
 ### Planned Endpoints (Future)
 

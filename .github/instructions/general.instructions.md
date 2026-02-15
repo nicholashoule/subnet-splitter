@@ -54,7 +54,7 @@ npm audit               # Step 3: Verify 0 vulnerabilities
 npm run check           # Step 4: TypeScript compilation
 ```
 
-See [docs/security-reference.md](../../docs/security-reference.md) for detailed security configuration.
+See [docs/compliance/security-reference.md](../../docs/compliance/security-reference.md) for detailed security configuration.
 
 ## Pre-Commit Checklist
 
@@ -135,6 +135,6 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Testing instructions](.github/instructions/testing.instructions.md)
 - [Agent reasoning](docs/archive/agent-reasoning.md)
 - [Emoji prevention](.github/emoji-prevention.md)
-- [Security reference](docs/security-reference.md)
+- [Security reference](docs/compliance/security-reference.md)
 - [Test audit](docs/TEST_AUDIT.md)
 - [API reference](docs/api.md)
