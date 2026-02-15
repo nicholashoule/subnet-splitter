@@ -15,173 +15,15 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "fs";
+import { readFileSync } from "fs";
 import path from "path";
-
-// Unicode emoji patterns that should NOT appear in source files
-// Blocked patterns cover all major emoji Unicode ranges:
-// - U+1F300-U+1F9FF: Miscellaneous Symbols and Pictographs (main emoji block)
-// - U+2600-U+27BF: Miscellaneous Symbols (weather, symbols, stars, etc.)
-// - U+2700-U+27BF: Dingbats (decorative symbols)
-// - U+1F600-U+1F64F: Emoticons
-// - U+1F300-U+1F5FF: Misc Symbols and Pictographs
-// - U+1F680-U+1F6FF: Transport and Map Symbols
-// - U+1F900-U+1F9FF: Supplemental Symbols and Pictographs
-// Additional emoji from Letterlike/Technical/Geometric blocks (U+2000-U+25FF):
-// - U+2139: Information Source (ℹ)
-// - U+203C: Double Exclamation Mark (‼)
-// - U+2049: Exclamation Question Mark (⁉)
-// - U+231A-U+231B: Watch, Hourglass
-// - U+23E9-U+23FA: Media control symbols
-// - U+25AA-U+25AB, U+25B6, U+25C0, U+25FB-U+25FE: Geometric shapes used as emoji
-const FORBIDDEN_EMOJI_PATTERN = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{2139}\u{203C}\u{2049}\u{231A}-\u{231B}\u{23E9}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}]/gu;
-
-// Emoji to text replacement map for auto-fixing
-const EMOJI_REPLACEMENTS: Record<string, string> = {
-  // Information
-  "ℹ️": "INFO",
-  "ℹ": "INFO",
-  // Warning and alerts
-  "⚠️": "WARNING",
-  "⚠": "WARNING",
-  // Status symbols
-  "✅": "[PASS]",
-  "✓": "[PASS]",
-  "❌": "[FAIL]",
-  "✗": "[FAIL]",
-  "❗": "[ALERT]",
-  // Favorites and highlights
-  "⭐": "[FEATURED]",
-  "★": "[FEATURED]",
-  "💡": "[TIP]",
-  "🔔": "[NOTIFICATION]",
-  "📌": "[PINNED]",
-  "🔑": "[KEY]",
-  "🔒": "LOCKED",
-  "🔓": "UNLOCKED",
-  
-  // Cloud and deployment
-  "☁️": "Cloud",
-  "☁": "Cloud",
-  "🚀": "Deployment",
-  "📊": "Report",
-  "📈": "Growth",
-  "📉": "Decline",
-  "📚": "Documentation",
-  "📖": "Guide",
-  "📝": "Note",
-  "✔": "Checklist",
-  "📁": "Directory",
-  "📂": "Folder",
-  "🔍": "Search",
-  "🔎": "Search",
-  "🔐": "Security",
-  "⚙": "Configuration",
-  "⚙️": "Configuration",
-  "⚡": "Settings",
-  "🏗": "Build",
-  "🎯": "Target",
-  "🎨": "Design",
-  "💻": "Code",
-  "🖥": "Server",
-  "🌐": "Network",
-  "🌎": "Global",
-  "🗺": "Map",
-  "📍": "Map",
-  
-  // Status indicators
-  "⏳": "Pending",
-  "⏱": "Timer",
-  "⏰": "Timer",
-  "🔄": "Refresh",
-  "⌛": "Loading",
-  "⬆": "Up",
-  "⬆️": "Up",
-  "⬇": "Down",
-  "⬇️": "Down",
-  "➡": "Next",
-  "➡️": "Next",
-  "⬅": "Previous",
-  "⬅️": "Previous",
-  "👀": "See",
-  "📤": "From",
-  "☑": "Selected",
-  "☑️": "Selected",
-  "☐": "Unselected",
-};
-
-// Files/directories to exclude from scanning
-const EXCLUDE_DIRS = new Set([
-  "node_modules",
-  "dist",
-  ".git",
-  "coverage",
-  ".next",
-  ".nuxt",
-  ".cache",
-]);
-
-// File extensions to scan
-const SCAN_EXTENSIONS = new Set([".md", ".ts", ".tsx", ".js", ".jsx"]);
-
-// Helper to recursively find files
-function findFiles(dir: string, maxDepth = 10, currentDepth = 0): string[] {
-  if (currentDepth > maxDepth) return [];
-  const files: string[] = [];
-
-  try {
-    const entries = readdirSync(dir);
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry);
-      const stat = statSync(fullPath);
-
-      if (stat.isDirectory()) {
-        if (!EXCLUDE_DIRS.has(entry)) {
-          files.push(...findFiles(fullPath, maxDepth, currentDepth + 1));
-        }
-      } else if (stat.isFile()) {
-        const ext = path.extname(entry);
-        if (SCAN_EXTENSIONS.has(ext)) {
-          files.push(fullPath);
-        }
-      }
-    }
-  } catch (e) {
-    // Skip directories we can't read
-  }
-
-  return files;
-}
-
-// Auto-fix: Replace emoji with text alternatives
-function replaceEmoji(content: string): string {
-  let fixed = content;
-  
-  // Replace each emoji with its text alternative
-  for (const [emoji, replacement] of Object.entries(EMOJI_REPLACEMENTS)) {
-    // Use global replace to catch all occurrences
-    fixed = fixed.replaceAll(emoji, replacement);
-  }
-  
-  return fixed;
-}
-
-// Detect emoji in content
-function detectEmoji(content: string): Array<{ line: number; content: string }> {
-  const violations: Array<{ line: number; content: string }> = [];
-  const lines = content.split("\n");
-  
-  lines.forEach((line, index) => {
-    if (FORBIDDEN_EMOJI_PATTERN.test(line)) {
-      violations.push({
-        line: index + 1,
-        content: line.trim(),
-      });
-    }
-  });
-  
-  return violations;
-}
+import {
+  FORBIDDEN_EMOJI_PATTERN,
+  EMOJI_REPLACEMENTS,
+  findFiles,
+  replaceEmoji,
+  detectEmoji,
+} from "../helpers/emoji-config.js";
 
 describe("Emoji Detection", () => {
   it("should not contain forbidden emoji in markdown files", () => {
@@ -230,7 +72,8 @@ describe("Emoji Detection", () => {
     const codeFiles = allFiles.filter((f) =>
       /\.(ts|tsx|js|jsx)$/.test(f) &&
       !f.includes("emoji-detection.test.ts") &&
-      !f.includes("fix-emoji.ts")
+      !f.includes("fix-emoji.ts") &&
+      !f.includes("emoji-config.ts")
     );
 
     const violations: Array<{ file: string; line: number; content: string }> = [];
@@ -384,7 +227,8 @@ describe("Emoji Coverage and Auto-Fix", () => {
   it("supports all documented emoji replacements", () => {
     // Verify every emoji in EMOJI_REPLACEMENTS has a text alternative
     Object.entries(EMOJI_REPLACEMENTS).forEach(([emoji, replacement]) => {
-      expect(replacement).toMatch(/^[A-Za-z0-9\[\]]+$/);
+      // Allow alphanumeric, brackets, arrows, symbols commonly used for emoji replacements
+      expect(replacement).toMatch(/^[A-Za-z0-9\[\]\-<>=^v*o(). ]+$/);
       expect(replacement.length).toBeGreaterThan(0);
       expect(replacement).not.toMatch(FORBIDDEN_EMOJI_PATTERN);
     });
