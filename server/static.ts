@@ -33,14 +33,16 @@ export function serveStatic(app: Express, customDistPath?: string) {
   });
 
   app.use(express.static(distPath, {
-    // Vite emits content-hashed asset filenames, so they can be cached
-    // aggressively. index.html must always be revalidated to pick up new builds.
-    maxAge: "1y",
-    immutable: true,
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith("index.html")) {
-        res.setHeader("Cache-Control", "no-cache");
-      }
+      // Only Vite's content-hashed asset filenames (e.g. index-DWHbI7t5.js) are
+      // safe to cache immutably for a year. Everything else -- index.html,
+      // favicon, manifest.json, robots.txt -- must revalidate so new builds and
+      // rollbacks take effect immediately.
+      const isHashedAsset = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i.test(path.basename(filePath));
+      res.setHeader(
+        "Cache-Control",
+        isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",
+      );
     },
   }));
 

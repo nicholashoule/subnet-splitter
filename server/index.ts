@@ -398,6 +398,7 @@ app.use((req, res, next) => {
       {},
       reason instanceof Error ? reason : new Error(String(reason)),
     );
+    shutdown("unhandledRejection", 1);
   });
   process.on("uncaughtException", (err) => {
     logger.error("Uncaught exception", {}, err);

@@ -46,6 +46,12 @@ describe("Static Serving (Production Configuration)", () => {
     await fs.promises.mkdir(path.join(mockDistPath, "assets"));
     await fs.promises.writeFile(path.join(mockDistPath, HASHED_ASSET), LARGE_JS);
 
+    // A non-hashed static file (favicon, manifest, robots.txt, etc.).
+    await fs.promises.writeFile(
+      path.join(mockDistPath, "favicon.ico"),
+      "icon-bytes",
+    );
+
     // Match production middleware order: compression before static serving.
     app.use(compression());
     serveStatic(app, mockDistPath);
@@ -74,6 +80,15 @@ describe("Static Serving (Production Configuration)", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers["cache-control"]).toBe("no-cache");
+    });
+
+    it("should not cache non-hashed static files immutably", async () => {
+      const response = await request(app).get("/favicon.ico");
+
+      expect(response.status).toBe(200);
+      const cacheControl = response.headers["cache-control"];
+      expect(cacheControl).toBe("no-cache");
+      expect(cacheControl).not.toContain("immutable");
     });
   });
 
