@@ -86,7 +86,7 @@ describe("Swagger UI Theming", () => {
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("background-color: hsl(210, 20%, 98%)");
+      expect(html).toContain("background-color: hsl(214, 24%, 95%)");
       expect(html).toContain("color: hsl(222, 47%, 11%)");
       expect(html).toContain(".swagger-ui .microlight");
     });

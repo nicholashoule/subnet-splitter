@@ -32,7 +32,17 @@ export function serveStatic(app: Express, customDistPath?: string) {
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'unknown',
   });
 
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    // Vite emits content-hashed asset filenames, so they can be cached
+    // aggressively. index.html must always be revalidated to pick up new builds.
+    maxAge: "1y",
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  }));
 
   // SPA fallback for client-side routing with selective rate limiting:
   // - GET/HEAD requests to routes (no file extension) are rate-limited and served index.html

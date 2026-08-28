@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Moon, Sun, Network, Split, Copy, Check, Info, Trash2, Download, Loader2, Eye, EyeOff } from "lucide-react";
+import { Moon, Sun, Network, Split, Copy, Check, CheckCircle2, Info, Trash2, Download, Loader2, Eye, EyeOff, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -422,7 +422,7 @@ export default function Calculator() {
         });
       });
 
-      setStatusMessage(`[PASS] Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
+      setStatusMessage(`Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
       setTimeout(() => setStatusMessage(null), 2500);
     } catch (error) {
       const message = error instanceof SubnetCalculationError 
@@ -462,7 +462,7 @@ export default function Calculator() {
       return deleteFromChildren(prev);
     });
 
-    setStatusMessage("[PASS] Subnet split removed - parent restored");
+    setStatusMessage("Subnet split removed - parent restored");
     setTimeout(() => setStatusMessage(null), 2500);
   }, [rootSubnet]);
 
@@ -557,7 +557,30 @@ export default function Calculator() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="flex justify-end px-6 py-2 border-b border-border bg-muted/20">
+      <div className="flex justify-end items-center gap-1 px-6 py-2 border-b border-border bg-muted/20">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="rounded-lg hover:bg-muted transition-colors"
+            >
+              <a
+                href="/api/docs/ui"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open API documentation"
+                data-testid="link-api-docs"
+              >
+                <BookOpen className="h-5 w-5 text-muted-foreground" />
+              </a>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            API docs
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -723,7 +746,8 @@ export default function Calculator() {
                     Manage your subnet hierarchy by expanding rows to view details or splitting any subnet into smaller networks.
                   </CardDescription>
                   {statusMessage && (
-                    <span className="text-xs font-semibold text-green-600 dark:text-green-400 animate-in fade-in duration-300" data-testid="text-status-message">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 animate-in fade-in duration-300" data-testid="text-status-message">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       {statusMessage}
                     </span>
                   )}

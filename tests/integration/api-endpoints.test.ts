@@ -267,7 +267,7 @@ describe("API Endpoints Integration", () => {
       const html = await response.text();
 
       // Verify light mode colors match webapp
-      expect(html).toContain("hsl(210, 20%, 98%)"); // Light background
+      expect(html).toContain("hsl(214, 24%, 95%)"); // Light background
       expect(html).toContain("hsl(222, 47%, 11%)"); // Light foreground
     });
 
