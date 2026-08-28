@@ -248,13 +248,29 @@ function generateSubnets(
 
   // Calculate step size in IP addresses for this subnet type
   const subnetAddresses = Math.pow(2, 32 - subnetSize);
+
+  // Align the starting offset up to this subnet's size boundary. Without this a
+  // subnet can be emitted with host bits set (e.g. 10.42.198.0/20), a non-canonical
+  // network address that cloud providers reject and that silently overlaps neighbours.
+  const alignedOffset = Math.ceil(offset / subnetAddresses) * subnetAddresses;
+
+  // Ensure the aligned allocation still fits inside the VPC range.
+  const vpcAddresses = Math.pow(2, 32 - vpcPrefix);
+  const requiredAddresses = alignedOffset + subnetCount * subnetAddresses;
+  if (requiredAddresses > vpcAddresses) {
+    throw new KubernetesNetworkGenerationError(
+      `VPC /${vpcPrefix} is too small for ${subnetCount} /${subnetSize} ${subnetType} subnets. ` +
+      `Needs ${requiredAddresses} addresses after alignment but VPC only provides ${vpcAddresses}. ` +
+      `Use a larger VPC CIDR (smaller prefix number).`
+    );
+  }
   
   // Get availability zone assignments
   const azs = getAvailabilityZones(subnetCount, provider, region);
   
-  // Generate subnets with AZ distribution (starting after offset)
+  // Generate subnets with AZ distribution (starting after aligned offset)
   for (let i = 0; i < subnetCount; i++) {
-    const subnetStart = vpcNum + offset + (i * subnetAddresses);
+    const subnetStart = vpcNum + alignedOffset + (i * subnetAddresses);
     const subnetIp = numberToIp(subnetStart);
     
     subnets.push({

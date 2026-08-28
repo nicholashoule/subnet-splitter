@@ -14,6 +14,7 @@
  */
 
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import helmet from "helmet";
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { registerRoutes } from "./routes";
@@ -64,6 +65,10 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
+
+// Compress responses (gzip/brotli) to speed up first load of the JS/CSS bundle.
+app.use(compression());
+
 const httpServer = createServer(app);
 
 // Configure trust proxy for accurate client IP detection in rate limiting
@@ -361,5 +366,44 @@ app.use((req, res, next) => {
     });
   };
   
+  // Harden the HTTP server against slow-client and hung-socket attacks.
+  // keepAliveTimeout < headersTimeout avoids race conditions on keep-alive
+  // connections; requestTimeout caps total time for a single request.
+  httpServer.keepAliveTimeout = 65_000;
+  httpServer.headersTimeout = 66_000;
+  httpServer.requestTimeout = 30_000;
+
+  // Graceful shutdown so in-flight requests can drain on redeploys/signals.
+  let shuttingDown = false;
+  const shutdown = (signal: string, exitCode = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("Shutting down", { signal });
+    httpServer.close((err) => {
+      if (err) {
+        logger.error("Error during shutdown", {}, err);
+        process.exit(1);
+      }
+      process.exit(exitCode);
+    });
+    // Force-exit if connections don't drain within the grace period.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("unhandledRejection", (reason) => {
+    logger.error(
+      "Unhandled promise rejection",
+      {},
+      reason instanceof Error ? reason : new Error(String(reason)),
+    );
+    shutdown("unhandledRejection", 1);
+  });
+  process.on("uncaughtException", (err) => {
+    logger.error("Uncaught exception", {}, err);
+    shutdown("uncaughtException", 1);
+  });
+
   tryListen();
 })();

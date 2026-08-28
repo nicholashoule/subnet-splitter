@@ -11,6 +11,7 @@ import {
   getDeploymentTierInfo,
   KubernetesNetworkGenerationError
 } from "@/lib/kubernetes-network-generator";
+import { ipToNumber } from "@/lib/subnet-utils";
 
 describe("Kubernetes Network Planning API Integration", () => {
   describe("API Workflow", () => {
@@ -545,5 +546,55 @@ describe("Kubernetes Network Planning API Integration", () => {
         }
       });
     });
+  });
+
+  describe("Subnet Allocation Correctness", () => {
+    const tiers = ["micro", "standard", "professional", "enterprise", "hyperscale"] as const;
+    // One representative VPC per RFC 1918 major block
+    const vpcs = ["10.0.0.0/16", "172.16.0.0/16", "192.168.0.0/16"];
+
+    const toRange = (cidr: string) => {
+      const [ip, p] = cidr.split("/");
+      const prefix = parseInt(p, 10);
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      const num = ipToNumber(ip);
+      const network = (num & mask) >>> 0;
+      const broadcast = (network | (~mask >>> 0)) >>> 0;
+      return { num, network, broadcast };
+    };
+
+    for (const tier of tiers) {
+      for (const vpc of vpcs) {
+        it(`emits canonical, non-overlapping subnets within VPC for ${tier} @ ${vpc}`, async () => {
+          const plan = await generateKubernetesNetworkPlan({
+            deploymentSize: tier,
+            provider: "eks",
+            vpcCidr: vpc
+          });
+          const all = [...plan.subnets.public, ...plan.subnets.private];
+          const vpcRange = toRange(plan.vpc.cidr);
+
+          const ranges = all.map((s) => {
+            const info = toRange(s.cidr);
+            // Canonical: address must equal its own network address (no host bits set)
+            expect(info.num, `${s.name} ${s.cidr} is not a canonical network address`).toBe(info.network);
+            // Contained within the VPC range
+            expect(info.network).toBeGreaterThanOrEqual(vpcRange.network);
+            expect(info.broadcast).toBeLessThanOrEqual(vpcRange.broadcast);
+            return info;
+          });
+
+          // No pairwise overlaps between any two subnets
+          for (let i = 0; i < ranges.length; i++) {
+            for (let j = i + 1; j < ranges.length; j++) {
+              const a = ranges[i];
+              const b = ranges[j];
+              const overlap = a.network <= b.broadcast && b.network <= a.broadcast;
+              expect(overlap, `subnets ${all[i].cidr} and ${all[j].cidr} overlap`).toBe(false);
+            }
+          }
+        });
+      }
+    }
   });
 });

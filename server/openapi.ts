@@ -225,18 +225,18 @@ export const openApiSpec = {
                       vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
-                          { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
-                          { cidr: "10.0.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
-                          { cidr: "10.0.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
+                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
+                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
+                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
                         ],
                         private: [
-                          { cidr: "10.0.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
-                          { cidr: "10.0.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
-                          { cidr: "10.0.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
+                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
+                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
+                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
                         ]
                       },
-                      pods: { cidr: "10.1.0.0/16" },
-                      services: { cidr: "10.2.0.0/16" },
+                      pods: { cidr: "172.16.0.0/16" },
+                      services: { cidr: "192.168.0.0/16" },
                       metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
                     }
                   },
@@ -250,18 +250,18 @@ export const openApiSpec = {
                       vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
-                          { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-central1-a" },
-                          { cidr: "10.0.1.0/24", name: "public-2", type: "public", availabilityZone: "us-central1-b" },
-                          { cidr: "10.0.2.0/24", name: "public-3", type: "public", availabilityZone: "us-central1-c" }
+                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-central1-a" },
+                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-central1-b" },
+                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-central1-c" }
                         ],
                         private: [
-                          { cidr: "10.0.8.0/21", name: "private-1", type: "private", availabilityZone: "us-central1-a" },
-                          { cidr: "10.0.16.0/21", name: "private-2", type: "private", availabilityZone: "us-central1-b" },
-                          { cidr: "10.0.24.0/21", name: "private-3", type: "private", availabilityZone: "us-central1-c" }
+                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-central1-a" },
+                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-central1-b" },
+                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-central1-c" }
                         ]
                       },
-                      pods: { cidr: "10.1.0.0/16" },
-                      services: { cidr: "10.2.0.0/16" },
+                      pods: { cidr: "172.16.0.0/16" },
+                      services: { cidr: "192.168.0.0/16" },
                       metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
                     }
                   },
@@ -275,18 +275,18 @@ export const openApiSpec = {
                       vpc: { cidr: "10.100.0.0/18" },
                       subnets: {
                         public: [
-                          { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "eastus-1" },
-                          { cidr: "10.0.1.0/24", name: "public-2", type: "public", availabilityZone: "eastus-2" },
-                          { cidr: "10.0.2.0/24", name: "public-3", type: "public", availabilityZone: "eastus-3" }
+                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "eastus-1" },
+                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "eastus-2" },
+                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "eastus-3" }
                         ],
                         private: [
-                          { cidr: "10.0.8.0/21", name: "private-1", type: "private", availabilityZone: "eastus-1" },
-                          { cidr: "10.0.16.0/21", name: "private-2", type: "private", availabilityZone: "eastus-2" },
-                          { cidr: "10.0.24.0/21", name: "private-3", type: "private", availabilityZone: "eastus-3" }
+                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "eastus-1" },
+                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "eastus-2" },
+                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "eastus-3" }
                         ]
                       },
-                      pods: { cidr: "10.1.0.0/16" },
-                      services: { cidr: "10.2.0.0/16" },
+                      pods: { cidr: "172.16.0.0/16" },
+                      services: { cidr: "192.168.0.0/16" },
                       metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
                     }
                   },
@@ -305,8 +305,8 @@ export const openApiSpec = {
                           { cidr: "10.0.0.128/25", name: "private-1", type: "private", availabilityZone: "default-a" }
                         ]
                       },
-                      pods: { cidr: "10.1.0.0/18" },
-                      services: { cidr: "10.2.0.0/16" },
+                      pods: { cidr: "172.16.0.0/20" },
+                      services: { cidr: "192.168.0.0/16" },
                       metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
                     }
                   }
@@ -377,7 +377,7 @@ export const openApiSpec = {
                     publicSubnetSize: 26,
                     privateSubnetSize: 25,
                     minVpcPrefix: 24,
-                    podsPrefix: 18,
+                    podsPrefix: 20,
                     servicesPrefix: 16,
                     description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
                   },
@@ -397,7 +397,7 @@ export const openApiSpec = {
                     publicSubnetSize: 25,
                     privateSubnetSize: 23,
                     minVpcPrefix: 21,
-                    podsPrefix: 16,
+                    podsPrefix: 18,
                     servicesPrefix: 16,
                     description: "Small Production: 3-10 nodes, dual AZ ready"
                   },
@@ -482,7 +482,7 @@ export const openApiSpec = {
             properties: {
               cidr: { 
                 type: "string", 
-                example: "10.1.0.0/16", 
+                example: "172.16.0.0/16", 
                 description: "CIDR for pod IPs. For EKS: Use with custom CNI (Calico, Cilium, Weave) or secondary VPC CIDR blocks. For GKE/AKS: Always separate from VPC/VNet." 
               }
             }
@@ -493,8 +493,8 @@ export const openApiSpec = {
             properties: {
               cidr: { 
                 type: "string", 
-                example: "10.2.0.0/16", 
-                description: "Service IPv4 CIDR for Kubernetes ClusterIP services. Defaults: EKS auto-assigns 10.100.0.0/16 or 172.20.0.0/16 if not specified. Our API uses 10.2.0.0/16 to avoid conflicts. **Requirements**: RFC 1918 private IPs only, prefix between /24 and /12, must not overlap with VPC CIDR. **Critical**: Cannot be changed after cluster creation.",
+                example: "192.168.0.0/16", 
+                description: "Service IPv4 CIDR for Kubernetes ClusterIP services. Defaults: EKS auto-assigns 10.100.0.0/16 or 172.20.0.0/16 if not specified. Our API uses 192.168.0.0/16 to avoid conflicts. **Requirements**: RFC 1918 private IPs only, prefix between /24 and /12, must not overlap with VPC CIDR. **Critical**: Cannot be changed after cluster creation.",
                 pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[2-9]|2[0-4])$"
               }
             }
@@ -516,18 +516,18 @@ export const openApiSpec = {
           vpc: { cidr: "10.100.0.0/18" },
           subnets: {
             public: [
-              { cidr: "10.0.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
-              { cidr: "10.0.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
-              { cidr: "10.0.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
+              { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
+              { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
+              { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
             ],
             private: [
-              { cidr: "10.0.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
-              { cidr: "10.0.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
-              { cidr: "10.0.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
+              { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
+              { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
+              { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
             ]
           },
-          pods: { cidr: "10.1.0.0/16" },
-          services: { cidr: "10.2.0.0/16" },
+          pods: { cidr: "172.16.0.0/16" },
+          services: { cidr: "192.168.0.0/16" },
           metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
         }
       },

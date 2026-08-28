@@ -282,24 +282,24 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite with **406 tests** (100% passing) covering:
+The project includes a comprehensive test suite (100% passing) covering:
 
-**Unit Tests (218):**
-- **Subnet calculations (67 tests)**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
-- **Kubernetes network generation (57 tests)**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
-- **IP calculation compliance (56 tests)**: IP allocation formulas, deployment tier compliance, network sizing validation
-- **UI styles (19 tests)**: WCAG accessibility (pure math functions), HSL→RGB conversion, luminance calculations
-- **Emoji detection (11 tests)**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
-- **Configuration (8 tests)**: Tailwind, PostCSS, Vite, TypeScript configuration validation
+**Unit Tests:**
+- **Subnet calculations**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
+- **Kubernetes network generation**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
+- **IP calculation compliance**: IP allocation formulas, deployment tier compliance, network sizing validation
+- **UI styles**: WCAG accessibility (pure math functions), HSL→RGB conversion, luminance calculations
+- **Emoji detection**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
+- **Configuration**: Tailwind, PostCSS, Vite, TypeScript configuration validation
 
-**Integration Tests (188):**
-- **API endpoints (38 tests)**: API infrastructure, health checks, OpenAPI spec, Swagger UI
-- **Calculator UI (52 tests)**: React component behavior, form validation, subnet operations, CSV export, hide parents feature, depth indicator visual hierarchy
-- **Kubernetes Network Planning API (33 tests)**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
-- **Rate limiting (23 tests)**: Rate limiter configuration, request throttling, DoS protection
-- **Swagger UI CSP middleware (18 tests)**: Route-specific CSP, development vs production mode, CDN permissions
-- **Swagger UI theming (12 tests)**: Theme toggle, persistence, dark mode CSS loading
-- **CSP violation endpoint (12 tests)**: W3C spec compliance, rate limiting, schema validation
+**Integration Tests:**
+- **API endpoints**: API infrastructure, health checks, OpenAPI spec, Swagger UI
+- **Calculator UI**: React component behavior, form validation, subnet operations, CSV export, hide parents feature, depth indicator visual hierarchy
+- **Kubernetes Network Planning API**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Rate limiting**: Rate limiter configuration, request throttling, DoS protection
+- **Swagger UI CSP middleware**: Route-specific CSP, development vs production mode, CDN permissions
+- **Swagger UI theming**: Theme toggle, persistence, dark mode CSS loading
+- **CSP violation endpoint**: W3C spec compliance, rate limiting, schema validation
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/test-suite-analysis.md](docs/test-suite-analysis.md) for detailed test suite analysis.
 

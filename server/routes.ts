@@ -209,19 +209,19 @@ export async function registerRoutes(
       transition: none !important;
     }
     html, html.light {
-      background-color: hsl(210, 20%, 98%);
+      background-color: hsl(214, 24%, 95%);
     }
     body { 
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background-color: hsl(210, 20%, 98%);
+      background-color: hsl(214, 24%, 95%);
       color: hsl(222, 47%, 11%);
     }
     .topbar { display: none !important; }
     
     /* === LIGHT MODE (Default) === */
     .swagger-ui {
-      background-color: hsl(210, 20%, 98%) !important;
+      background-color: hsl(214, 24%, 95%) !important;
       color: hsl(222, 47%, 11%) !important;
     }
     .swagger-ui .wrapper {
@@ -467,6 +467,97 @@ export async function registerRoutes(
     }
     .swagger-ui .opblock-summary-control:focus .opblock-summary {
       box-shadow: none !important;
+    }
+
+    /* === Schemas: clearer interaction affordance (light) === */
+    .swagger-ui section.models .model-container {
+      border: 1px solid hsl(214, 20%, 90%) !important;
+      border-radius: 0.5rem !important;
+      margin: 0.5rem 0 !important;
+      padding: 0 !important;
+      background-color: hsl(210, 20%, 99%) !important;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease !important;
+    }
+    .swagger-ui section.models .model-container:hover {
+      border-color: hsl(221, 83%, 53%) !important;
+      background-color: white !important;
+      box-shadow: 0 1px 4px rgba(15, 23, 41, 0.08) !important;
+    }
+    .swagger-ui section.models .model-box-control {
+      justify-content: flex-start !important;
+      gap: 0.5rem !important;
+    }
+    .swagger-ui section.models .model-title {
+      font-weight: 600 !important;
+      color: hsl(221, 83%, 45%) !important;
+    }
+    .swagger-ui section.models .model-toggle {
+      opacity: 0.9 !important;
+      margin-left: auto !important;
+    }
+    .swagger-ui section.models .model-container:hover .model-toggle {
+      opacity: 1 !important;
+    }
+    /* Keep model rows inside the rounded Schemas box (no bleed) */
+    .swagger-ui section.models .model-container {
+      overflow: hidden !important;
+    }
+    .swagger-ui section.models .model-container > .model-box {
+      display: block !important;
+      width: 100% !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
+    }
+    .swagger-ui section.models .model-box-control {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    .swagger-ui section.models h4 {
+      border-bottom-color: hsl(214, 20%, 88%) !important;
+    }
+    /* === Copy / download icons (light) === */
+    .swagger-ui .copy-to-clipboard {
+      background: hsl(210, 20%, 93%) !important;
+      border-radius: 0.375rem !important;
+      box-shadow: none !important;
+      width: 24px !important;
+      min-width: 24px !important;
+      height: 24px !important;
+      margin: 0 5px !important;
+    }
+    .swagger-ui .copy-to-clipboard button {
+      background: transparent !important;
+    }
+    .swagger-ui .copy-to-clipboard button svg {
+      fill: hsl(215, 16%, 40%) !important;
+    }
+    .swagger-ui .copy-to-clipboard:hover {
+      background: hsl(214, 32%, 85%) !important;
+    }
+    .swagger-ui .copy-to-clipboard:hover button svg {
+      fill: hsl(221, 83%, 53%) !important;
+    }
+    .swagger-ui .download-contents {
+      background: hsl(210, 20%, 93%) !important;
+      color: hsl(215, 16%, 40%) !important;
+      border: 1px solid hsl(214, 20%, 88%) !important;
+      border-radius: 0.375rem !important;
+      box-shadow: none !important;
+    }
+    .swagger-ui .download-contents:hover {
+      background: hsl(214, 32%, 85%) !important;
+      color: hsl(221, 83%, 53%) !important;
+    }
+    /* === Soften reading text for reduced eye strain (light) === */
+    .swagger-ui p,
+    .swagger-ui li,
+    .swagger-ui .parameter__name,
+    .swagger-ui .response-col_description,
+    .swagger-ui .response-col_description__inner,
+    .swagger-ui .renderedMarkdown p,
+    .swagger-ui table tbody tr td {
+      color: hsl(222, 25%, 27%) !important;
     }
     
     /* Header styling (matches webapp) */
@@ -770,6 +861,68 @@ export async function registerRoutes(
     html.dark .swagger-ui .opblock-summary-control:focus .opblock-summary {
       box-shadow: none !important;
     }
+    /* === Schemas: clearer interaction affordance (dark) === */
+    html.dark .swagger-ui section.models .model-container {
+      border: 1px solid hsl(217, 33%, 20%) !important;
+      border-radius: 0.5rem !important;
+      margin: 0.5rem 0 !important;
+      padding: 0 !important;
+      background-color: hsl(222, 47%, 12%) !important;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease !important;
+    }
+    html.dark .swagger-ui section.models .model-container:hover {
+      border-color: hsl(217, 91%, 60%) !important;
+      background-color: hsl(222, 47%, 14%) !important;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+    }
+    html.dark .swagger-ui section.models .model-box-control {
+      justify-content: flex-start !important;
+      gap: 0.5rem !important;
+    }
+    html.dark .swagger-ui section.models .model-title {
+      font-weight: 600 !important;
+      color: hsl(217, 91%, 68%) !important;
+    }
+    html.dark .swagger-ui section.models .model-toggle {
+      opacity: 0.9 !important;
+      margin-left: auto !important;
+      filter: invert(0.85) brightness(1.25) !important;
+    }
+    html.dark .swagger-ui section.models .model-container:hover .model-toggle {
+      opacity: 1 !important;
+    }
+    html.dark .swagger-ui section.models h4 {
+      border-bottom-color: hsl(217, 33%, 17%) !important;
+    }
+    /* === Copy / download icons (dark) === */
+    html.dark .swagger-ui .copy-to-clipboard {
+      background: hsl(222, 47%, 16%) !important;
+      border-radius: 0.375rem !important;
+      box-shadow: none !important;
+    }
+    html.dark .swagger-ui .copy-to-clipboard button {
+      background: transparent !important;
+    }
+    html.dark .swagger-ui .copy-to-clipboard button svg {
+      fill: hsl(215, 20%, 65%) !important;
+    }
+    html.dark .swagger-ui .copy-to-clipboard:hover {
+      background: hsl(222, 47%, 20%) !important;
+    }
+    html.dark .swagger-ui .copy-to-clipboard:hover button svg {
+      fill: hsl(217, 91%, 68%) !important;
+    }
+    html.dark .swagger-ui .download-contents {
+      background: hsl(222, 47%, 16%) !important;
+      color: hsl(215, 20%, 65%) !important;
+      border: 1px solid hsl(217, 33%, 17%) !important;
+      border-radius: 0.375rem !important;
+      box-shadow: none !important;
+    }
+    html.dark .swagger-ui .download-contents:hover {
+      background: hsl(222, 47%, 20%) !important;
+      color: hsl(217, 91%, 68%) !important;
+    }
     html.dark header {
       border-bottom-color: hsl(217, 33%, 17%);
       background-color: rgba(34, 31, 53, 0.2);
@@ -792,7 +945,8 @@ export async function registerRoutes(
     /* Theme toggle bar (matches webapp) */
     .theme-bar {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
       padding: 0.5rem 1.5rem;
       border-bottom: 1px solid hsl(214, 20%, 88%);
       background-color: hsl(210, 20%, 96%, 0.2);
@@ -800,6 +954,38 @@ export async function registerRoutes(
     html.dark .theme-bar {
       border-bottom-color: hsl(217, 33%, 17%);
       background-color: rgba(34, 31, 53, 0.2);
+    }
+
+    /* Home link back to the calculator (matches webapp Button component) */
+    .home-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      height: 2.5rem;
+      padding: 0 0.75rem;
+      border-radius: 0.5rem;
+      background: transparent;
+      color: hsl(215, 16%, 47%);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+    }
+    .home-link:hover {
+      background-color: hsl(210, 20%, 96%);
+      color: hsl(221, 83%, 53%);
+    }
+    .home-link svg {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+    html.dark .home-link {
+      color: hsl(215, 20%, 65%);
+    }
+    html.dark .home-link:hover {
+      background-color: hsl(217, 33%, 17%);
+      color: hsl(217, 91%, 60%);
     }
     
     /* Theme toggle button (matches webapp Button component) */
@@ -840,6 +1026,13 @@ export async function registerRoutes(
 </head>
 <body>
   <div class="theme-bar">
+    <a class="home-link" href="/" aria-label="Back to calculator">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      <span>Calculator</span>
+    </a>
     <button id="theme-toggle" aria-label="Toggle theme">
       <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="4"/>

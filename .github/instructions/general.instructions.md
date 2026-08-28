@@ -14,9 +14,9 @@ applyTo: "**"
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 18, TypeScript, Tailwind CSS, shadcn/ui, React Hook Form, Zod, Vite, TanStack Query |
+| **Frontend** | React 18, TypeScript, Tailwind CSS, shadcn/ui, React Hook Form, Zod, Vite |
 | **Backend** | Express.js 5, TypeScript, Node.js, no database |
-| **Testing** | Vitest 3+, 406 tests (218 unit + 188 integration) |
+| **Testing** | Vitest 3+ (unit + integration) |
 | **Dev Tools** | TypeScript strict mode, PostCSS, tsx |
 
 ## Project Structure
@@ -25,8 +25,8 @@ applyTo: "**"
 client/src/         # React frontend (components, hooks, lib, pages)
 server/             # Express backend (routes, CSP, middleware, OpenAPI)
 shared/             # Shared TypeScript types and Zod schemas
-tests/unit/         # Unit tests (6 files)
-tests/integration/  # Integration tests (7 files)
+tests/unit/         # Unit tests
+tests/integration/  # Integration tests
 scripts/            # Build and CLI tools
 docs/               # API reference, compliance audits, test audit
 ```
@@ -61,7 +61,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 ```bash
 npm audit              # 0 vulnerabilities required
 npm run check          # No TypeScript errors
-npm run test -- --run  # All 406 tests pass
+npm run test -- --run  # All tests pass
 npm run build          # Production build succeeds
 ```
 

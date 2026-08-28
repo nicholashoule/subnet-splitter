@@ -32,7 +32,19 @@ export function serveStatic(app: Express, customDistPath?: string) {
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'unknown',
   });
 
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    setHeaders: (res, filePath) => {
+      // Only Vite's content-hashed asset filenames (e.g. index-DWHbI7t5.js) are
+      // safe to cache immutably for a year. Everything else -- index.html,
+      // favicon, manifest.json, robots.txt -- must revalidate so new builds and
+      // rollbacks take effect immediately.
+      const isHashedAsset = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i.test(path.basename(filePath));
+      res.setHeader(
+        "Cache-Control",
+        isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",
+      );
+    },
+  }));
 
   // SPA fallback for client-side routing with selective rate limiting:
   // - GET/HEAD requests to routes (no file extension) are rate-limited and served index.html

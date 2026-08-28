@@ -3,19 +3,16 @@
  * 
  * Root React component. Sets up:
  * - React Router with wouter for client-side navigation
- * - React Query for data fetching and caching
  * - Radix UI Tooltip provider for tooltip context
  * - Toast notifications system
  * - Error boundary for error handling
- * 
+ *
  * Routes:
  * - / -> Calculator page (main application)
  * - /* -> Not Found page (404)
  */
 
 import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -34,12 +31,10 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Router />
+      </TooltipProvider>
     </ErrorBoundary>
   );
 }

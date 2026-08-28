@@ -21,7 +21,6 @@ applyTo: "client/**"
 | `client/src/main.tsx` | React entry point |
 | `client/src/index.css` | Global styles, CSS variables, elegant-scrollbar |
 | `client/src/lib/subnet-utils.ts` | Core CIDR calculation logic |
-| `client/src/lib/queryClient.ts` | React Query client and API utility |
 | `client/src/lib/utils.ts` | Helper functions |
 | `client/src/pages/calculator.tsx` | Calculator page component |
 | `client/src/components/ui/` | shadcn/ui components |

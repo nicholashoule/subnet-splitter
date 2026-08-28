@@ -20,12 +20,12 @@ import { rm, readFile } from "fs/promises";
 // which helps cold start times
 // Only includes dependencies actually used by this application
 const allowlist = [
+  "compression",
   "express",
   "express-rate-limit",
   "helmet",
   "yaml",
   "zod",
-  "zod-validation-error",
 ];
 
 async function buildAll() {
