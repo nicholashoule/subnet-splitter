@@ -2,6 +2,10 @@
 
 A modern web application for calculating subnet details, splitting CIDR ranges recursively, and planning network configurations.
 
+[![CI](https://github.com/nicholashoule/subnet-splitter/actions/workflows/ci.yml/badge.svg)](https://github.com/nicholashoule/subnet-splitter/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/nicholashoule/subnet-splitter)](LICENSE)
+[![npm](https://img.shields.io/badge/npm-v11%2B-CB3837?logo=npm)](https://www.npmjs.com/)
+
 [<img src="https://github.com/nicholashoule/subnet-splitter/blob/main/client/public/subnet-splitter.png" width="1280"/>](https://github.com/nicholashoule/subnet-splitter)
 
 ## Features
@@ -123,7 +127,7 @@ This application follows a **security by design** approach with multiple layers 
 ### Development Setup
 
 #### Prerequisites
-- Node.js v20+ ([download](https://nodejs.org/))
+- Node.js v24+ ([download](https://nodejs.org/))
 - npm v11+ (comes with Node.js)
 - Git
 
