@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "^24.0.0 || >=26.0.0"
   },
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
@@ -62,9 +62,9 @@
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
     "vite": "^8.1.0",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.0"
   },
   "overrides": {
-    "qs": "6.15.3"
+    "qs": "6.16.0"
   }
 }
