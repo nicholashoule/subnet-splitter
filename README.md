@@ -127,7 +127,7 @@ This application follows a **security by design** approach with multiple layers 
 ### Development Setup
 
 #### Prerequisites
-- Node.js v24+ ([download](https://nodejs.org/))
+- Node.js v24.x or v26+ ([download](https://nodejs.org/))
 - npm v11+ (comes with Node.js)
 - Git
 

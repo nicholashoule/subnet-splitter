@@ -15,7 +15,11 @@ concurrency:
 
 jobs:
   validate:
+    name: Validate (Node.js ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24, 26]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -23,7 +27,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
