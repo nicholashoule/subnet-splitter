@@ -20,7 +20,7 @@ import type { Server } from "http";
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { z, ZodError } from "zod";
 import { generateKubernetesNetworkPlan, getDeploymentTierInfo, KubernetesNetworkGenerationError } from "../client/src/lib/kubernetes-network-generator";
-import { ProviderEnum, NetworkModeEnum } from "../shared/kubernetes-schema";
+import { ProviderEnum, NetworkModeEnum, KubernetesNetworkPlanRequestSchema } from "../shared/kubernetes-schema";
 
 /** Query parameters for GET /tiers (format is handled separately) */
 const TierQuerySchema = z.object({
@@ -58,6 +58,19 @@ function formatZodError(error: ZodError): string {
   return error.issues
     .map(issue => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
     .join("; ");
+}
+
+/**
+ * What the log records of a plan request that failed with a 500: an allowlist of the
+ * validated fields that determine the plan, enough to reproduce the failure. Unknown
+ * fields and deploymentName (free text the plan only echoes) are left out, so nothing
+ * else a client sends reaches the logs.
+ */
+function planInputsForLog(body: unknown): Record<string, unknown> | undefined {
+  const parsed = KubernetesNetworkPlanRequestSchema.safeParse(body);
+  if (!parsed.success) return undefined;
+  const { deploymentSize, provider, region, vpcCidr, podsCidr, servicesCidr, availabilityZones, networkMode } = parsed.data;
+  return { deploymentSize, provider, region, vpcCidr, podsCidr, servicesCidr, availabilityZones, networkMode };
 }
 
 /**
@@ -216,7 +229,7 @@ export async function registerRoutes(
         return res.status(400).type(contentType).send(body);
       }
       logger.error("Kubernetes network plan generation failed", {
-        requestBody: req.body,
+        request: planInputsForLog(req.body),
       }, error as Error);
       errorResponse = {
         error: "Failed to generate network plan",

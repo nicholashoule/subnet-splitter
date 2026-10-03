@@ -28,6 +28,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
+import { createServer } from "http";
 import { serveStatic } from "../../server/static";
 import { createApp, errorHandler } from "../../server/app";
 import { logger } from "../../server/logger";
@@ -456,6 +457,56 @@ describe("Request logging of rejected requests", () => {
 
     const paths = logged.mock.calls.map(([, path]) => path);
     expect(paths).toEqual(["/API/k8s/tiers", "/api/v1/healthz"]);
+  });
+
+  it("should keep request bodies out of the rejection log (body-parser's type, not its message)", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const app = createApp({ isDevelopment: false });
+    app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
+    app.use(errorHandler);
+    const post = () => request(app).post("/api/k8s/plan").set("Content-Type", "application/json");
+
+    // V8's syntax error quotes the body around the bad token: ..."mentName":secret-tok"...
+    expect((await post().send('{"deploymentName":secret-token-abc}')).status).toBe(400);
+    expect(warn).toHaveBeenLastCalledWith("Request rejected", expect.objectContaining({ status: 400, type: "entity.parse.failed" }));
+    expect((await post().send(JSON.stringify({ pad: "a".repeat(17 * 1024) }))).status).toBe(413);
+    expect(warn).toHaveBeenLastCalledWith("Request rejected", expect.objectContaining({ status: 413, type: "entity.too.large" }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+  });
+
+  it("should log only the validated plan inputs when plan generation fails (500)", async () => {
+    // A generator that fails unexpectedly; the routes module is loaded fresh against it
+    const generator = "../../client/src/lib/kubernetes-network-generator";
+    vi.resetModules();
+    vi.doMock(generator, async (importOriginal) => ({
+      ...(await importOriginal<object>()),
+      generateKubernetesNetworkPlan: async () => { throw new Error("unexpected failure"); },
+    }));
+    try {
+      const { registerRoutes } = await import("../../server/routes");
+      const { logger: routesLogger } = await import("../../server/logger");
+      const logError = vi.spyOn(routesLogger, "error").mockImplementation(() => {});
+      const app = express();
+      app.use(express.json());
+      await registerRoutes(createServer(app), app);
+
+      const res = await request(app).post("/api/k8s/plan").send({
+        deploymentSize: "micro", provider: "eks", vpcCidr: " 10.0.0.0/23 ",
+        deploymentName: "customer-acme-prod", apiKey: "hunter2",
+      });
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: "Failed to generate network plan", code: "INTERNAL_ERROR" });
+
+      // The validated fields that determine the plan; no unknown field, no deploymentName
+      expect(logError).toHaveBeenCalledTimes(1);
+      expect(logError.mock.calls[0][1]).toEqual({
+        request: { deploymentSize: "micro", provider: "eks", vpcCidr: "10.0.0.0/23", networkMode: "public" },
+      });
+      expect(JSON.stringify(logError.mock.calls)).not.toMatch(/hunter2|apiKey|acme/);
+    } finally {
+      vi.doUnmock(generator);
+      vi.resetModules();
+    }
   });
 
   it("should build the server from createApp() and end with errorHandler in server/index.ts", () => {

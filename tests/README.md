@@ -166,6 +166,7 @@ Integration tests verify system-wide features and API behavior.
 - Health probe exemption: only `GET` and `HEAD` of the real health paths; other methods and lookalike paths count
 - The API limiter runs before the JSON parser, so malformed and oversized bodies count toward the limit
 - Rate-limited (429) and malformed-body (400) requests are logged, and `/api` is logged in any letter case
+- Bodies stay out of the logs: a rejected body is logged with body-parser's error type, not its message; a 500 from the plan generator logs only the validated plan inputs (no unknown fields, no `deploymentName`)
 - `server/index.ts` builds on `createApp()` and registers `errorHandler` after the routes and static serving
 
 **csp-violation-endpoint.test.ts**:
@@ -179,6 +180,7 @@ Integration tests verify system-wide features and API behavior.
 - Serves the real routes behind the production global headers (`createSecurityHeaders()` from `server/csp-config.ts`)
 - `/api/docs/ui` sends one policy (`buildSwaggerUICSP()`) in place of the global one; jsDelivr only in `script-src`, `style-src`, and `connect-src`
 - Every other route keeps the strict global CSP
+- The security headers SECURITY.md lists (HSTS, `nosniff`, `X-Frame-Options`, `X-XSS-Protection: 0`, Referrer-Policy, COOP, CORP, no `X-Powered-By`) on the docs page and the API
 - Global headers in production vs development (`'unsafe-inline'`, HMR websockets, and `report-uri` only in development)
 - Headers parsed into directives and compared source token by source token
 

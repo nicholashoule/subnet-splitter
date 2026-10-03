@@ -112,7 +112,7 @@ try {
     assert(body.version === version, `version ${body.version} != ${version}`);
   });
 
-  await check("web app is served with a strict CSP", async () => {
+  await check("web app is served with a strict CSP and the security headers", async () => {
     const res = await fetch(`${base}/`);
     const html = await res.text();
     const csp = parseCsp(res.headers.get("content-security-policy") ?? "");
@@ -121,7 +121,20 @@ try {
     assert(![...csp.values()].flat().some(isCdn), "global CSP allows the CDN");
     // Over plain HTTP on a LAN address, upgrade-insecure-requests would blank the page
     assert(!csp.has("upgrade-insecure-requests"), "global CSP upgrades requests to https");
-    assert(res.headers.get("x-content-type-options") === "nosniff", "nosniff missing");
+    // The other headers SECURITY.md lists (Helmet's defaults)
+    const expected: Record<string, string | null> = {
+      "x-content-type-options": "nosniff",
+      "strict-transport-security": "max-age=31536000; includeSubDomains",
+      "x-frame-options": "SAMEORIGIN",
+      "x-xss-protection": "0",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-resource-policy": "same-origin",
+      "x-powered-by": null,
+    };
+    for (const [name, value] of Object.entries(expected)) {
+      assert(res.headers.get(name) === value, `${name}: ${res.headers.get(name)} (expected ${value})`);
+    }
   });
 
   await check("hashed assets are immutable and the SPA falls back to index.html", async () => {

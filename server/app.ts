@@ -76,11 +76,15 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
     return next(err);
   }
 
-  // Client errors (malformed JSON, oversized body) are expected; only log 5xx as errors
+  // Client errors (malformed JSON, oversized body) are expected; only log 5xx as errors.
+  // For a client error, log body-parser's error type (entity.parse.failed,
+  // entity.too.large, ...) and not its message: a JSON syntax error quotes part of the
+  // body (Unexpected token 's', ..."mentName":secret-tok"...), and request bodies stay
+  // out of the logs.
   if (status >= 500) {
     logger.error("Internal Server Error", { status, path: req.path, method: req.method }, err);
   } else {
-    logger.warn("Request rejected", { status, path: req.path, method: req.method, message: err.message });
+    logger.warn("Request rejected", { status, path: req.path, method: req.method, type: err.type });
   }
 
   // Never echo internal error details to clients

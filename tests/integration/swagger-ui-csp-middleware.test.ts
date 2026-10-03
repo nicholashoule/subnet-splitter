@@ -78,6 +78,20 @@ describe("Swagger UI CSP Middleware Integration", () => {
     return response.headers.get("content-security-policy");
   };
 
+  it("should send the security headers SECURITY.md lists, on the docs page and the API alike", async () => {
+    for (const path of ["/api/docs/ui", "/api/version"]) {
+      const headers = (await fetch(`${baseUrl}${path}`)).headers;
+      expect(headers.get("strict-transport-security"), path).toBe("max-age=31536000; includeSubDomains");
+      expect(headers.get("x-content-type-options"), path).toBe("nosniff");
+      expect(headers.get("x-frame-options"), path).toBe("SAMEORIGIN");
+      expect(headers.get("x-xss-protection"), path).toBe("0");
+      expect(headers.get("referrer-policy"), path).toBe("strict-origin-when-cross-origin");
+      expect(headers.get("cross-origin-opener-policy"), path).toBe("same-origin");
+      expect(headers.get("cross-origin-resource-policy"), path).toBe("same-origin");
+      expect(headers.get("x-powered-by"), path).toBeNull();
+    }
+  });
+
   describe("Swagger UI Route (/api/docs/ui)", () => {
     it("should replace the global CSP with the Swagger UI policy", async () => {
       const docsHeader = await cspOf("/api/docs/ui");

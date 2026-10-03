@@ -87,6 +87,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Use Zod for all request validation in route handlers
 - Shared handler functions (e.g., `handleNetworkPlan`, `handleTiers`) -- no code duplication
 - Error responses: `{ error: string, code: string }` with appropriate HTTP status
+- Never log `req.body` or a body-parser error message (a JSON syntax error quotes part of the body); log validated, allowlisted fields (`planInputsForLog()` in `server/routes.ts`) and `err.type`
 - Support JSON (default) and YAML (`?format=yaml`) output formats. Validation and planning errors from the plan and tiers routes follow `?format=`; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404) and rate limiting (429) are always JSON
 - Unknown `/api` paths, in any letter case (routing is case-sensitive), get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
 

@@ -47,13 +47,13 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Input Validation**
 - Every API request is validated with Zod schemas (`shared/kubernetes-schema.ts`)
-- CIDRs are parsed strictly: digits only, octets 0-255, prefix 0-32
+- CIDRs are parsed strictly: digits only, octets 0-255, prefix 0-32; a blank CIDR field is rejected, not read as "generate one"
 - The whole VPC range must fall inside one RFC 1918 block (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`); public ranges and ranges that spill out of private space are refused
 - `region` and `availabilityZones` must be lowercase letters, digits and hyphens (max 64), because they are written into zone names; `deploymentName` max 128 characters
 - `podsCidr` and `servicesCidr` must be private (pods: RFC 1918 or 100.64.0.0/10; services: RFC 1918), within provider size limits, and must not overlap the VPC, each other, or 172.17.0.0/16 (Docker's default bridge)
 - Request bodies are capped at 16 KB
 
-[PASS] **Security Headers** (Helmet, verified on every response)
+[PASS] **Security Headers** (Helmet, on every response; checked by `tests/integration/swagger-ui-csp-middleware.test.ts` and, on the production bundle, by `npm run smoke`)
 - `Content-Security-Policy` (see below)
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (honored by browsers over HTTPS)
 - `X-Content-Type-Options: nosniff`
@@ -72,7 +72,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Rate Limiting** (`express-rate-limit`, per client IP)
 - `/api` routes: 100 requests per minute, counting requests with malformed or oversized bodies (the limiter runs before body parsing); `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
-- Health checks (`/health*`, `/api/v1/health*`) are exempt so probes never fail
+- Health probes are exempt so they never fail: only a `GET` or `HEAD` of `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (`server/health.ts`). Other methods and lookalike paths such as `/api/v1/healthz` count; the unprefixed `/health*` routes are outside `/api`
 - SPA fallback for unknown routes: 30 requests per 15 minutes (production)
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default
 
@@ -91,14 +91,15 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Logging**
 - Structured single-line JSON in production
-- API requests are logged with method, path, status, duration, client IP and user agent; health probes and response bodies are not logged
-- A request body is logged only when plan generation fails with a 500, to make the failure reproducible. Bodies hold only network parameters
+- API requests are logged with method, path (no query string), status, duration, client IP and user agent; health probes are not logged
+- API request and response bodies are never logged (the development-only CSP report endpoint logs the violation reports it receives, which is its purpose). When plan generation fails with a 500, the log records an allowlist of the validated fields that determine the plan (`deploymentSize`, `provider`, `region`, the three CIDRs, `availabilityZones`, `networkMode`), enough to reproduce it; unknown fields and the free-text `deploymentName` are left out
+- A rejected body (`400`/`413`/`415`) is logged with body-parser's error type (`entity.parse.failed`, `entity.too.large`, ...), not its message, which can quote part of the body
 
 [PASS] **Supply Chain**
 - Small dependency set; unused packages are removed
 - `package-lock.json` is committed and CI installs with `npm ci`
 - CI runs `npm audit` on every push to `main` and every pull request, and the job fails on any known vulnerability
-- CI also starts the production bundle and checks its security headers (CSP, `nosniff`), its validation of bad input, and the API docs page's Subresource Integrity over HTTP (`npm run smoke`)
+- CI also starts the production bundle and checks its security headers (CSP and every header listed above), its validation of bad input, and the API docs page's Subresource Integrity over HTTP (`npm run smoke`)
 - The production server is a single self-contained bundle (`dist/index.cjs`); `node_modules` is not needed at runtime
 - The package is `private`, so it cannot be published to npm by accident
 
