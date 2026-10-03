@@ -84,6 +84,8 @@ curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
   }' > network-plan.yaml
 ```
 
+The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Error responses follow `?format=` too. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
+
 **Use Cases:**
 - Import into Terraform/Pulumi configurations
 - Share network plans with team members
@@ -148,7 +150,7 @@ The plan uses `pods.cidr` `172.16.64.0/18` and `services.cidr` `192.168.16.0/20`
 
 ### Private network mode
 
-Set `"networkMode": "private"` for a cluster with no internet-facing subnets. The plan then has no public subnets (`subnets.public` is `[]`), and `subnets.loadBalancer` holds internal load-balancer subnets (type `load-balancer`, names `load-balancer-N`) at the tier's public subnet size: `/26` (micro), `/25` (standard, professional), `/24` (enterprise), `/23` (hyperscale). Egress is outside the address layout, so no subnet is allocated for it. Node, control-plane, pod, and service ranges are the same as in public mode, and so is `minVpcPrefix`. In the default `public` mode, `subnets.loadBalancer` is present but empty.
+Set `"networkMode": "private"` for a cluster with no internet-facing subnets. The plan then has no public subnets (`subnets.public` is `[]`), and `subnets.loadBalancer` holds internal load-balancer subnets (type `load-balancer`, names `load-balancer-N`) at the tier's public subnet size: `/26` (micro), `/25` (standard, professional), `/24` (enterprise), `/23` (hyperscale). Egress is outside the address layout, so no subnet is allocated for it. Node, pod, and service ranges are the same as in public mode, and so is `minVpcPrefix`. The control-plane range keeps its size, and its position follows the first-fit layout: for EKS and generic Kubernetes it does not move, but for GKE and AKS from the professional tier up it moves into space the missing public subnets would have taken (enterprise on `10.20.0.0/16`: `10.20.3.0/28` in public mode, `10.20.1.0/28` in private mode). In the default `public` mode, `subnets.loadBalancer` is present but empty.
 
 | Provider | Load-balancer subnets | Egress (no subnet allocated) | Notes |
 |----------|-----------------------|------------------------------|-------|
@@ -640,15 +642,15 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ```typescript
 {
-  micro: DeploymentTierConfig,
-  standard: DeploymentTierConfig,
-  professional: DeploymentTierConfig,
-  enterprise: DeploymentTierConfig,
-  hyperscale: DeploymentTierConfig
+  micro: EffectiveTierConfig,
+  standard: EffectiveTierConfig,
+  professional: EffectiveTierConfig,
+  enterprise: EffectiveTierConfig,
+  hyperscale: EffectiveTierConfig
 }
 ```
 
-#### TierConfig Structure
+#### EffectiveTierConfig Structure
 
 ```typescript
 {
@@ -933,7 +935,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 ### Generic Kubernetes
 
 **Region Format:** User-defined or generic
-- Default: `region-1`, `datacenter-1`
+- Examples: `region-1`, `datacenter-1`
 
 **Zone Format:** `zone-{number}`
 - Default: `zone-1`, `zone-2`, `zone-3`
@@ -1277,10 +1279,11 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 |------|--------|-------|---------|
 | `INVALID_REQUEST` | 400 / 413 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, or body is over 16 KB | `{ "error": "Invalid request: deploymentSize: Required", "code": "INVALID_REQUEST" }` |
 | `NETWORK_GENERATION_ERROR` | 400 | VPC CIDR is malformed, not entirely private RFC 1918 space, or too small for the tier; `podsCidr`/`servicesCidr` malformed, outside the allowed blocks or sizes, or overlapping the VPC, each other, or `172.17.0.0/16`; `availabilityZones` sent for GKE/AKS or with one zone for EKS | `{ "error": "Invalid VPC CIDR \"999.999.999.999/16\": Invalid IP octet: 999", "code": "NETWORK_GENERATION_ERROR" }` |
+| `NOT_FOUND` | 404 | No API route matches the path and method (for example `GET /api/k8s/plan`, which only accepts POST). Paths are case-sensitive. Unknown `/api` paths never fall back to the web app | `{ "error": "Not found", "code": "NOT_FOUND" }` |
 | `RATE_LIMITED` | 429 | More than 100 `/api` requests per minute from one IP | `{ "error": "Too many requests. Please wait a minute and try again.", "code": "RATE_LIMITED" }` |
 | `INTERNAL_ERROR` | 500 | Server-side error | `{ "error": "Failed to generate network plan", "code": "INTERNAL_ERROR" }` |
 
-Validation messages have the form `Invalid request: <field>: <message>`, with multiple problems joined by `; `.
+Validation messages have the form `Invalid request: <field>: <message>`. Plan requests list every problem, joined by `; `; `GET /api/k8s/tiers` and its aliases report only the first problem in the query.
 
 ### Common Error Scenarios
 
@@ -2046,5 +2049,5 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 **Last Updated:** October 2, 2026  
 **API Status:**  Production Ready  
-**Tests:** 528 passing (`npm test -- --run`); no coverage tool is configured  
+**Tests:** 503 passing (`npm test -- --run`); no coverage tool is configured  
 **Vulnerabilities:** 0

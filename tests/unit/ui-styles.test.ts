@@ -62,7 +62,7 @@ function contrast(a: Rgb, b: Rgb): number {
 
 describe("UI Accessibility - WCAG Contrast", () => {
   it("reads the palette from index.css", () => {
-    for (const name of ["background", "foreground", "card", "primary", "muted", "muted-foreground", "destructive"]) {
+    for (const name of ["background", "foreground", "card", "popover", "popover-foreground", "primary", "muted", "muted-foreground", "destructive", "destructive-soft", "destructive-soft-foreground", "success"]) {
       expect(themes.light[name], `light --${name}`).toBeDefined();
       expect(readTokens(".dark")[name], `dark --${name}`).toBeDefined();
     }
@@ -86,11 +86,19 @@ describe("UI Accessibility - WCAG Contrast", () => {
       ["muted-foreground on footer", color("muted-foreground"), footer],
       ["primary (links) on background", color("primary"), background],
       ["primary (links) on footer", color("primary"), footer],
+      ["primary (404 page link) on card", color("primary"), color("card")],
+      ["popover-foreground on popover (tooltips)", color("popover-foreground"), color("popover")],
       ["primary-foreground on primary (buttons, badges)", color("primary-foreground"), color("primary")],
       ["secondary-foreground on secondary", color("secondary-foreground"), color("secondary")],
       ["destructive (error text) on background", color("destructive"), background],
       ["destructive (error text) on card", color("destructive"), color("card")],
-      ["destructive-foreground on destructive (toasts)", color("destructive-foreground"), color("destructive")],
+      ["destructive-foreground on destructive (destructive button and badge variants)", color("destructive-foreground"), color("destructive")],
+      ["success (status text, copy check) on card", color("success"), color("card")],
+      ["success on background", color("success"), background],
+      // Toasts: the description is rendered at opacity-90
+      ["toast description on background", over(color("foreground"), 0.9, background), background],
+      ["error toast title on destructive-soft", color("destructive-soft-foreground"), color("destructive-soft")],
+      ["error toast description on destructive-soft", over(color("destructive-soft-foreground"), 0.9, color("destructive-soft")), color("destructive-soft")],
     ];
 
     it.each(textPairs)("%s meets WCAG AA (4.5:1)", (_pair, fg, bg) => {
@@ -105,6 +113,49 @@ describe("UI Accessibility - WCAG Contrast", () => {
       expect(contrast(color("ring"), background)).toBeGreaterThanOrEqual(3);
       expect(contrast(color("ring"), color("card"))).toBeGreaterThanOrEqual(3);
     });
+
+    it("toast close icon (foreground/50) meets WCAG non-text contrast (3:1) on both toast variants", () => {
+      for (const surface of [background, color("destructive-soft")]) {
+        expect(contrast(over(color("foreground"), 0.5, surface), surface)).toBeGreaterThanOrEqual(3);
+      }
+    });
+  });
+});
+
+describe("Colors come from theme tokens", () => {
+  // Tailwind palette colors (text-green-600, bg-gray-50, var(--color-gray-200), ...) bypass
+  // the tokens: they escape the contrast checks above and don't follow the theme. The one
+  // exception is getDepthIndicatorClasses() in subnet-utils.ts: decorative depth bars
+  // (non-text; the prefix they encode is also shown as text).
+  const PALETTES = "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|black|white";
+  const PALETTE_COLOR = new RegExp(
+    `\\b(?:text|bg|border|ring|ring-offset|outline|fill|stroke|divide|placeholder|decoration|accent|caret|shadow|from|via|to)-(?:${PALETTES})(?:-\\d{2,3})?\\b|--color-(?:${PALETTES})\\b`,
+    "g"
+  );
+  const clientSrc = path.resolve(__dirname, "../../client/src");
+
+  // Drops the body of one top-level function (up to its closing brace at column 0)
+  const withoutFunction = (source: string, name: string) => {
+    const start = source.indexOf(`export function ${name}(`);
+    return start === -1 ? source : source.slice(0, start) + source.slice(source.indexOf("\n}\n", start) + 3);
+  };
+
+  it("uses no Tailwind palette colors in client code outside the depth indicator", () => {
+    const files = (fs.readdirSync(clientSrc, { recursive: true }) as string[]).filter((file) => /\.(tsx?|css)$/.test(file));
+    expect(files.length).toBeGreaterThan(10);
+
+    const offenders = files.flatMap((file) => {
+      const source = fs.readFileSync(path.join(clientSrc, file), "utf8");
+      const scanned = file.endsWith("subnet-utils.ts") ? withoutFunction(source, "getDepthIndicatorClasses") : source;
+      return (scanned.match(PALETTE_COLOR) ?? []).map((color) => `${file}: ${color}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("exempts only the depth indicator, which does use palette colors", () => {
+    const utils = fs.readFileSync(path.join(clientSrc, "lib/subnet-utils.ts"), "utf8");
+    expect(utils.match(PALETTE_COLOR)?.length).toBeGreaterThan(30);
+    expect(withoutFunction(utils, "getDepthIndicatorClasses").match(PALETTE_COLOR)).toBeNull();
   });
 });
 
@@ -127,12 +178,17 @@ describe("Design System Consistency", () => {
 });
 
 describe("Semantic Structure", () => {
-  it("gives the header QR code image alt text", () => {
-    expect(calculator).toMatch(/<img [^>]*alt="GitHub QR Code"/);
+  it("names the header QR code link by its destination", () => {
+    expect(calculator).toContain('alt="nicholashoule on GitHub (QR code)"');
   });
 
-  it("labels the theme toggle and docs link for screen readers", () => {
-    expect(calculator).toContain('aria-label="Toggle dark mode"');
+  it("follows h1 with h2, not h3", () => {
+    expect(calculator).toContain("<h1 ");
+    expect(calculator).not.toContain("<h3");
+  });
+
+  it("labels the theme toggle with the action a press performs, and the docs link", () => {
+    expect(calculator).toContain('aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}');
     expect(calculator).toContain('aria-label="Open API documentation"');
   });
 

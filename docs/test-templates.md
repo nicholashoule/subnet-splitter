@@ -166,8 +166,8 @@ npm run test -- tests/unit/ --run
 # All integration tests
 npm run test -- tests/integration/ --run
 
-# Emoji detection only
-npm run test:emoji
+# Emoji audit (demojify CLI, needs Go; not part of Vitest)
+npm run emoji:check
 ```
 
 ## Test Configuration Details

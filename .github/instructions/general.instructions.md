@@ -27,7 +27,7 @@ server/             # Express backend (routes, CSP, middleware, OpenAPI)
 shared/             # Shared TypeScript types and Zod schemas
 tests/unit/         # Unit tests
 tests/integration/  # Integration tests
-scripts/            # Build, smoke test, and emoji tools
+scripts/            # Production smoke test
 docs/               # API reference, compliance audits, test audit
 ```
 
@@ -102,7 +102,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 4. **UI/UX** -- no horizontal scrollbars, shadcn/ui components, dark/light mode support
 5. **Testing** -- run `npm run dev`, `npm run check`, test both themes
 6. **Icons** -- use Lucide React only, no unicode icons
-7. **Emoji** -- use text alternatives (`[PASS]`, `[FAIL]`, `WARNING:`) per [emoji-prevention.md](../emoji-prevention.md)
+7. **Emoji** -- none anywhere; use text tokens (`[PASS]`, `[FAIL]`, `[WARNING]`). CI checks with demojify (`npm run emoji:check`, needs Go); see [emoji-prevention.md](../emoji-prevention.md)
 
 ## Agent Token Optimization
 

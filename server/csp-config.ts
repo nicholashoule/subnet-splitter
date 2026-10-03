@@ -14,6 +14,7 @@
  * - Shared directives: Base set that both policies inherit from
  */
 
+import helmet from "helmet";
 import { z } from "zod";
 
 export interface CSPDirectives {
@@ -63,6 +64,31 @@ export const developmentCSPAdditions: CSPDirectives = {
   connectSrc: ["ws://127.0.0.1:*", "ws://localhost:*"],
   reportUri: ["/__csp-violation"],
 };
+
+/**
+ * Global security headers (Helmet) for every response; /api/docs/ui replaces the CSP
+ * with buildSwaggerUICSP(). Development adds Vite HMR and CSP violation reporting.
+ * Exported so tests exercise the production configuration, not a copy.
+ */
+export function createSecurityHeaders(isDevelopment: boolean): ReturnType<typeof helmet> {
+  const directives: Record<string, string[]> = { ...baseCSPDirectives };
+
+  if (isDevelopment) {
+    // Vite injects inline scripts for Fast Refresh and HMR
+    directives.scriptSrc = [...(directives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
+    // Enable CSP violation reporting so we catch issues before production
+    directives.connectSrc = [...(directives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
+    directives.reportUri = developmentCSPAdditions.reportUri;
+  }
+
+  // crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
+  // X-Content-Type-Options: nosniff is set by default in Helmet v8
+  return helmet({
+    contentSecurityPolicy: { directives },
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  });
+}
 
 /**
  * Swagger UI-specific CSP overrides

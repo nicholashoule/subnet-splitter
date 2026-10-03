@@ -10,13 +10,16 @@
  * Security Behaviors Tested:
  * - 30 requests per 15-minute window per IP (production configuration)
  * - 429 Too Many Requests response after limit exceeded (RFC 6585)
- * - RateLimit-* headers (RFC 9239) present in all responses
+ * - RateLimit-* headers (IETF draft-ietf-httpapi-ratelimit-headers) present in all responses
  * - X-RateLimit-* headers (legacy) NOT present
  * - Per-IP rate limiting (separate quota per client IP)
  * - Message guidance when rate limited
+ *
+ * Also covers the API limiter (100 requests per minute, health checks exempt) and
+ * request logging of rejected requests (429, 400).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import express, { type Express } from "express";
 import request from "supertest";
 import path from "path";
@@ -25,6 +28,7 @@ import fs from "fs";
 import os from "os";
 import { serveStatic } from "../../server/static";
 import { createApiRateLimiter } from "../../server/routes";
+import { logger, requestLogger } from "../../server/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,12 +100,12 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     });
   });
 
-  describe("RFC 9239 Rate Limit Headers", () => {
+  describe("Standard RateLimit Headers", () => {
     it("should include RateLimit-* headers in responses", async () => {
       const response = await request(app).get("/test-route");
       expect(response.status).toBe(200);
 
-      // Check for standard RateLimit headers (RFC 9239)
+      // Check for the standard RateLimit-* headers (IETF draft, not the legacy X-RateLimit-*)
       expect(response.headers["ratelimit-limit"]).toBeDefined();
       expect(response.headers["ratelimit-remaining"]).toBeDefined();
       expect(response.headers["ratelimit-reset"]).toBeDefined();
@@ -226,14 +230,12 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     it("should have 15-minute window", async () => {
       const response = await request(app).get("/test");
       
-      // RateLimit-Reset header should be present (RFC 9239)
-      // It contains the timestamp when the rate limit window resets
-      const resetTimeStr = response.headers["ratelimit-reset"];
-      expect(resetTimeStr).toBeDefined();
-      
-      // The header value should be a number (Unix timestamp in seconds)
-      const resetTimeNum = parseInt(resetTimeStr as string, 10);
-      expect(Number.isFinite(resetTimeNum) && resetTimeNum > 0).toBe(true);
+      // RateLimit-Reset is the number of seconds until the window resets (not a
+      // timestamp); on the first request of a fresh window it is close to 900
+      const reset = Number(response.headers["ratelimit-reset"]);
+      expect(reset).toBeGreaterThan(840);
+      expect(reset).toBeLessThanOrEqual(900);
+      expect(response.headers["ratelimit-policy"]).toBe("30;w=900");
     });
   });
 
@@ -317,18 +319,19 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
     });
 
     it("should not count POST/PUT/DELETE toward rate limit (no SPA serve)", async () => {
-      // Make 30 GET requests to reach limit
-      for (let i = 0; i < 30; i++) {
-        await request(app).get("/route-" + i);
+      // 30 non-GET requests first: none reach the SPA fallback or its limiter
+      for (let i = 0; i < 10; i++) {
+        expect((await request(app).post("/some-post")).status).toBe(404);
+        expect((await request(app).put("/some-put")).status).toBe(404);
+        expect((await request(app).delete("/some-delete")).status).toBe(404);
       }
 
-      // POST should return 404, not 429 (not rate limited because not SPA fallback)
-      const postResponse = await request(app).post("/some-post");
-      expect(postResponse.status).toBe(404);
-
-      // Verify GET is still rate limited
-      const getResponse = await request(app).get("/should-be-limited");
-      expect(getResponse.status).toBe(429);
+      // The full GET quota is still available...
+      for (let i = 0; i < 30; i++) {
+        expect((await request(app).get("/route-" + i)).status).toBe(200);
+      }
+      // ...and only then is GET limited
+      expect((await request(app).get("/should-be-limited")).status).toBe(429);
     });
   });
 });
@@ -365,5 +368,42 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
 
     const health = await request(app).get("/api/v1/health");
     expect(health.status).toBe(200);
+  });
+});
+
+describe("Request logging of rejected requests", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should log rate-limited (429) and malformed-body (400) requests", async () => {
+    const logged = vi.spyOn(logger, "request").mockImplementation(() => {});
+    // Mirror server/index.ts: request logging, then body parsing, then the limiter
+    const app = express();
+    app.use(requestLogger);
+    app.use(express.json({ limit: "16kb" }));
+    app.use("/api", createApiRateLimiter());
+    app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
+
+    const malformed = await request(app).post("/api/k8s/plan").set("Content-Type", "application/json").send("{bad");
+    expect(malformed.status).toBe(400);
+    for (let i = 0; i < 100; i++) {
+      await request(app).post("/api/k8s/plan").send({});
+    }
+    const limited = await request(app).post("/api/k8s/plan").send({});
+    expect(limited.status).toBe(429);
+    await new Promise((resolve) => setImmediate(resolve)); // let the last "finish" listener run
+
+    const statuses = logged.mock.calls.map(([, , status]) => status);
+    expect(statuses).toContain(400);
+    expect(statuses).toContain(429);
+  });
+
+  it("should register request logging before body parsing and rate limiting in server/index.ts", () => {
+    const source = fs.readFileSync(path.resolve(__dirname, "../../server/index.ts"), "utf8");
+    const loggerAt = source.indexOf("app.use(requestLogger)");
+    expect(loggerAt).toBeGreaterThan(-1);
+    expect(loggerAt).toBeLessThan(source.indexOf("app.use(express.json("));
+    expect(loggerAt).toBeLessThan(source.indexOf('app.use("/api", createApiRateLimiter())'));
   });
 });

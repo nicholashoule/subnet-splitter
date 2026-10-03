@@ -31,7 +31,7 @@ applyTo: "server/**"
 
 ## Server Binding
 
-The bind address comes from `HOST`: default `0.0.0.0` in production (reachable inside containers) and `127.0.0.1` in development. The port comes from `PORT` (default `5000`). There is no fallback to another host; a bind error is logged and the process exits.
+The bind address comes from `HOST`: default `0.0.0.0` in production (reachable inside containers) and `127.0.0.1` in development. The port comes from `PORT` (default `5000`; must be an integer from 1 to 65535, or startup stops with an error). There is no fallback to another host; a bind error is logged and the process exits.
 
 Health checks: `/health`, `/health/ready`, `/health/live`, and the same under `/api/v1/health*`.
 
@@ -137,9 +137,9 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
   "smoke": "tsx scripts/smoke-test.ts",
   "check": "tsc",
   "test": "vitest",
-  "test:emoji": "vitest run tests/unit/emoji-detection.test.ts",
-  "emoji:check": "tsx scripts/fix-emoji.ts",
-  "emoji:fix": "tsx scripts/fix-emoji.ts --fix",
+  "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist",
+  "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist -sub",
+  "prepare": "node scripts/install-hooks.mjs",
   "audit": "npm audit",
   "audit:fix": "npm audit fix"
 }

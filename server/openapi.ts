@@ -55,6 +55,29 @@ const PLAN_EXAMPLES: Record<string, { summary: string; request: Record<string, u
 const exampleEntries = <T>(build: (example: { summary: string; request: Record<string, unknown> }) => T) =>
   Object.fromEntries(Object.entries(PLAN_EXAMPLES).map(([key, example]) => [key, { summary: example.summary, value: build(example) }]));
 
+// Error bodies follow the request's ?format= (JSON by default, YAML with format=yaml)
+const errorContent = {
+  "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+  "application/yaml": { schema: { $ref: "#/components/schemas/Error" } },
+};
+
+// /api routes other than health checks share a per-IP limit (createApiRateLimiter in server/routes.ts)
+const rateLimitedResponse = {
+  description: "Too many requests: more than 100 requests in a minute from this IP",
+  headers: {
+    "RateLimit-Limit": { description: "Requests allowed per window", schema: { type: "integer", example: 100 } },
+    "RateLimit-Remaining": { description: "Requests left in the current window", schema: { type: "integer", example: 0 } },
+    "RateLimit-Reset": { description: "Seconds until the window resets", schema: { type: "integer", example: 42 } },
+    "Retry-After": { description: "Seconds to wait before retrying", schema: { type: "integer", example: 42 } },
+  },
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/Error" },
+      example: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
+    },
+  },
+};
+
 export const openApiSpec = {
   openapi: "3.0.0",
   info: {
@@ -264,23 +287,12 @@ export const openApiSpec = {
           },
           "400": {
             description: "Invalid request parameters",
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/Error"
-                }
-              }
-            }
+            content: errorContent
           },
+          "429": rateLimitedResponse,
           "500": {
             description: "Internal server error",
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/Error"
-                }
-              }
-            }
+            content: errorContent
           }
         }
       }
@@ -344,23 +356,12 @@ export const openApiSpec = {
           },
           "400": {
             description: "Invalid provider or networkMode",
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/Error"
-                }
-              }
-            }
+            content: errorContent
           },
+          "429": rateLimitedResponse,
           "500": {
             description: "Internal server error",
-            content: {
-              "application/json": {
-                schema: {
-                  $ref: "#/components/schemas/Error"
-                }
-              }
-            }
+            content: errorContent
           }
         }
       }
@@ -490,7 +491,7 @@ export const openApiSpec = {
         type: "object",
         properties: {
           error: { type: "string" },
-          code: { type: "string", enum: ["INVALID_REQUEST", "NETWORK_GENERATION_ERROR", "RATE_LIMITED", "INTERNAL_ERROR"] }
+          code: { type: "string", enum: ["INVALID_REQUEST", "NETWORK_GENERATION_ERROR", "NOT_FOUND", "RATE_LIMITED", "INTERNAL_ERROR"] }
         }
       }
     }

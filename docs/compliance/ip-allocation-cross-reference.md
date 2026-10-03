@@ -166,8 +166,8 @@ Note: /13 (524,288 IPs) is smaller than 550,000, so it cannot hold
 |------|-----------|----------|-----------|------------|
 | **Micro** | 1 | /20 | 4,096 | Small dev/test (16 nodes capacity at a /24 per node) |
 | **Standard** | 1-3 | /16 | 65,536 | Development/testing with generous headroom |
-| **Professional** | 3-10 | /18 | 16,384 | Small production (140 nodes capacity) |
-| **Enterprise** | 10-50 | /16 | 65,536 | **IDEAL** - Large production, supports 500+ nodes |
+| **Professional** | 3-10 | /18 | 16,384 | Small production (64 nodes capacity at a /24 per node) |
+| **Enterprise** | 10-50 | /16 | 65,536 | **IDEAL** - Large production (256 nodes capacity at a /24 per node) |
 | **Hyperscale** | 50-5000 | /13 | 524,288 | Global scale, sized to GKE's 200,000 pods-per-cluster limit. At a /24 per node (AKS overlay always; GKE at 65-128 max pods) /13 covers 2,048 nodes. 5,000 nodes needs GKE max pods per node of 32 or fewer (/26 per node), or a /11 `podsCidr` (the only option on AKS) |
 
 ### Alternative: CG-NAT Ranges for Pod Networks

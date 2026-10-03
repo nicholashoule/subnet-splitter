@@ -184,9 +184,10 @@ export function splitSubnet(subnet: SubnetInfo, currentTreeSize: number = 1): Su
     throw new SubnetCalculationError("Cannot split a /32 subnet.");
   }
   
-  // Enforce tree size limit to prevent memory exhaustion
-  if (currentTreeSize >= SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES) {
-    throw new SubnetCalculationError(`Tree size limit (${SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES} nodes) exceeded. Cannot split further.`);
+  // Enforce tree size limit to prevent memory exhaustion. A split adds two nodes,
+  // so refuse any split that would take the tree past the limit.
+  if (currentTreeSize + 2 > SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES) {
+    throw new SubnetCalculationError(`Tree size limit (${SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES} nodes) reached. Cannot split further.`);
   }
   
   const newPrefix = subnet.prefix + 1;

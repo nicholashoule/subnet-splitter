@@ -107,7 +107,7 @@ const STYLES = `
       --secondary: hsl(214, 32%, 91%);
       --destructive: hsl(0, 72%, 51%);
       --code-bg: hsl(210, 20%, 96%);
-      --success: #047857;
+      --success: hsl(163, 94%, 24%);
       --copy-bg: hsl(215, 16%, 47%);
       /* HTTP methods: white text at 4.5:1 or better, identical in both themes */
       --method-get: #2563eb;
@@ -318,7 +318,7 @@ const HTML = `<!DOCTYPE html>
       </svg>
       <span>Calculator</span>
     </a>
-    <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
+    <button id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
       <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="4"/>
         <path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
@@ -355,6 +355,7 @@ const HTML = `<!DOCTYPE html>
   <script>
     (function () {
       var root = document.documentElement;
+      var toggle = document.getElementById('theme-toggle');
 
       function savedTheme() {
         try { return localStorage.getItem('theme') === 'dark' ? 'dark' : 'light'; } catch (e) { return 'light'; }
@@ -364,6 +365,10 @@ const HTML = `<!DOCTYPE html>
       // re-mounts it on a fresh node (no page reload, no repaint script).
       function render(theme) {
         root.className = theme;
+        // Name the action, so screen readers hear what a press will do
+        var label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        toggle.setAttribute('aria-label', label);
+        toggle.title = label;
         var old = document.getElementById('swagger-ui');
         var mount = old.cloneNode(false);
         old.replaceWith(mount);
@@ -381,7 +386,7 @@ const HTML = `<!DOCTYPE html>
         });
       }
 
-      document.getElementById('theme-toggle').addEventListener('click', function () {
+      toggle.addEventListener('click', function () {
         var next = root.className === 'dark' ? 'light' : 'dark';
         try { localStorage.setItem('theme', next); } catch (e) {}
         render(next);

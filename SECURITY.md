@@ -76,7 +76,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default
 
 [PASS] **Error Handling**
-- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `RATE_LIMITED`, `INTERNAL_ERROR`)
+- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); unknown `/api` paths get a JSON 404, never the web app
 - 5xx responses never include internal error messages or stack traces
 - Validation errors name the offending field without echoing internals
 
@@ -109,6 +109,8 @@ Behind a load balancer, set `TRUST_PROXY` so rate limits see real client IPs ins
 ```bash
 TRUST_PROXY=1                 # one trusted hop (typical load balancer)
 TRUST_PROXY=10.0.0.0/8        # or the proxy addresses/CIDRs you control
+# TRUST_PROXY=true trusts any X-Forwarded-For (logged as a warning); avoid it.
+# An invalid value stops startup instead of running with the wrong trust setting.
 ```
 Only trust proxies you control. Trusting an unknown proxy lets clients spoof `X-Forwarded-For` and bypass per-IP limits.
 

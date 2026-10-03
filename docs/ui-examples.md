@@ -69,8 +69,11 @@ Tokens are defined in `client/src/index.css` as bare HSL channels (`:root` for l
 | `--secondary` | `214 32% 91%` `#E1E7EF` | `217 33% 17%` `#1D283A` | Example buttons, subtle surfaces |
 | `--muted` | `210 20% 96%` `#F3F5F7` | `217 33% 17%` `#1D283A` | Header/footer bands, secondary backgrounds |
 | `--muted-foreground` | `215 16% 45%` `#607085` | `215 20% 65%` `#94A3B8` | Secondary text, labels, icons |
-| `--destructive` | `0 72% 51%` `#DC2828` | `0 62% 63%` `#DB6666` | Error text, destructive toasts |
+| `--destructive` | `0 72% 51%` `#DC2828` | `0 62% 63%` `#DB6666` | Error text, destructive buttons and badges |
 | `--destructive-foreground` | `0 0% 100%` `#FFFFFF` | `222 47% 8%` `#0B111E` | Text on destructive |
+| `--destructive-soft` | `0 86% 97%` `#FEF1F1` | `359 80% 15%` `#450809` | Error toast background |
+| `--destructive-soft-foreground` | `359 69% 30%` `#811819` | `0 100% 94%` `#FFE0E0` | Error toast text |
+| `--success` | `163 94% 24%` `#047756` | `160 70% 50%` `#26D99D` | Status messages, copy confirmation |
 | `--border` | `214 20% 88%` `#DAE0E7` | `217 33% 17%` `#1D283A` | Card/table borders, dividers |
 | `--input` | `214 20% 85%` `#D1D8E0` | `217 33% 25%` `#2B3B55` | Input borders |
 
@@ -84,7 +87,11 @@ Dark mode applies when `<html>` has the `dark` class (Tailwind's `dark:` variant
 
 **Muted:** Header and footer bands, secondary text and labels, icon buttons, placeholders.
 
-**Destructive:** Validation errors, error toasts, the error boundary alert.
+**Destructive:** Validation errors and the error boundary alert. Error toasts use the softer `--destructive-soft` pair.
+
+**Success:** The subnet table status message and the copy confirmation icon.
+
+Use tokens only: Tailwind palette classes such as `text-green-600` don't follow the theme and fail `tests/unit/ui-styles.test.ts`. The one exception is the decorative depth bars in `subnet-utils.ts`; the prefix length they encode is also shown as text.
 
 **Borders:** Card, table, and form borders; subtle separators.
 
@@ -102,7 +109,10 @@ Every text pair the app renders meets WCAG AA (4.5:1) in both themes. `tests/uni
 | Muted foreground on footer (`bg-muted/30`) | 4.8:1 | 6.9:1 | AA |
 | Muted foreground on muted | 4.6:1 | 5.8:1 | AA |
 | Destructive on card (form errors) | 4.8:1 | 5.2:1 | AA |
-| Destructive-foreground on destructive (toasts) | 4.8:1 | 5.5:1 | AA |
+| Destructive-foreground on destructive (buttons, badges) | 4.8:1 | 5.5:1 | AA |
+| Success on card (status message) | 5.6:1 | 9.8:1 | AA |
+| Error toast text on `--destructive-soft` (description at 90% opacity) | 9.2:1 (7.4:1) | 13.2:1 (10.7:1) | AAA |
+| Toast close icon (`foreground/50`, non-text, 3:1) | 3.3:1 | 4.6:1 | AA |
 | Focus ring on card (non-text, 3:1) | 5.2:1 | 4.9:1 | AA |
 
 In dark mode the primary and destructive colors are light enough for text on dark surfaces, so text placed on them is dark (`222 47% 8%`); white text on them would fall below 4.5:1.

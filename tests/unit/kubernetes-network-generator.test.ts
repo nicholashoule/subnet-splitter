@@ -5,7 +5,7 @@
  * Tests network generation logic, validation, and edge cases
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   generateKubernetesNetworkPlan,
   getDeploymentTierInfo,
@@ -588,17 +588,28 @@ describe("Kubernetes Network Generator", () => {
       expect(plan1.services).toEqual(plan2.services);
     });
 
-    it("should produce different VPC CIDRs for random generation", async () => {
-      const plans = await Promise.all([
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" }),
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" }),
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" })
-      ]);
+    it("should derive a random VPC from Math.random (RFC 1918 block, then /18 slot)", async () => {
+      // Without vpcCidr the generator draws twice: which RFC 1918 block, then which /18 in it
+      const random = vi.spyOn(Math, "random");
+      try {
+        random.mockReturnValueOnce(0).mockReturnValueOnce(0);
+        const first = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
 
-      const vpcs = plans.map(p => p.vpc.cidr);
+        random.mockReturnValueOnce(0.99).mockReturnValueOnce(0.99);
+        const last = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
 
-      // It's statistically very unlikely to get the same VPC CIDR twice
-      expect(new Set(vpcs).size).toBeGreaterThan(1);
+        // 172.16.0.0/12 has 64 /18 slots; the 4 inside reserved 172.17.0.0/16 are skipped,
+        // so slot index 4 (floor(0.075 * 60)) is 172.18.0.0/18
+        random.mockReturnValueOnce(0.5).mockReturnValueOnce(0.075);
+        const afterReserved = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
+
+        expect(random).toHaveBeenCalledTimes(6);
+        expect(first.vpc.cidr).toBe("10.0.0.0/18");
+        expect(last.vpc.cidr).toBe("192.168.192.0/18");
+        expect(afterReserved.vpc.cidr).toBe("172.18.0.0/18");
+      } finally {
+        random.mockRestore();
+      }
     });
   });
 

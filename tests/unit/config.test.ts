@@ -13,6 +13,7 @@
 
 import { describe, it, expect } from "vitest";
 import fs from "fs";
+import { execFileSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -78,6 +79,38 @@ describe("Configuration Validation", () => {
     it("should exist and be readable", () => {
       const viteConfigPath = path.join(projectRoot, "vite.config.ts");
       expect(fs.existsSync(viteConfigPath)).toBe(true);
+    });
+  });
+
+  describe("Emoji check (demojify) and pre-commit hook", () => {
+    const pkg = JSON.parse(read("package.json"));
+
+    it("pins demojify once, in the npm scripts that CI and the hook both call", () => {
+      expect(pkg.scripts["emoji:check"]).toMatch(/^go run github\.com\/nicholashoule\/demojify-sanitize\/cmd\/demojify@v\d+\.\d+\.\d+ /);
+      expect(pkg.scripts["emoji:fix"]).toBe(`${pkg.scripts["emoji:check"]} -sub`);
+      expect(read(".github/workflows/ci.yml")).toContain("run: npm run emoji:check");
+      expect(read(".githooks/pre-commit")).toContain("npm run --silent emoji:check");
+    });
+
+    it("installs the hooks on npm install", () => {
+      expect(pkg.scripts.prepare).toBe("node scripts/install-hooks.mjs");
+      expect(read("scripts/install-hooks.mjs")).toContain('"core.hooksPath", ".githooks"');
+    });
+
+    it("keeps the hook runnable by sh on every OS: shebang, LF endings, executable in git", () => {
+      const hook = read(".githooks/pre-commit");
+      expect(hook.startsWith("#!/bin/sh\n")).toBe(true);
+      expect(hook).not.toContain("\r");
+      expect(read(".gitattributes")).toContain(".githooks/* text eol=lf");
+      const indexEntry = execFileSync("git", ["ls-files", "-s", ".githooks/pre-commit"], { cwd: projectRoot }).toString();
+      expect(indexEntry.startsWith("100755 ")).toBe(true);
+    });
+
+    it("skips (exit 0) without Go 1.24+, and only fails on findings", () => {
+      const hook = read(".githooks/pre-commit");
+      expect(hook).toContain("MIN_GO_MINOR=24");
+      expect(hook).toMatch(/skip\(\) \{[\s\S]*?exit 0\n\}/);
+      expect(hook).toContain('command -v go >/dev/null 2>&1 || skip "Go is not installed."');
     });
   });
 

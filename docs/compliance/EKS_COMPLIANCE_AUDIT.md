@@ -1298,7 +1298,7 @@ For automated deployments:
 
 ### Test Coverage
 
-**Unit Tests**: All 310 unit tests passing (7 files; `npm run test -- --run` runs all 528)
+**Unit Tests**: All 323 unit tests passing (6 files; `npm run test -- --run` runs all 503)
 - Subnet calculation verification
 - CIDR allocation correctness
 - Formula validation

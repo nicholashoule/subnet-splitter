@@ -18,6 +18,8 @@ import {
   countSubnetNodes,
   collectAllSubnets,
   collectVisibleSubnets,
+  parseCidr,
+  validateCidrInput,
   SubnetCalculationError,
 } from "@/lib/subnet-utils";
 
@@ -346,21 +348,20 @@ describe("Edge Cases & Robustness", () => {
   });
 
   describe("Error handling and validation", () => {
-    it("rejects prefix with leading zeros", () => {
-      expect(() => calculateSubnet("192.168.1.0/024")).not.toThrow();
-      // JavaScript parseInt handles leading zeros gracefully
-      const subnet = calculateSubnet("192.168.1.0/024");
-      expect(subnet.prefix).toBe(24);
+    it("accepts leading zeros as decimal and normalizes them away", () => {
+      // parseCidr reads "024" as 24 and ipToNumber reads "010" as 10 (decimal, never octal)
+      expect(parseCidr("192.168.1.0/024")).toEqual(parseCidr("192.168.1.0/24"));
+      expect(validateCidrInput("192.168.1.0/024")).toBeNull();
+      expect(calculateSubnet("192.168.1.0/024").cidr).toBe("192.168.1.0/24");
+      expect(calculateSubnet("010.000.000.000/8").cidr).toBe("10.0.0.0/8");
+      // More than three digits in an octet is still rejected
+      expect(() => calculateSubnet("0010.0.0.0/8")).toThrow(SubnetCalculationError);
     });
 
     it("handles various CIDR input formats", () => {
       // Standard format works
       const subnet1 = calculateSubnet("192.168.1.0/24");
       expect(subnet1.prefix).toBe(24);
-
-      // Leading zeros in prefix work (JavaScript parseInt is forgiving)
-      const subnet2 = calculateSubnet("192.168.1.0/024");
-      expect(subnet2.prefix).toBe(24);
 
       // Invalid formats throw
       expect(() => calculateSubnet("192.168.1.0")).toThrow();

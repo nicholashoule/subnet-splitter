@@ -339,7 +339,7 @@ Based on Microsoft Azure AKS documentation:
 | Aspect | Azure Limit | Our Hyperscale | Status |
 |--------|-----------|----------------|--------|
 | **Max Nodes per Cluster** | 5,000 nodes | 5,000 nodes |  Supported |
-| **Max Pods per Cluster** | 200,000 pods (CNI Overlay) | 260,000+ pods (CNI Overlay) |  Over-provisioned |
+| **Max Pods per Cluster** | 200,000 pods (CNI Overlay) | ~225,000 pods (CNI Overlay: the `/13` holds 2,048 nodes at a `/24` each, 110 pods per node) |  Over-provisioned |
 | **Max Nodes per Node Pool** | 1,000 nodes | 1,000 nodes (suggest 5 pools for 5K) |  Supported |
 | **Max Node Pools** | 100 pools | Supports multiple pools |  Compliant |
 | **Max Pods per Node** | 250 pods (max) | 110 default, 250 with Azure CNI |  Supported |
@@ -366,10 +366,10 @@ Based on Microsoft Azure AKS documentation:
 | Tier | Node Range | Pod Capacity | Control Plane Tier |
 |------|-----------|--------------|-------------------|
 | Micro | 1 | ~110 | Free/Standard |
-| Standard | 1-3 | ~330-440 | Standard |
-| Professional | 3-10 | ~1,100-3,300 | Standard |
-| Enterprise | 10-50 | ~3,300-16,500 | Standard |
-| Hyperscale | 50-5000 | ~55,000-260,000 | Standard/Premium |
+| Standard | 1-3 | ~110-330 | Standard |
+| Professional | 3-10 | ~330-1,100 | Standard |
+| Enterprise | 10-50 | ~1,100-5,500 | Standard |
+| Hyperscale | 50-5000 | ~5,500-225,000 (the `/13` pod range holds 2,048 nodes) | Standard/Premium |
 
 ---
 
@@ -457,7 +457,7 @@ Header: Retry-After: <seconds>
 
 ### Private Network Mode
 
-With `"networkMode": "private"` the plan has no public subnets (`subnets.public` is empty). `subnets.loadBalancer` holds exactly one regional subnet (no zone) for internal load balancer frontends, at the tier's public subnet size (`/26` micro to `/23` hyperscale). Egress takes no subnet in the plan: set the cluster's `outbound_type` to `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` (the `azurerm` values are `loadBalancer`, `userDefinedRouting`, `managedNATGateway`, `userAssignedNATGateway`, and `none`). An enterprise plan for VNet `10.20.0.0/16` puts the load-balancer subnet at `10.20.0.0/24` and the API server subnet at `10.20.1.0/28`; node, API server, pod, and service ranges and the minimum VNet size are the same as in public mode. See [api.md](../api.md#private-network-mode).
+With `"networkMode": "private"` the plan has no public subnets (`subnets.public` is empty). `subnets.loadBalancer` holds exactly one regional subnet (no zone) for internal load balancer frontends, at the tier's public subnet size (`/26` micro to `/23` hyperscale). Egress takes no subnet in the plan: set the cluster's `outbound_type` to `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` (the `azurerm` values are `loadBalancer`, `userDefinedRouting`, `managedNATGateway`, `userAssignedNATGateway`, and `none`). An enterprise plan for VNet `10.20.0.0/16` puts the load-balancer subnet at `10.20.0.0/24` and the API server subnet at `10.20.1.0/28`; node, pod, and service ranges and the minimum VNet size are the same as in public mode. The API server subnet is the same `/28` but its position follows the first-fit layout: with only one load-balancer subnet ahead of it, it sits at `10.20.1.0/28` instead of the public-mode `10.20.3.0/28`. This happens from the professional tier up, where public mode has more than one public subnet. See [api.md](../api.md#private-network-mode).
 
 ---
 
@@ -693,7 +693,7 @@ Header: Retry-After: <delay-seconds>
 - Service CIDR: `/18` (16,384 addresses)
 - Nodes: 50-5,000
 - Node Pools: 5 minimum (5 × 1,000 = 5,000 nodes)
-- Pod Limit: 55,000-260,000 (AKS cap: 200,000 with CNI Overlay)
+- Pod Limit: 5,500-225,000 (the `/13` holds 2,048 nodes at a `/24` each; AKS cap: 200,000 with CNI Overlay)
 
 **AKS Compliance**:
 -  Standard or Premium Tier control plane
@@ -1221,7 +1221,7 @@ AKS requires a service CIDR smaller than /12
 
 ### Test Coverage
 
-**Unit Tests**: All 310 unit tests passing (7 files; `npm run test -- --run` runs all 528)
+**Unit Tests**: All 323 unit tests passing (6 files; `npm run test -- --run` runs all 503)
 - Subnet calculation verification
 - CIDR allocation correctness
 - Multi-pool node distribution

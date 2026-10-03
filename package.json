@@ -19,9 +19,9 @@
     "smoke": "tsx scripts/smoke-test.ts",
     "check": "tsc",
     "test": "vitest",
-    "test:emoji": "vitest run tests/unit/emoji-detection.test.ts",
-    "emoji:check": "tsx scripts/fix-emoji.ts",
-    "emoji:fix": "tsx scripts/fix-emoji.ts --fix",
+    "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist",
+    "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist -sub",
+    "prepare": "node scripts/install-hooks.mjs",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },

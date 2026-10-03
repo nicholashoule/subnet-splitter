@@ -77,6 +77,21 @@ const isHttpsCdn = (url: string) => {
   return parsed?.protocol === "https:" && parsed.hostname === CDN_HOST;
 };
 
+/** Starts the bundle with extra environment and waits (10s at most) for it to exit */
+function runToExit(env: Record<string, string>): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ["dist/index.cjs"], { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    const timer = setTimeout(() => child.kill(), 10_000);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code, output });
+    });
+  });
+}
+
 async function waitForServer() {
   for (let i = 0; i < 60; i++) {
     try {
@@ -149,6 +164,18 @@ try {
     assert(bad.status === 400, `unknown networkMode gave ${bad.status}`);
   });
 
+  await check("unknown API paths get a JSON 404, not the web app", async () => {
+    // In production the SPA fallback answers unmatched GETs, so this must come first
+    for (const path of ["/api/typo", "/api/k8s/plan"]) {
+      const res = await fetch(`${base}${path}`);
+      const body = await res.text();
+      assert(res.status === 404 && (res.headers.get("content-type") ?? "").includes("json"), `GET ${path}: ${res.status} ${body.slice(0, 40)}`);
+      assert(JSON.parse(body).code === "NOT_FOUND", `GET ${path}: ${body}`);
+    }
+    const repeated = await fetch(`${base}/api/k8s/tiers?format=json&format=yaml`);
+    assert(repeated.status === 200, `repeated format parameter gave ${repeated.status}`);
+  });
+
   await check("OpenAPI document is served (saved to dist/openapi.json)", async () => {
     const spec = await (await fetch(`${base}/api/docs`)).json();
     assert(spec.openapi === "3.0.0" && spec.info?.version === version, "unexpected openapi/info.version");
@@ -176,6 +203,18 @@ try {
     );
     for (const directive of ["script-src", "style-src"]) {
       assert(csp.get(directive)?.some(isHttpsCdn), `docs CSP ${directive} lacks the CDN`);
+    }
+  });
+
+  await check("invalid PORT and TRUST_PROXY stop startup with a clear error", async () => {
+    const cases: Array<[Record<string, string>, string]> = [
+      [{ PORT: "abc" }, "Invalid PORT"],
+      [{ PORT: "70000" }, "Invalid PORT"],
+      [{ TRUST_PROXY: "not-an-address" }, "Invalid TRUST_PROXY"],
+    ];
+    for (const [env, message] of cases) {
+      const { code, output } = await runToExit({ PORT: String(port + 1), HOST: "127.0.0.1", ...env });
+      assert(code === 1 && output.includes(message), `${JSON.stringify(env)}: exit ${code}, ${output.slice(0, 120)}`);
     }
   });
 } catch (error) {

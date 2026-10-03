@@ -16,8 +16,8 @@ applyTo: "tests/**"
 
 ```
 tests/
-  unit/              # Individual function tests (7 files, 310 tests)
-  integration/       # System-wide feature tests (8 files, 218 tests)
+  unit/              # Individual function tests (6 files, 323 tests)
+  integration/       # System-wide feature tests (8 files, 180 tests)
   manual/            # Manual testing scripts
   README.md          # Testing documentation
 ```
@@ -29,10 +29,10 @@ npm run test               # Watch mode (default)
 npm run test -- --run      # Run once and exit
 npm run test -- tests/unit/subnet-utils.test.ts   # Single file
 npm run test -- -t "pattern"                      # Filter by name
-npm run test:emoji         # Emoji detection only
+npm run emoji:check        # Emoji audit (demojify, needs Go; also a CI job)
 ```
 
-`tests/integration/swagger-ui-theming.test.ts` needs a dev server (`npm run dev`) on port 5000 and skips itself when none is running; every other test is self-contained.
+Every test is self-contained: integration tests start their own in-process servers, so nothing needs `npm run dev`.
 
 ## Writing Tests
 
@@ -71,9 +71,9 @@ See [docs/test-templates.md](../../docs/test-templates.md) for full templates an
 
 | Category | Tests | Files |
 |----------|-------|-------|
-| **Unit** | 310 | 7 (subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, emoji-detection, config) |
-| **Integration** | 218 | 8 (API, calculator-ui, k8s-api, rate-limiting, CSP, Swagger, static-serving) |
-| **Total** | 528 | 15 |
+| **Unit** | 323 | 6 (subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config) |
+| **Integration** | 180 | 8 (API, calculator-ui, k8s-api, rate-limiting, CSP, Swagger, static-serving) |
+| **Total** | 503 | 14 |
 | **Pass Rate** | 100% | |
 
 See [docs/test-suite-analysis.md](../../docs/test-suite-analysis.md) for detailed analysis.
@@ -82,7 +82,7 @@ See [docs/test-suite-analysis.md](../../docs/test-suite-analysis.md) for detaile
 
 All must pass before committing:
 
-- [ ] All 528 tests pass
+- [ ] All 503 tests pass
 - [ ] No skipped or pending tests (except during development)
 - [ ] WCAG accessibility standards maintained (ui-styles tests)
 - [ ] Security endpoints fully tested (CSP, rate limiting)
@@ -94,9 +94,10 @@ All must pass before committing:
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request, on Node.js 24 and 26 (15-minute timeout):
 
 1. `npm ci`, `npm audit`, `npm run check`
-2. `npm run test -- --run` (no dev server, so `swagger-ui-theming.test.ts` skips itself)
-3. `npm run build`, then `npm run smoke`: `scripts/smoke-test.ts` starts `dist/index.cjs` on `SMOKE_PORT` (default 5099), checks health, app and CSP headers, SPA fallback, the plan and tiers APIs (private mode, validation errors), and API docs SRI, and writes `dist/openapi.json`
+2. `npm run test -- --run`
+3. `npm run build`, then `npm run smoke`: `scripts/smoke-test.ts` starts `dist/index.cjs` on `SMOKE_PORT` (default 5099), checks health, app and CSP headers, SPA fallback, the plan and tiers APIs (private mode, validation errors), JSON 404s for unknown API paths, API docs SRI, and startup rejection of a bad `PORT` or `TRUST_PROXY`, and writes `dist/openapi.json` (after checking it matches `server/openapi.ts`)
 4. `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`
+5. A separate `emoji` job: `npm run emoji:check` (demojify, Go). The same check runs as a pre-commit hook (`.githooks/pre-commit`), which skips with a message when Go 1.24+ is missing
 
 `.github/workflows/validate-instructions.yml` runs when instruction files change: each `.github/instructions/*.instructions.md` needs `applyTo` front matter, `---` on line 1, and at most 200 lines; `.github/copilot-instructions.md` stays at 10 lines or fewer.
 
@@ -114,16 +115,15 @@ See [docs/test-templates.md](../../docs/test-templates.md) for manual API testin
 - `kubernetes-network-generator.test.ts` -- network generation, tier configs, CIDR normalization
 - `network-separation.test.ts` -- every tier x provider x `networkMode` keeps nodes, control plane, pods, and services separated; one-network control plane (GKE/AKS/generic: one `/28`; EKS: two `/28`s in two AZs on a `/27` boundary); private mode (no public subnets; `subnets.loadBalancer`: GKE one `/26`-`/23` regional subnet, AKS one, EKS two or more AZs; empty in public mode; private tier layouts; unknown mode rejected); EKS two-AZ rule; GKE/AKS regional subnets; `podsCidr`/`servicesCidr`/`availabilityZones` overrides; `172.17.0.0/16` warnings; provider-specific `minVpcPrefix`
 - `ip-calculation-compliance.test.ts` -- provider-specific IP allocation formulas
-- `ui-styles.test.ts` -- WCAG contrast for every text pair the app renders (light and dark, tokens read from `index.css`), page semantics
-- `emoji-detection.test.ts` -- emoji validation in source files
+- `ui-styles.test.ts` -- WCAG contrast for every text pair the app renders (light and dark, tokens read from `index.css`), a guard against Tailwind palette colors, page semantics
 - `config.test.ts` -- configuration validation
 
 ### Integration Tests
-- `api-endpoints.test.ts` -- API infrastructure (44 tests)
-- `calculator-ui.test.ts` -- React components (52 tests)
-- `kubernetes-network-api.test.ts` -- K8s API endpoint flow (48 tests)
-- `rate-limiting.test.ts` -- security middleware (25 tests)
-- `swagger-ui-csp-middleware.test.ts` -- CSP middleware (20 tests)
-- `swagger-ui-theming.test.ts` -- Swagger UI themes (12 tests)
-- `csp-violation-endpoint.test.ts` -- CSP violations (12 tests)
+- `api-endpoints.test.ts` -- API infrastructure, JSON 404s, formats, docs page (47 tests)
+- `calculator-ui.test.ts` -- calculator logic through the real subnet-utils functions (28 tests)
+- `kubernetes-network-api.test.ts` -- K8s plan generation called directly (44 tests)
+- `rate-limiting.test.ts` -- rate limiters and logging of rejected requests (27 tests)
+- `swagger-ui-csp-middleware.test.ts` -- production and docs-page CSP headers (10 tests)
+- `swagger-ui-theming.test.ts` -- docs page theme scripts, run in a node:vm sandbox (7 tests)
+- `csp-violation-endpoint.test.ts` -- the real CSP violation endpoint (12 tests)
 - `static-serving.test.ts` -- production static file serving (5 tests)

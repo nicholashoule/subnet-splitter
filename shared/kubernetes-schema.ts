@@ -62,7 +62,7 @@ export const DeploymentSizeEnum = z.enum([
   "standard",      // Dev/Test: 1-3 nodes
   "professional",  // Small Prod: 3-10 nodes
   "enterprise",    // Large Prod: 10-50 nodes
-  "hyperscale"     // Global Scale: 50-5000 nodes
+  "hyperscale"     // Global Scale: 50-5,000 nodes (default /13 pods range: 2,048 nodes at a /24 each)
 ]);
 export type DeploymentSize = z.infer<typeof DeploymentSizeEnum>;
 

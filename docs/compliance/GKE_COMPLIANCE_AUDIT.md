@@ -330,7 +330,7 @@ With `"networkMode": "private"` the plan has no public subnets (`subnets.public`
 
 `subnets.loadBalancer` holds exactly one regional subnet (no zone), at the tier's public subnet size (`/26` micro to `/23` hyperscale), meant as the region's proxy-only subnet (`purpose` `REGIONAL_MANAGED_PROXY`). Proxy-only subnets power regional internal and external Application Load Balancers, regional proxy Network Load Balancers, and cross-region internal Application Load Balancers. The minimum is `/26`, and Google recommends starting with `/23`. Only one `REGIONAL_MANAGED_PROXY` subnet can be active per region per VPC network, so clusters in the same region and network share it, and it can't be used for anything else (no VMs). Internal passthrough Network Load Balancers, like the internal load balancer row above, take IPs from the node subnet unless another subnet is chosen.
 
-An enterprise plan for VPC `10.20.0.0/16` puts the proxy-only subnet at `10.20.0.0/24`, the control-plane range at `10.20.1.0/28`, and nodes at `10.20.8.0/21`, `10.20.16.0/21`, and `10.20.24.0/21`; node, control-plane, pod, and service ranges and the minimum VPC size are the same as in public mode. See [api.md](../api.md#private-network-mode).
+An enterprise plan for VPC `10.20.0.0/16` puts the proxy-only subnet at `10.20.0.0/24`, the control-plane range at `10.20.1.0/28`, and nodes at `10.20.8.0/21`, `10.20.16.0/21`, and `10.20.24.0/21`; node, pod, and service ranges and the minimum VPC size are the same as in public mode. The control-plane range is the same `/28` but its position follows the first-fit layout: with only one load-balancer subnet ahead of it, it sits at `10.20.1.0/28` instead of the public-mode `10.20.3.0/28`. This happens from the professional tier up, where public mode has more than one public subnet. See [api.md](../api.md#private-network-mode).
 
 ---
 
@@ -879,9 +879,9 @@ describe("GKE Compliance", () => {
 ### WARNING - Areas Requiring Attention
 
 1. ~~**Hyperscale primary subnet**~~ - **RESOLVED**: 3 × `/20` supports full 5,000 nodes
-2. **Pod density documentation** - Add examples for both Standard and Autopilot
+2. ~~**Pod density documentation**~~ - **RESOLVED**: Standard (110 pods/node) and Autopilot (32) examples in [kubernetes-network-reference.md](kubernetes-network-reference.md#gke-compliance--ip-formulas)
 3. **API response warnings** - Consider adding GKE quota warnings
-4. **Test coverage** - Add GKE formula validation tests
+4. ~~**Test coverage**~~ - **RESOLVED**: GKE formula tests in `tests/unit/ip-calculation-compliance.test.ts` ("GKE Pod CIDR Formula Validation", "GKE-Specific Compliance")
 
 ### Recommended Updates
 
@@ -889,11 +889,11 @@ describe("GKE Compliance", () => {
 1.  Hyperscale uses 3 × `/20` private subnets (12,276 nodes capacity)
 2.  Pod density documentation in [kubernetes-network-reference.md](kubernetes-network-reference.md#gke-compliance--ip-formulas) (110 pods/node Standard, 32 Autopilot)
 3.  Tier configurations use differentiated public/private sizes
+4.  GKE formula and compliance tests in `tests/unit/ip-calculation-compliance.test.ts`
+5.  GKE pod CIDR and primary subnet formulas in [kubernetes-network-reference.md](kubernetes-network-reference.md#gke-compliance--ip-formulas)
 
 **Medium Priority (3-5 days):**
-1. Add GKE compliance test suite
-2. Add quota warnings to API responses
-3. Enhanced documentation with formulas
+1. Add quota warnings to API responses (the plan's `warnings` field reports only reserved-range overlaps today)
 
 **Low Priority (Future):**
 1. Custom pod density parameter in API

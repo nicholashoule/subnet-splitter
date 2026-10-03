@@ -13,7 +13,7 @@ A subnet calculator web app and a Kubernetes network-planning API. The API gener
 ### Frontend Application
 - **Subnet Calculation**: Enter any CIDR notation to get detailed network information
 - **Recursive Splitting**: Split networks into smaller subnets down to /32 (single host)
-- **Interactive Table**: Expand/collapse subnet hierarchies with visual indentation
+- **Interactive Table**: Split subnets appear below their parent, each marked by a color-coded bar for its prefix length; remove a split to restore the parent, or turn on Hide Parents to list only the smallest subnets
 - **Copy to Clipboard**: Click to copy any field value (network address, broadcast, hosts, etc.)
 - **CSV Export**: Select rows and export subnet details to CSV for use in Excel or other tools
 - **Dark/Light Mode**: Theme support with elegant UI
@@ -105,7 +105,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 │   ├── schema.ts           # Subnet types and limits (dependency-free, safe for the client bundle)
 │   └── kubernetes-schema.ts # Kubernetes API Zod schemas and tier configuration
 ├── tests/                  # Unit and integration test suite (Vitest)
-│   ├── unit/               # Calculator math, plan generator, network separation, compliance, config, styles, emoji
+│   ├── unit/               # Calculator math, plan generator, network separation, compliance, config, styles
 │   ├── integration/        # API endpoints, calculator, rate limiting, CSP, static serving, Swagger UI
 │   ├── manual/             # Manual testing scripts (2 PowerShell, 2 TypeScript)
 │   ├── helpers/            # Shared test utilities
@@ -113,7 +113,9 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 ├── scripts/                # Build and utility tools
 │   ├── build.ts            # Production build (client with Vite, server bundle with esbuild)
 │   ├── smoke-test.ts       # Starts the production build and checks it over HTTP
-│   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
+│   └── install-hooks.mjs   # Points git at .githooks/ (runs on npm install)
+├── .githooks/
+│   └── pre-commit          # Emoji check before each commit (skipped without Go 1.24+)
 ├── .github/
 │   ├── workflows/          # CI (ci.yml) and instruction-file validation
 │   ├── instructions/       # Development guidelines (backend, frontend, testing, general)
@@ -214,15 +216,15 @@ npm run smoke    # optional: start the build on port 5099 and check it over HTTP
 
 The production build creates optimized assets in `dist/public/` and a self-contained server bundle at `dist/index.cjs` (all server dependencies are bundled, so `node_modules` is not needed at runtime; `NODE_ENV=production` is baked in at build time). To deploy, copy `dist/` to a host with Node.js 24 or 26 and run `node dist/index.cjs`.
 
-`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), and the API docs page, then stops it. It also checks that the served OpenAPI document matches `server/openapi.ts` and writes it to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
+`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), JSON 404s for unknown API paths, and the API docs page, then stops it. It also checks that a bad `PORT` or `TRUST_PROXY` stops startup with a clear error. It also checks that the served OpenAPI document matches `server/openapi.ts` and writes it to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
 
 **Runtime configuration (environment variables):**
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PORT` | `5000` | Port for both the API and the web UI |
+| `PORT` | `5000` | Port for both the API and the web UI (an integer from 1 to 65535; anything else stops startup with an error) |
 | `HOST` | `0.0.0.0` in production, `127.0.0.1` in development | Interface to bind. Production binds all interfaces so the server is reachable in a container |
-| `TRUST_PROXY` | `false` | Set to the number of trusted proxy hops (e.g. `1`) or a comma-separated list of proxy IPs/CIDRs when running behind a load balancer, so per-IP rate limiting sees real client IPs. Only trust proxies you control |
+| `TRUST_PROXY` | `false` | Set to the number of trusted proxy hops (e.g. `1`) or a comma-separated list of proxy IPs/CIDRs when running behind a load balancer, so per-IP rate limiting sees real client IPs. Only trust proxies you control. `true` trusts every proxy and is logged as a warning, since any client can then choose its own IP; an invalid value stops startup with an error |
 
 Health checks for load balancers and Kubernetes probes: `GET /health`, `/health/ready`, `/health/live` (also under `/api/v1/health`). They are never rate limited.
 
@@ -247,19 +249,17 @@ npm test
 npm test -- --run tests/unit/subnet-utils.test.ts
 npm test -- --run tests/unit/network-separation.test.ts
 
-# Run API tests specifically (JSON/YAML validation)
+# Run the Kubernetes planning API tests
 npm test -- --run tests/integration/kubernetes-network-api.test.ts
 
-# Run only JSON/YAML format tests
-npm test -- --run tests/integration/kubernetes-network-api.test.ts -t "Output Format"
+# Run only the JSON/YAML response format tests
+npm test -- --run tests/integration/api-endpoints.test.ts -t "Response Format Support"
 
-# Run emoji detection tests
-npm run test:emoji
-
-# Check for emoji in codebase
+# Check for emoji (demojify CLI; needs Go 1.24+). Also runs as a pre-commit hook,
+# installed by npm install, and as a CI job
 npm run emoji:check
 
-# Auto-fix emoji in codebase
+# Replace emoji with text tokens such as [PASS] and [FAIL]
 npm run emoji:fix
 ```
 
@@ -322,18 +322,17 @@ The project includes a comprehensive test suite (100% passing) covering:
 - **Kubernetes network generation**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
 - **Network separation**: For every tier, provider, and network mode (plus 2,000 random VPCs): nodes, control plane, pods, and services never overlap, every CIDR is canonical, reserved ranges are avoided, EKS spans two AZs, the control plane is one network, private mode has no public subnets, and overrides are validated
 - **IP calculation compliance**: IP allocation formulas, deployment tier compliance, exact minimum VPC sizes per provider
-- **UI styles**: WCAG accessibility (pure math functions), HSL→RGB conversion, luminance calculations
-- **Emoji detection**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
+- **UI styles**: WCAG contrast of the color pairs the app renders, in both themes, with colors read from `client/src/index.css`; no hard-coded Tailwind palette colors in client code outside the depth indicator; design system consistency and page structure
 - **Configuration**: Tailwind v4 setup (Vite plugin, no legacy config or PostCSS, theme tokens defined for both themes), Vite configuration validation
 
 **Integration Tests:**
-- **API endpoints**: Health checks, OpenAPI spec (examples checked against live responses), provider and network-mode tiers, validation errors, and the API docs page (palette matches the web app, pinned SRI assets, theme toggle)
+- **API endpoints**: Health checks, OpenAPI spec (examples checked against live responses), provider and network-mode tiers, validation errors, JSON and YAML response formats, and the API docs page (palette matches the web app, pinned SRI assets, theme toggle)
 - **Calculator UI**: React component behavior, form validation, subnet operations, CSV export, hide parents feature, depth indicator visual hierarchy
-- **Kubernetes Network Planning API**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
+- **Kubernetes Network Planning API**: Plan structure (plain data that survives a JSON round trip), RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
 - **Rate limiting**: API limit (100/min, health exempt) and SPA fallback limit, standard rate-limit headers
 - **Static serving**: Compression and cache headers for hashed assets and `index.html`
 - **Swagger UI CSP middleware**: Route-specific CSP; the global CSP allows no third-party scripts
-- **Swagger UI theming**: The docs page served by a running dev server on port 5000 (skips itself when none is running)
+- **Swagger UI theming**: The docs page served by an in-process server the test starts itself, so it always runs (no `npm run dev` needed)
 - **CSP violation endpoint**: W3C spec compliance, rate limiting, schema validation
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/test-suite-analysis.md](docs/test-suite-analysis.md) for detailed test suite analysis.
@@ -350,10 +349,12 @@ See [tests/README.md](tests/README.md) for comprehensive testing documentation a
 6. `npm run smoke` (starts `dist/index.cjs` and checks it over HTTP)
 7. OpenAPI validation of the served document (`@apidevtools/swagger-cli`)
 
-Run the same checks locally before pushing:
+A separate `emoji` job runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) over every text file and fails on any emoji; see [.github/emoji-prevention.md](.github/emoji-prevention.md).
+
+Run the same checks locally before pushing (`emoji:check` needs Go 1.24+):
 
 ```bash
-npm audit && npm run check && npm test -- --run && npm run build && npm run smoke
+npm audit && npm run check && npm test -- --run && npm run build && npm run smoke && npm run emoji:check
 ```
 
 [`.github/workflows/validate-instructions.yml`](.github/workflows/validate-instructions.yml) checks the files in `.github/instructions/` (front matter, at most 200 lines each) when they change.
@@ -653,6 +654,14 @@ curl http://localhost:5000/api/k8s/tiers
 }
 ```
 
+**404 Not Found** - No API route for that path and method (paths are case-sensitive):
+```json
+{
+  "error": "Not found",
+  "code": "NOT_FOUND"
+}
+```
+
 **429 Too Many Requests** - More than 100 API requests in a minute from one IP:
 ```json
 {
@@ -734,7 +743,7 @@ The calculator supports all five IPv4 address classes:
 
 The calculator includes pre-configured examples for the three RFC 1918 private address ranges:
 - `10.0.0.0/8` - Class A private (entire first octet)
-- `172.16.0.0/12` - Class B private (16.0.0.0 to 31.255.255.255)
+- `172.16.0.0/12` - Class B private (172.16.0.0 to 172.31.255.255)
 - `192.168.0.0/16` - Class C private (65,536 addresses)
 
 ## Example CIDR Ranges

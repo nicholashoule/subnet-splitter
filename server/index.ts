@@ -18,44 +18,26 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import compression from "compression";
-import helmet from "helmet";
-import { rateLimit, ipKeyGenerator } from "express-rate-limit";
+import { registerCspViolationEndpoint } from "./csp-report";
 import { registerRoutes, createApiRateLimiter } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { logger } from "./logger";
-import { baseCSPDirectives, developmentCSPAdditions, cspViolationReportSchema } from "./csp-config";
+import { logger, requestLogger } from "./logger";
+import { createSecurityHeaders } from "./csp-config";
 
 const app = express();
+
+// Match routes case-sensitively, as the rate limiter, its health-check exemption and
+// request logging do (/API/K8S/PLAN is not an API path)
+app.set("case sensitive routing", true);
 
 // Security headers with environment-aware CSP configuration
 // Development mode needs relaxed CSP for Vite HMR
 // Production mode uses strict CSP for maximum security
 const isDevelopment = process.env.NODE_ENV !== "production";
 
-// Build CSP directives from shared configuration
-// Start with base directives, then add environment-specific additions
-const cspDirectives: Record<string, string[]> = { ...baseCSPDirectives };
-
-// In development, add relaxed CSP for Vite HMR and CSP violation reporting
-if (isDevelopment) {
-  // Vite injects inline scripts for Fast Refresh and HMR
-  cspDirectives.scriptSrc = [...(cspDirectives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
-  // Enable CSP violation reporting so we catch issues before production
-  cspDirectives.connectSrc = [...(cspDirectives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
-  cspDirectives.reportUri = developmentCSPAdditions.reportUri;
-}
-
-// Security middleware with strict CSP configuration
-// crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
-// X-Content-Type-Options: nosniff is set by default in Helmet v8
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: cspDirectives,
-  },
-  crossOriginEmbedderPolicy: false,
-  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-}));
+// Security headers, with a CSP built from server/csp-config.ts
+app.use(createSecurityHeaders(isDevelopment));
 
 // Compress responses (gzip/brotli) to speed up first load of the JS/CSS bundle.
 app.use(compression());
@@ -70,19 +52,35 @@ const httpServer = createServer(app);
 // - TRUST_PROXY=false (default): Don't trust any proxy headers, use direct socket IP
 // - TRUST_PROXY=<N>: Trust N hops through proxies (e.g., 1 for single reverse proxy)
 // - TRUST_PROXY="<IP1>,<IP2>,...": Trust specific proxy IPs/CIDRs (e.g., "10.0.0.0/8,127.0.0.1")
-const trustProxyConfig = process.env.TRUST_PROXY || 'false';
+// - TRUST_PROXY=true: Trust every proxy (any client can then set its own IP; avoid)
+const trustProxyConfig = (process.env.TRUST_PROXY || 'false').trim().toLowerCase();
 
-if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
-  // Default: don't trust any proxies - use direct socket IP
-  // Safe for direct internet exposure, local development, or when running behind unknown proxies
-  app.set('trust proxy', false);
-} else if (/^\d+$/.test(trustProxyConfig)) {
-  // Numeric value: trust N hops through proxies
-  app.set('trust proxy', parseInt(trustProxyConfig, 10));
-} else {
-  // Assume it's a comma-separated list of IPs/CIDRs
-  app.set('trust proxy', trustProxyConfig.split(',').map(ip => ip.trim()));
+try {
+  if (trustProxyConfig === 'false' || trustProxyConfig === '0') {
+    // Default: don't trust any proxies - use direct socket IP
+    // Safe for direct internet exposure, local development, or when running behind unknown proxies
+    app.set('trust proxy', false);
+  } else if (trustProxyConfig === 'true') {
+    logger.warn('TRUST_PROXY=true trusts X-Forwarded-For from any client; per-IP rate limits can be bypassed. Prefer a hop count or proxy addresses.');
+    app.set('trust proxy', true);
+  } else if (/^\d+$/.test(trustProxyConfig)) {
+    // Numeric value: trust N hops through proxies
+    app.set('trust proxy', parseInt(trustProxyConfig, 10));
+  } else {
+    // Comma-separated list of IPs/CIDRs (Express rejects invalid entries)
+    app.set('trust proxy', trustProxyConfig.split(',').map(ip => ip.trim()));
+  }
+} catch (error) {
+  logger.error('Invalid TRUST_PROXY: use false, true, a hop count, or comma-separated proxy IPs/CIDRs', {
+    value: process.env.TRUST_PROXY,
+    reason: error instanceof Error ? error.message : String(error),
+  });
+  process.exit(1);
 }
+
+// Request logging for API calls. Registered before the body parsers and the rate
+// limiter, so requests they reject (400, 413, 429) are logged too.
+app.use(requestLogger);
 
 // Parse JSON bodies for application/json and application/csp-report
 // Browsers send CSP violation reports with Content-Type: application/csp-report per W3C spec
@@ -94,96 +92,11 @@ app.use(express.urlencoded({ extended: false, limit: "16kb" }));
 // Per-IP rate limit for the API (health checks are exempt so probes never fail)
 app.use("/api", createApiRateLimiter());
 
-// CSP violation reporting endpoint (development only)
-// Browsers send CSP violation reports here when content is blocked
-// This helps catch CSP issues early before pushing to production
+// CSP violation reporting endpoint (development only): browsers report blocked
+// content here, so CSP problems show up before they reach production
 if (isDevelopment) {
-  // Rate limit CSP violation reports to prevent log flooding attacks
-  // Legitimate CSP violations are rare and browsers batch them
-  const cspViolationLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 reports per window
-    standardHeaders: true,
-    legacyHeaders: false,
-    skipSuccessfulRequests: false, // Count all requests, even successful ones
-    message: "Too many CSP violation reports. Please try again later.",
-    // Custom key generator: handle undefined IPs gracefully and normalize IPv6
-    // When trust proxy = false, req.ip may be undefined for some connections
-    keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'localhost-dev',
-  });
-
-  app.post('/__csp-violation', cspViolationLimiter, (req: Request, res: Response) => {
-    try {
-      // Validate the wrapper structure (browsers send { "csp-report": {...} })
-      const validationResult = cspViolationReportSchema.safeParse(req.body);
-
-      if (!validationResult.success) {
-        // Log validation error with details for debugging (development only)
-        // Guard against null/primitive req.body values (express.json() can parse "null" as null)
-        const bodyKeys = req.body && typeof req.body === 'object' ? Object.keys(req.body) : [];
-        logger.warn('Invalid CSP violation report received', {
-          error: 'Request body does not match CSP violation report schema',
-          issues: validationResult.error.issues.length,
-          bodyKeys,
-          bodyType: typeof req.body,
-          contentType: req.get('content-type'),
-          firstIssue: validationResult.error.issues[0],
-        });
-        // Return 204 No Content regardless (don't leak schema info to potential attackers)
-        res.status(204).end();
-        return;
-      }
-
-      // Extract the actual violation data from the csp-report wrapper
-      const violation = validationResult.data['csp-report'];
-
-      // Only log if we have actual violation data (at least one expected field)
-      if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
-        logger.warn('CSP Violation Detected in Development', {
-          blockedUri: violation['blocked-uri'],
-          violatedDirective: violation['violated-directive'],
-          originalPolicy: violation['original-policy'],
-          sourceFile: violation['source-file'],
-          lineNumber: violation['line-number'],
-          columnNumber: violation['column-number'],
-          documentUri: violation['document-uri'],
-          disposition: violation.disposition,
-        });
-      } else {
-        // Empty or minimal report - still log but at debug level
-        logger.debug('CSP violation report received with minimal data', {
-          bodyFields: Object.keys(req.body).length,
-        });
-      }
-    } catch (error) {
-      // Handle unexpected errors gracefully
-      logger.error('Error processing CSP violation report', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-
-    // Always return 204 No Content per CSP spec
-    // This acknowledges receipt without exposing details
-    res.status(204).end();
-  });
+  registerCspViolationEndpoint(app);
 }
-
-// Request logging for API calls (health probes are skipped to keep logs useful)
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-
-  res.on("finish", () => {
-    if (path.startsWith("/api") && !path.startsWith("/api/v1/health")) {
-      logger.request(req.method, path, res.statusCode, Date.now() - start, {
-        ip: req.ip,
-        userAgent: req.get("user-agent"),
-      });
-    }
-  });
-
-  next();
-});
 
 (async () => {
   const { routes } = await registerRoutes(httpServer, app);
@@ -193,6 +106,17 @@ app.use((req, res, next) => {
     logger.debug(`  ${r.method.padEnd(6)} ${r.path}`);
   }
 
+  // importantly only setup vite in development and after
+  // setting up all the other routes so the catch-all route
+  // doesn't interfere with the other routes
+  if (process.env.NODE_ENV === "production") {
+    serveStatic(app);
+  } else {
+    const { setupVite } = await import("./vite");
+    await setupVite(httpServer, app);
+  }
+
+  // Error handler last, so it also catches errors from static serving and Vite
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
 
@@ -214,20 +138,15 @@ app.use((req, res, next) => {
     });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
-
   // Serve the app on PORT (default 5000); this serves both the API and the client.
   // Production binds all interfaces so the server is reachable inside containers;
   // development binds loopback only. Override either with HOST.
-  const port = parseInt(process.env.PORT || "5000", 10);
+  const portSetting = (process.env.PORT || "5000").trim();
+  const port = Number(portSetting);
+  if (!/^\d+$/.test(portSetting) || port < 1 || port > 65535) {
+    logger.error("Invalid PORT: use an integer from 1 to 65535", { value: process.env.PORT });
+    process.exit(1);
+  }
   const host = process.env.HOST || (isDevelopment ? "127.0.0.1" : "0.0.0.0");
 
   // Harden the HTTP server against slow-client and hung-socket attacks.

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Pre-commit hook: the same emoji audit CI runs (npm run emoji:check, demojify).
+# Installed by `npm install` (scripts/install-hooks.mjs sets core.hooksPath to .githooks).
+# POSIX sh, so it runs on Windows (Git for Windows ships sh), macOS and Linux.
+
+MIN_GO_MINOR=24 # demojify needs Go 1.24 or newer
+
+skip() {
+  echo "pre-commit: $1" >&2
+  echo "pre-commit: skipping the emoji check; install Go 1.$MIN_GO_MINOR or newer (https://go.dev/dl/). CI still runs it." >&2
+  exit 0
+}
+
+command -v go >/dev/null 2>&1 || skip "Go is not installed."
+
+# go env GOVERSION prints e.g. go1.25.7 (empty on very old releases)
+version=$(go env GOVERSION 2>/dev/null)
+version=${version#go}
+major=${version%%.*}
+minor=$(printf '%s' "${version#*.}" | sed 's/[^0-9].*//')
+if [ "$major" != "1" ] || [ -z "$minor" ] || [ "$minor" -lt "$MIN_GO_MINOR" ]; then
+  skip "found Go ${version:-of unknown version}."
+fi
+
+if ! npm run --silent emoji:check; then
+  echo "pre-commit: emoji found. Run npm run emoji:fix, review with git diff, stage the result and commit again." >&2
+  exit 1
+fi

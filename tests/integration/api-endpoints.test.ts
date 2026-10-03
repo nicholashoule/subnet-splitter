@@ -77,10 +77,10 @@ describe("API Endpoints Integration", () => {
         fetch(`${baseUrl}/health/live`).then(r => r.json())
       ]);
 
-      // All timestamps should be valid ISO 8601 format
-      expect(new Date(health.timestamp).getTime()).toBeGreaterThan(0);
-      expect(new Date(ready.timestamp).getTime()).toBeGreaterThan(0);
-      expect(new Date(live.timestamp).getTime()).toBeGreaterThan(0);
+      // All timestamps are ISO 8601 in UTC, exactly as Date#toISOString() writes them
+      for (const { timestamp } of [health, ready, live]) {
+        expect(timestamp).toBe(new Date(timestamp).toISOString());
+      }
     });
   });
 
@@ -190,8 +190,8 @@ describe("API Endpoints Integration", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deploymentSize: "standard" })
           });
-          // POST should return 200 or 201, not 404
-          expect([200, 201, 400], `POST ${fullPath} should not return 404`).toContain(response.status);
+          // The body is a valid minimal request, so every documented POST path must plan it
+          expect(response.status, `POST ${fullPath}`).toBe(200);
         }
       }
     });
@@ -233,8 +233,11 @@ describe("API Endpoints Integration", () => {
       expect(html).toContain("localStorage.getItem('theme') === 'dark'");
       expect(html).toContain("localStorage.setItem('theme', next)");
       expect(html).toContain("window.addEventListener('storage'");
-      // Accessible toggle with SVG icons whose visibility follows the theme class
-      expect(html).toMatch(/<button id="theme-toggle" type="button" aria-label="[^"]+">/);
+      // Accessible toggle whose name says what a press will do, updated on every render
+      expect(html).toContain('<button id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">');
+      expect(html).toContain("var label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';");
+      expect(html).toContain("toggle.setAttribute('aria-label', label);");
+      // SVG icons whose visibility follows the theme class
       expect(html).toContain('class="sun-icon"');
       expect(html).toContain('class="moon-icon"');
       expect(html).toContain("html.dark #theme-toggle .sun-icon { display: block; }");
@@ -258,13 +261,13 @@ describe("API Endpoints Integration", () => {
 
       // "210 20% 98%" in the app becomes "hsl(210, 20%, 98%)" on the docs page
       const tokens = (block: string) => Object.fromEntries(
-        [...block.matchAll(/--(background|foreground|card|border|muted-foreground|primary|primary-foreground|destructive):\s*(\d+) (\d+%) (\d+%);/g)]
+        [...block.matchAll(/--(background|foreground|card|border|muted-foreground|primary|primary-foreground|destructive|success):\s*(\d+) (\d+%) (\d+%);/g)]
           .map(([, name, h, s, l]) => [name, `hsl(${h}, ${s}, ${l})`])
       );
       const light = tokens(appCss.slice(appCss.indexOf(":root"), appCss.indexOf(".dark {")));
       const dark = tokens(appCss.slice(appCss.indexOf(".dark {")));
-      expect(Object.keys(light)).toHaveLength(8);
-      expect(Object.keys(dark)).toHaveLength(8);
+      expect(Object.keys(light)).toHaveLength(9);
+      expect(Object.keys(dark)).toHaveLength(9);
 
       const docsRoot = html.slice(html.indexOf(":root {"), html.indexOf("html.dark {"));
       const docsDark = html.slice(html.indexOf("html.dark {"), html.indexOf("}", html.indexOf("html.dark {")));
@@ -405,13 +408,14 @@ describe("API Endpoints Integration", () => {
       const data2 = await response2.json();
       const data3 = await response3.json();
 
-      // All should return same structure (excluding generated metadata)
-      expect(data1.deploymentSize).toBe(data2.deploymentSize);
-      expect(data2.deploymentSize).toBe(data3.deploymentSize);
-      expect(data1.provider).toBe(data2.provider);
-      expect(data2.provider).toBe(data3.provider);
-      expect(data1.vpc.cidr).toBe(data2.vpc.cidr);
-      expect(data2.vpc.cidr).toBe(data3.vpc.cidr);
+      // The whole plan matches; only the generation timestamp may differ
+      const withoutTimestamp = (plan: { metadata: Record<string, unknown> }) => ({
+        ...plan,
+        metadata: { ...plan.metadata, generatedAt: undefined },
+      });
+      expect(response1.status).toBe(200);
+      expect(withoutTimestamp(data2)).toEqual(withoutTimestamp(data1));
+      expect(withoutTimestamp(data3)).toEqual(withoutTimestamp(data1));
     });
 
     it("should accept requests to /api/v1/kubernetes/tiers", async () => {
@@ -621,20 +625,48 @@ describe("API Endpoints Integration", () => {
       expect(response.status).toBe(400);
     });
 
-    it("should reject requests with extra unknown fields", async () => {
+    it("should ignore unknown fields (forward compatible) without echoing them", async () => {
       const response = await fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deploymentSize: "standard",
-          provider: "kubernetes",
-          unknownField: "should be rejected"
-        })
+        // Raw JSON: in an object literal, __proto__ would set the prototype and JSON.stringify would drop it
+        body: '{"deploymentSize":"standard","provider":"kubernetes","unknownField":"ignored","__proto__":{"polluted":true}}'
       });
+      const text = await response.text();
 
-      // Should either accept (ignore extra fields) or reject
-      // Most APIs ignore extra fields for forward compatibility
-      expect([200, 400]).toContain(response.status);
+      expect(response.status).toBe(200);
+      expect(text).not.toContain("unknownField");
+      expect(text).not.toContain("polluted");
+    });
+
+    it("should answer unknown API paths and methods with a JSON 404, not the web app", async () => {
+      const requests: Array<[string, RequestInit?]> = [
+        ["/api/typo"],
+        ["/api/k8s/plan"], // exists, but only for POST
+        ["/api/typo", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }],
+      ];
+      for (const [path, init] of requests) {
+        const response = await fetch(`${baseUrl}${path}`, init);
+        expect(response.status, `${init?.method ?? "GET"} ${path}`).toBe(404);
+        expect(response.headers.get("content-type")).toContain("application/json");
+        expect(await response.json()).toEqual({ error: "Not found", code: "NOT_FOUND" });
+      }
+    });
+
+    it("should treat a repeated format parameter as the default (JSON), not fail", async () => {
+      const tiers = await fetch(`${baseUrl}/api/k8s/tiers?format=json&format=yaml`);
+      expect(tiers.status).toBe(200);
+      expect(tiers.headers.get("content-type")).toContain("application/json");
+
+      const plan = await fetch(`${baseUrl}/api/k8s/plan?format=yaml&format=yaml`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deploymentSize: "micro", provider: "eks" })
+      });
+      expect(plan.status).toBe(200);
+
+      const docs = await fetch(`${baseUrl}/api/docs?format=json&format=yaml`);
+      expect(docs.status).toBe(200);
     });
   });
 
@@ -676,6 +708,20 @@ describe("API Endpoints Integration", () => {
       expect(text).toContain("provider: kubernetes");
       expect(text).toContain("vpc:");
       expect(text).toContain("subnets:");
+    });
+
+    it("should quote YAML strings that YAML 1.1 readers would load as booleans", async () => {
+      // Terraform's yamldecode and PyYAML read unquoted yes/no/on/off as true/false
+      const response = await fetch(`${baseUrl}/api/k8s/plan?format=yaml`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deploymentSize: "micro", provider: "gke", region: "no", deploymentName: "yes" })
+      });
+      const text = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(text).toContain('region: "no"');
+      expect(text).toContain('deploymentName: "yes"');
     });
   });
 });

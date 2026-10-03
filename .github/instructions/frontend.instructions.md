@@ -39,7 +39,7 @@ applyTo: "client/**"
 - **Tailwind utility classes exclusively** -- no inline styles
 - Custom styles only in `index.css` for reusable patterns (e.g., `.elegant-scrollbar`)
 - Support both light and dark modes via Tailwind `dark:` prefix
-- No hardcoded colors -- all via CSS variables
+- No hardcoded colors -- all via CSS variables; Tailwind palette classes (`text-green-600`, `bg-gray-50`) fail `tests/unit/ui-styles.test.ts` (only the decorative depth bars in `subnet-utils.ts` are exempt)
 - No horizontal scrollbars on 1080p+ screens
 
 ### CSS Variables
@@ -53,7 +53,9 @@ Colors defined in `client/src/index.css` (`:root` and `.dark` selectors):
 | `--background` / `--card` | Page and card backgrounds |
 | `--foreground` | Primary text |
 | `--muted` / `--muted-foreground` | Secondary backgrounds/text |
-| `--destructive` / `--destructive-foreground` | Error text, destructive toasts |
+| `--destructive` / `--destructive-foreground` | Error text; destructive buttons and badges |
+| `--destructive-soft` / `--destructive-soft-foreground` | Error toasts |
+| `--success` | Status messages, copy confirmation |
 | `--border` / `--input` | Borders, dividers; input borders |
 | `--ring` | Focus ring (same as `--primary`) |
 
@@ -83,9 +85,10 @@ Every text pair the app renders meets WCAG AA (4.5:1) in both themes; `tests/uni
 - Foreground on background: 17.1 / 18.1 (AAA)
 - Primary on background: 5.0 / 5.2; text on primary buttons: 5.2 / 5.2
 - Muted foreground on background, card, and footer: 4.8 or better / 6.9 or better
-- Destructive on card: 4.8 / 5.2
+- Destructive on card: 4.8 / 5.2; success on card: 5.6 / 9.8; error toast text: 9.2 / 13.2
 - In dark mode, primary and destructive surfaces use dark text (`--primary-foreground` and `--destructive-foreground` are `222 47% 8%`); white text on those colors is below 4.5:1
 - Errors pair color with text, never color alone
+- Icon-only toggles name the action and update with state (`Switch to light mode` / `Switch to dark mode`)
 
 ## Icons
 

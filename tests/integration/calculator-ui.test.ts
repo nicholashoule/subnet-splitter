@@ -1,480 +1,210 @@
 /**
  * tests/integration/calculator-ui.test.ts
- * 
- * Frontend React component behavior tests for the CIDR calculator UI.
- * Tests user interactions, form validation, subnet operations, and data export.
- * 
+ *
+ * Tests the calculator page's logic: the functions in client/src/lib/subnet-utils.ts
+ * that client/src/pages/calculator.tsx calls, chained the way the page uses them.
+ * No React is rendered (the project has no DOM test environment), so markup,
+ * clipboard, toasts and the CSV download itself are not covered here.
+ *
  * Coverage:
- * - Form submission with valid/invalid CIDR inputs
- * - Subnet calculation and display
- * - Split operations on subnets
- * - Tree expansion/collapse
- * - Row selection (individual and select all)
- * - CSV export functionality
- * - Copy-to-clipboard operations
- * - Error handling and validation messages
- * - Loading states and user feedback
+ * - Form validation (validateCidrInput) before calculation (calculateSubnet)
+ * - Splitting rows, and the tree size limit the page enforces with countSubnetNodes
+ * - Visible rows (collectVisibleSubnets): expansion and Hide Parents, which also
+ *   decide what "select all" picks and which selected rows are exported
+ * - Network class badge (getSubnetClass) and depth indicator (getDepthIndicatorClasses)
  */
 
 import { describe, it, expect } from "vitest";
-import { calculateSubnet, splitSubnet, countSubnetNodes, SubnetCalculationError, collectAllSubnets, collectVisibleSubnets, getDepthIndicatorClasses } from "@/lib/subnet-utils";
-import type { SubnetInfo } from "@shared/schema";
+import {
+  calculateSubnet,
+  splitSubnet,
+  countSubnetNodes,
+  collectVisibleSubnets,
+  getSubnetClass,
+  getDepthIndicatorClasses,
+  validateCidrInput,
+  ipToNumber,
+  SubnetCalculationError,
+} from "@/lib/subnet-utils";
+import { SUBNET_CALCULATOR_LIMITS, type SubnetInfo } from "@shared/schema";
+
+const FORMAT_ERROR = "Invalid CIDR format. Use format: 192.168.1.0/24";
+
+/** Split a row as the page does: limit checked against the whole tree, row expanded */
+function splitRow(root: SubnetInfo, row: SubnetInfo): SubnetInfo[] {
+  row.children = splitSubnet(row, countSubnetNodes(root));
+  row.isExpanded = true;
+  return row.children;
+}
+
+const cidrsOf = (rows: SubnetInfo[]) => rows.map((row) => row.cidr);
 
 describe("Calculator Form Validation", () => {
-  it("should accept valid CIDR notation", () => {
-    const validCidrs = [
-      "192.168.1.0/24",
-      "10.0.0.0/8",
-      "172.16.0.0/12",
-      "192.168.0.0/16",
-    ];
+  it("should accept network addresses in CIDR notation, ignoring surrounding spaces", () => {
+    const valid = ["192.168.1.0/24", "10.0.0.0/8", "172.16.0.0/12", "0.0.0.0/0", "192.168.1.1/32", "  10.0.0.0/8  "];
 
-    validCidrs.forEach((cidr) => {
-      expect(() => calculateSubnet(cidr)).not.toThrow();
-    });
-  });
-
-  it("should reject invalid CIDR notation", () => {
-    // Missing prefix
-    expect(() => calculateSubnet("192.168.1.0")).toThrow(SubnetCalculationError);
-    
-    // Invalid prefix (>32)
-    expect(() => calculateSubnet("192.168.1.0/33")).toThrow(SubnetCalculationError);
-    
-    // Invalid octet
-    expect(() => calculateSubnet("256.0.0.0/8")).toThrow(SubnetCalculationError);
-    
-    // Not network address (should normalize to network address per implementation)
-    // Note: calculateSubnet normalizes to network address, so this doesn't throw
-  });
-
-  it("should show clear error messages for invalid inputs", () => {
-    try {
-      calculateSubnet("192.168.1.5/24");
-    } catch (error) {
-      expect(error).toBeInstanceOf(SubnetCalculationError);
-      expect((error as SubnetCalculationError).message).toContain("network address");
+    for (const input of valid) {
+      expect(validateCidrInput(input)).toBeNull();
+      // The page calculates from the trimmed value once validation passes
+      expect(calculateSubnet(input.trim()).cidr).toBe(input.trim());
     }
   });
 
-  it("should validate octets are in range 0-255", () => {
-    expect(() => calculateSubnet("256.1.1.1/8")).toThrow();
-    expect(() => calculateSubnet("1.256.1.1/16")).toThrow();
-    expect(() => calculateSubnet("1.1.256.1/24")).toThrow();
-    expect(() => calculateSubnet("1.1.1.256/32")).toThrow();
-  });
-});
-
-describe("Subnet Calculation Display", () => {
-  it("should calculate and display network information", () => {
-    const subnet = calculateSubnet("192.168.1.0/24");
-    
-    expect(subnet.cidr).toBe("192.168.1.0/24");
-    expect(subnet.networkAddress).toBe("192.168.1.0");
-    expect(subnet.broadcastAddress).toBe("192.168.1.255");
-    expect(subnet.firstHost).toBe("192.168.1.1");
-    expect(subnet.lastHost).toBe("192.168.1.254");
-    expect(subnet.usableHosts).toBe(254);
-    expect(subnet.totalHosts).toBe(256);
+  it("should require a value", () => {
+    expect(validateCidrInput("")).toBe("CIDR notation is required");
+    expect(validateCidrInput("   ")).toBe("CIDR notation is required");
   });
 
-  it("should display subnet mask and wildcard mask", () => {
-    const subnet = calculateSubnet("10.0.0.0/8");
-    
-    expect(subnet.subnetMask).toBe("255.0.0.0");
-    expect(subnet.wildcardMask).toBe("0.255.255.255");
-  });
-
-  it("should handle /31 RFC 3021 point-to-point links", () => {
-    const subnet = calculateSubnet("10.0.0.0/31");
-    
-    expect(subnet.firstHost).toBe("10.0.0.0");
-    expect(subnet.lastHost).toBe("10.0.0.1");
-    expect(subnet.usableHosts).toBe(2);
-  });
-
-  it("should handle /32 host routes", () => {
-    const subnet = calculateSubnet("192.168.1.1/32");
-    
-    expect(subnet.networkAddress).toBe("192.168.1.1");
-    expect(subnet.broadcastAddress).toBe("192.168.1.1");
-    expect(subnet.firstHost).toBe("192.168.1.1");
-    expect(subnet.usableHosts).toBe(1);
-    expect(subnet.canSplit).toBe(false);
-  });
-});
-
-describe("Subnet Split Operations", () => {
-  it("should split a subnet into two equal child subnets", () => {
-    const parent = calculateSubnet("192.168.1.0/24");
-    const children = splitSubnet(parent);
-    
-    expect(children).toHaveLength(2);
-    expect(children[0].cidr).toBe("192.168.1.0/25");
-    expect(children[1].cidr).toBe("192.168.1.128/25");
-  });
-
-  it("should create children with increased prefix length", () => {
-    const parent = calculateSubnet("10.0.0.0/8");
-    const children = splitSubnet(parent);
-    
-    expect(children[0].prefix).toBe(9);
-    expect(children[1].prefix).toBe(9);
-  });
-
-  it("should mark children as splittable if not /32", () => {
-    const parent = calculateSubnet("192.168.1.0/30");
-    const children = splitSubnet(parent);
-    
-    expect(children[0].canSplit).toBe(true); // /31 can split to /32
-    expect(children[0].prefix).toBe(31);
-  });
-
-  it("should prevent splitting /32 subnets", () => {
-    const subnet = calculateSubnet("192.168.1.1/32");
-    
-    expect(() => splitSubnet(subnet)).toThrow("Cannot split a /32 subnet");
-  });
-
-  it("should enforce tree size limits", () => {
-    const subnet = calculateSubnet("10.0.0.0/8");
-    
-    // Simulate tree at max size
-    expect(() => splitSubnet(subnet, 10000)).toThrow("Tree size limit");
-  });
-});
-
-describe("Tree Expansion and Collapse", () => {
-  it("should track expanded state of subnets", () => {
-    const subnet = calculateSubnet("192.168.1.0/24");
-    
-    // Initially not expanded
-    expect(subnet.isExpanded).toBe(false);
-    
-    // After adding children, can be expanded
-    subnet.children = splitSubnet(subnet);
-    subnet.isExpanded = true;
-    
-    expect(subnet.isExpanded).toBe(true);
-    expect(subnet.children).toHaveLength(2);
-  });
-
-  it("should only show children when expanded", () => {
-    const subnet = calculateSubnet("10.0.0.0/16");
-    subnet.children = splitSubnet(subnet);
-    
-    // When collapsed
-    subnet.isExpanded = false;
-    const visibleNodes = subnet.isExpanded ? countSubnetNodes(subnet) : 1;
-    expect(visibleNodes).toBe(1);
-    
-    // When expanded
-    subnet.isExpanded = true;
-    const expandedNodes = countSubnetNodes(subnet);
-    expect(expandedNodes).toBe(3); // 1 parent + 2 children
-  });
-
-  it("should support recursive tree expansion", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    // Split first child
-    root.children[0].children = splitSubnet(root.children[0]);
-    root.children[0].isExpanded = true;
-    
-    const totalNodes = countSubnetNodes(root);
-    expect(totalNodes).toBe(5); // 1 root + 2 children + 2 grandchildren
-  });
-});
-
-describe("Row Selection", () => {
-  it("should track individual subnet selections", () => {
-    const subnet1 = calculateSubnet("192.168.1.0/24");
-    const subnet2 = calculateSubnet("10.0.0.0/8");
-    
-    const selectedIds = new Set<string>();
-    selectedIds.add(subnet1.id);
-    
-    expect(selectedIds.has(subnet1.id)).toBe(true);
-    expect(selectedIds.has(subnet2.id)).toBe(false);
-  });
-
-  it("should support selecting multiple subnets", () => {
-    const subnets = [
-      calculateSubnet("192.168.1.0/24"),
-      calculateSubnet("192.168.2.0/24"),
-      calculateSubnet("192.168.3.0/24"),
-    ];
-    
-    const selectedIds = new Set<string>();
-    subnets.forEach(subnet => selectedIds.add(subnet.id));
-    
-    expect(selectedIds.size).toBe(3);
-  });
-
-  it("should allow deselecting subnets", () => {
-    const subnet = calculateSubnet("10.0.0.0/16");
-    const selectedIds = new Set<string>();
-    
-    selectedIds.add(subnet.id);
-    expect(selectedIds.has(subnet.id)).toBe(true);
-    
-    selectedIds.delete(subnet.id);
-    expect(selectedIds.has(subnet.id)).toBe(false);
-  });
-
-  it("should select all visible subnets including children", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    const allSubnets = collectAllSubnets(root);
-    expect(allSubnets).toHaveLength(3); // root + 2 children
-  });
-});
-
-describe("CSV Export", () => {
-  it("should format subnet data for CSV export", () => {
-    const subnet = calculateSubnet("192.168.1.0/24");
-    
-    const csvRow = [
-      subnet.cidr,
-      subnet.networkAddress,
-      subnet.broadcastAddress,
-      subnet.firstHost,
-      subnet.lastHost,
-      subnet.usableHosts.toString(),
-      subnet.totalHosts.toString(),
-      subnet.subnetMask,
-      subnet.wildcardMask,
-      subnet.prefix.toString(),
-    ].join(",");
-    
-    expect(csvRow).toContain("192.168.1.0/24");
-    expect(csvRow).toContain("254"); // usable hosts
-  });
-
-  it("should include only selected subnets in export", () => {
-    const subnets = [
-      calculateSubnet("192.168.1.0/24"),
-      calculateSubnet("192.168.2.0/24"),
-      calculateSubnet("192.168.3.0/24"),
-    ];
-    
-    const selectedIds = new Set<string>();
-    selectedIds.add(subnets[0].id);
-    selectedIds.add(subnets[2].id);
-    
-    const selectedSubnets = subnets.filter(s => selectedIds.has(s.id));
-    expect(selectedSubnets).toHaveLength(2);
-  });
-
-  it("should generate CSV with proper headers", () => {
-    const headers = [
-      "CIDR",
-      "Network Address",
-      "Broadcast Address",
-      "First Host",
-      "Last Host",
-      "Usable Hosts",
-      "Total Hosts",
-      "Subnet Mask",
-      "Wildcard Mask",
-      "Prefix",
-    ];
-    
-    const headerRow = headers.join(",");
-    expect(headerRow).toContain("CIDR");
-    expect(headerRow).toContain("Usable Hosts");
-  });
-});
-
-describe("Copy to Clipboard", () => {
-  it("should support copying all subnet fields", () => {
-    const subnet = calculateSubnet("10.0.0.0/16");
-    
-    const copyableFields = [
-      subnet.networkAddress,
-      subnet.broadcastAddress,
-      subnet.firstHost,
-      subnet.lastHost,
-      subnet.subnetMask,
-      subnet.cidr,
-    ];
-    
-    copyableFields.forEach(field => {
-      expect(field).toBeDefined();
-      expect(typeof field).toBe("string");
-    });
-  });
-
-  it("should provide user feedback after copy", () => {
-    // Simulate copy operation
-    let copiedField: string | null = null;
-    copiedField = "networkAddress";
-    
-    expect(copiedField).toBe("networkAddress");
-    
-    // Reset after timeout (simulated)
-    setTimeout(() => {
-      copiedField = null;
-    }, 2000);
-  });
-});
-
-describe("Error Handling", () => {
-  it("should handle malformed CIDR gracefully", () => {
-    const malformedInputs = [
-      "not-an-ip",
-      "192.168/24",
+  it("should reject malformed input with a format hint", () => {
+    const malformed = [
+      "192.168.1.0",        // missing prefix
+      "192.168.1.0/33",     // prefix out of range
       "192.168.1.0/abc",
-      "",
+      "192.168.1.0/24/8",
+      "192.168/24",         // too few octets
+      "not-an-ip",
+      "256.0.0.0/8",        // octet out of range, in each position
+      "1.256.1.1/16",
+      "1.1.256.1/24",
+      "1.1.1.256/32",
+      "-1.0.0.0/8",
     ];
-    
-    malformedInputs.forEach(input => {
-      expect(() => calculateSubnet(input)).toThrow(SubnetCalculationError);
-    });
-  });
 
-  it("should provide helpful error messages", () => {
-    try {
-      calculateSubnet("192.168.1.5/24");
-    } catch (error) {
-      expect((error as Error).message).toMatch(/network address/i);
+    for (const input of malformed) {
+      expect(validateCidrInput(input)).toBe(FORMAT_ERROR);
+      expect(() => calculateSubnet(input)).toThrow(SubnetCalculationError);
     }
   });
 
-  it("should prevent operations on invalid state", () => {
-    const subnet = calculateSubnet("192.168.1.0/32");
-    
-    // Cannot split /32
-    expect(subnet.canSplit).toBe(false);
-    expect(() => splitSubnet(subnet)).toThrow();
+  it("should reject an address with host bits set instead of silently changing it", () => {
+    expect(validateCidrInput("192.168.1.5/24")).toMatch(/must be the network address/);
+    expect(validateCidrInput("10.1.2.3/16")).toMatch(/must be the network address/);
+    expect(validateCidrInput("10.1.0.0/16")).toBeNull();
+
+    // calculateSubnet alone would normalize to a different range, which is why the form validates first
+    expect(calculateSubnet("192.168.1.5/24").cidr).toBe("192.168.1.0/24");
   });
 });
 
-describe("Network Class Identification", () => {
-  it("should display network class for subnets", () => {
-    const classA = calculateSubnet("10.0.0.0/8");
-    const classB = calculateSubnet("172.16.0.0/12");
-    const classC = calculateSubnet("192.168.0.0/16");
-    
-    // Network class is determined by first octet
-    expect(classA.networkAddress.startsWith("10")).toBe(true);
-    expect(classB.networkAddress.startsWith("172")).toBe(true);
-    expect(classC.networkAddress.startsWith("192")).toBe(true);
+describe("Subnet Splitting", () => {
+  it("should split a row into two halves that exactly cover it", () => {
+    const root = calculateSubnet("10.0.0.0/22");
+    const [low, high] = splitRow(root, root);
+    const [lowLow, lowHigh] = splitRow(root, low);
+
+    expect(cidrsOf([low, high])).toEqual(["10.0.0.0/23", "10.0.2.0/23"]);
+    expect(cidrsOf([lowLow, lowHigh])).toEqual(["10.0.0.0/24", "10.0.1.0/24"]);
+
+    for (const [parent, a, b] of [[root, low, high], [low, lowLow, lowHigh]]) {
+      expect(a.networkAddress).toBe(parent.networkAddress);
+      expect(b.broadcastAddress).toBe(parent.broadcastAddress);
+      expect(ipToNumber(b.networkAddress)).toBe(ipToNumber(a.broadcastAddress) + 1);
+      expect(a.totalHosts + b.totalHosts).toBe(parent.totalHosts);
+    }
+  });
+
+  it("should count every node in the tree toward the size limit", () => {
+    const root = calculateSubnet("10.0.0.0/16");
+    expect(countSubnetNodes(root)).toBe(1);
+
+    const [first] = splitRow(root, root);
+    splitRow(root, first);
+    expect(countSubnetNodes(root)).toBe(5);
+
+    // Collapsed children are not rows, but they still take memory, so they still count
+    root.isExpanded = false;
+    expect(collectVisibleSubnets(root, false)).toHaveLength(1);
+    expect(countSubnetNodes(root)).toBe(5);
+  });
+
+  it("should refuse any split that would take the tree past the node limit", () => {
+    const limit = SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES;
+    const subnet = calculateSubnet("10.0.0.0/8");
+
+    // A split adds two nodes: from limit - 2 the tree ends exactly at the limit
+    expect(splitSubnet(subnet, limit - 2)).toHaveLength(2);
+    // From limit - 1 it would end at limit + 1
+    expect(() => splitSubnet(subnet, limit - 1)).toThrow(SubnetCalculationError);
+    expect(() => splitSubnet(subnet, limit - 1)).toThrow(`Tree size limit (${limit} nodes) reached`);
   });
 });
 
-describe("Performance and Limits", () => {
-  it("should enforce maximum tree size", () => {
-    const subnet = calculateSubnet("192.168.1.0/24");
-    
-    // Trying to split when tree is at max size should throw
-    expect(() => splitSubnet(subnet, 10000)).toThrow("Tree size limit");
+describe("Visible Rows", () => {
+  /** 192.168.0.0/22 split once, with its first half split again */
+  function nestedTree(): SubnetInfo {
+    const root = calculateSubnet("192.168.0.0/22");
+    const [first] = splitRow(root, root);
+    splitRow(root, first);
+    return root;
+  }
+
+  it("should show a split row's children only while it is expanded", () => {
+    const root = calculateSubnet("10.0.0.0/16");
+    root.children = splitSubnet(root);
+
+    root.isExpanded = false;
+    expect(cidrsOf(collectVisibleSubnets(root, false))).toEqual(["10.0.0.0/16"]);
+
+    root.isExpanded = true;
+    expect(cidrsOf(collectVisibleSubnets(root, false))).toEqual(["10.0.0.0/16", "10.0.0.0/17", "10.0.128.0/17"]);
   });
 
-  it("should count nodes correctly in large trees", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.children[0].children = splitSubnet(root.children[0]);
-    root.children[1].children = splitSubnet(root.children[1]);
-    
-    const nodeCount = countSubnetNodes(root);
-    expect(nodeCount).toBe(7); // 1 root + 2 children + 4 grandchildren
+  it("should list rows depth-first in address order", () => {
+    expect(cidrsOf(collectVisibleSubnets(nestedTree(), false))).toEqual([
+      "192.168.0.0/22",
+      "192.168.0.0/23",
+      "192.168.0.0/24",
+      "192.168.1.0/24",
+      "192.168.2.0/23",
+    ]);
+  });
+
+  it("should show only leaf rows when Hide Parents is on", () => {
+    const rows = collectVisibleSubnets(nestedTree(), true);
+
+    expect(cidrsOf(rows)).toEqual(["192.168.0.0/24", "192.168.1.0/24", "192.168.2.0/23"]);
+    for (const row of rows) expect(row.children).toBeUndefined();
+  });
+
+  it("should select and export only rows that are visible", () => {
+    const root = nestedTree();
+    const [first, second] = root.children!;
+    // "Select all" while every row is shown
+    const selected = new Set(collectVisibleSubnets(root, false).map((row) => row.id));
+    // The page exports the selected rows among the visible ones
+    const exported = (hideParents: boolean) =>
+      collectVisibleSubnets(root, hideParents).filter((row) => selected.has(row.id));
+
+    expect(exported(false)).toHaveLength(5);
+    // Hide Parents: the selected parents are no longer rows, so they are not exported
+    expect(cidrsOf(exported(true))).toEqual(["192.168.0.0/24", "192.168.1.0/24", "192.168.2.0/23"]);
+
+    // Removing the first split makes that row a leaf again; its selected children are gone
+    first.children = undefined;
+    first.isExpanded = false;
+    expect(cidrsOf(exported(true))).toEqual([first.cidr, second.cidr]);
+    expect(cidrsOf(exported(false))).toEqual([root.cidr, first.cidr, second.cidr]);
   });
 });
 
-describe("Hide Parents Feature", () => {
-  it("should include parent when hideParents is false", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    const visibleSubnets = collectVisibleSubnets(root, false);
-    expect(visibleSubnets).toHaveLength(3); // parent + 2 children
-    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/22"); // parent is first
+describe("Network Class Badge", () => {
+  it("should classify each row by its first octet, whatever the prefix", () => {
+    expect(getSubnetClass(calculateSubnet("10.0.0.0/8"))).toBe("A");
+    expect(getSubnetClass(calculateSubnet("10.20.0.0/16"))).toBe("A");
+    expect(getSubnetClass(calculateSubnet("172.16.0.0/12"))).toBe("B");
+    expect(getSubnetClass(calculateSubnet("192.168.0.0/16"))).toBe("C");
+    expect(getSubnetClass(calculateSubnet("224.0.0.0/4"))).toBe("D (Multicast)");
+    expect(getSubnetClass(calculateSubnet("240.0.0.0/4"))).toBe("E (Reserved)");
   });
 
-  it("should exclude parent when hideParents is true", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    const visibleSubnets = collectVisibleSubnets(root, true);
-    expect(visibleSubnets).toHaveLength(2); // only 2 children, no parent
-    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/23"); // first child
-    expect(visibleSubnets[1].cidr).toBe("192.168.2.0/23"); // second child
-  });
+  it("should classify the halves of a split separately", () => {
+    // 192.0.0.0/2 spans first octets 192-255, so its halves fall in different classes
+    const root = calculateSubnet("192.0.0.0/2");
+    const [low, high] = splitRow(root, root);
 
-  it("should recursively hide parents in nested splits", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    // Split first child
-    root.children[0].children = splitSubnet(root.children[0]);
-    root.children[0].isExpanded = true;
-    
-    const visibleSubnets = collectVisibleSubnets(root, true);
-    expect(visibleSubnets).toHaveLength(3); // 2 grandchildren + 1 unsplit child
-    
-    // Should be the two grandchildren of first split and the second child
-    expect(visibleSubnets[0].cidr).toBe("192.168.0.0/24"); // first grandchild
-    expect(visibleSubnets[1].cidr).toBe("192.168.1.0/24"); // second grandchild
-    expect(visibleSubnets[2].cidr).toBe("192.168.2.0/23"); // unsplit second child
-  });
-
-  it("should only show leaf subnets when hideParents is true", () => {
-    const root = calculateSubnet("10.0.0.0/20");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    // Split both children
-    root.children[0].children = splitSubnet(root.children[0]);
-    root.children[0].isExpanded = true;
-    root.children[1].children = splitSubnet(root.children[1]);
-    root.children[1].isExpanded = true;
-    
-    const visibleSubnets = collectVisibleSubnets(root, true);
-    expect(visibleSubnets).toHaveLength(4); // 4 leaf subnets only
-    
-    // All visible subnets should have no children (leaf nodes)
-    visibleSubnets.forEach(subnet => {
-      expect(subnet.children).toBeUndefined();
-    });
-  });
-
-  it("should affect select all behavior", () => {
-    const root = calculateSubnet("192.168.0.0/22");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    // With hideParents false: should select 3 (parent + 2 children)
-    const allSubnets = collectVisibleSubnets(root, false);
-    expect(allSubnets).toHaveLength(3);
-    
-    // With hideParents true: should select 2 (only children)
-    const leafSubnets = collectVisibleSubnets(root, true);
-    expect(leafSubnets).toHaveLength(2);
-  });
-
-  it("should affect CSV export selection", () => {
-    const root = calculateSubnet("10.50.192.0/18");
-    root.children = splitSubnet(root);
-    root.isExpanded = true;
-    
-    const selectedIds = new Set<string>();
-    
-    // Select all with hideParents false
-    const allSubnets = collectVisibleSubnets(root, false);
-    allSubnets.forEach(s => selectedIds.add(s.id));
-    
-    // Export with hideParents true should only get children
-    const exportSubnets = collectVisibleSubnets(root, true).filter(s => selectedIds.has(s.id));
-    expect(exportSubnets).toHaveLength(2); // only the 2 children
-    expect(exportSubnets.every(s => s.prefix === 19)).toBe(true); // both are /19
+    expect(getSubnetClass(low)).toBe("C");
+    expect(getSubnetClass(high)).toBe("D (Multicast)");
+    expect(getSubnetClass(splitRow(root, high)[1])).toBe("E (Reserved)");
   });
 });
 
@@ -572,7 +302,7 @@ describe("Depth Indicator Visual Hierarchy", () => {
   });
 
   it("should use default slate-500 color for unknown prefix values", () => {
-    // Using a helper to simulate an invalid prefix (though calculateSubnet prevents this)
+    // A child row's prefix is always 1-32; anything else falls back to slate
     const classes = getDepthIndicatorClasses(1, 0);
     
     expect(classes).toContain("border-slate-300/30");

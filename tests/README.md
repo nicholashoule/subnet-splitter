@@ -4,19 +4,18 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Test Count**: 528 tests in 15 files (unit: 310 in 7 files; integration: 218 in 8 files)  
+**Test Count**: 503 tests in 14 files (unit: 323 in 6 files; integration: 180 in 8 files)  
 **Pass Rate**: 100% passing  
 **Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
 ## Test Categories
 
-The project uses three types of tests:
+The project uses two types of tests:
 
 1. **Unit Tests** (`tests/unit/`) - Pure function tests, no I/O, no servers
 2. **Integration Tests** (`tests/integration/`) - Self-contained tests with their own test servers
-3. **E2E Tests** (marked with server checks) - Require full webapp running on port 5000
 
-**Note**: Most integration tests spin up their own test servers on random ports, so they don't require the webapp to be running. Only tests explicitly marked with server availability checks need `npm run dev` running.
+**Note**: Integration tests that need HTTP start their own in-process servers, so no test requires the webapp to be running.
 
 ## Structure
 
@@ -28,20 +27,18 @@ tests/
 │   ├── network-separation.test.ts  # Address space separation invariants (every tier x provider)
 │   ├── ip-calculation-compliance.test.ts  # IP allocation compliance
 │   ├── ui-styles.test.ts         # WCAG accessibility
-│   ├── emoji-detection.test.ts   # Emoji validation
 │   └── config.test.ts            # Configuration validation
 ├── integration/                   # Integration tests - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure - Starts own server
-│   ├── calculator-ui.test.ts     # React components - No server
+│   ├── calculator-ui.test.ts     # Calculator logic via subnet-utils - No server
 │   ├── kubernetes-network-api.test.ts  # K8s API flow - Calls the generator, no server
 │   ├── rate-limiting.test.ts     # Rate limiting - Starts own server
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware - Starts own server
-│   ├── swagger-ui-theming.test.ts  # Swagger themes - WARNING REQUIRES WEBAPP
+│   ├── swagger-ui-theming.test.ts  # Swagger themes - Starts own server
 │   ├── csp-violation-endpoint.test.ts  # CSP violations - Starts own server
 │   └── static-serving.test.ts    # Production static serving (caching, gzip)
 ├── helpers/                       # Shared test utilities
-│   ├── test-server.ts            # HTTP server lifecycle for integration tests
-│   └── emoji-config.ts           # Emoji pattern and replacements (shared with scripts/fix-emoji.ts)
+│   └── test-server.ts            # HTTP server lifecycle for integration tests
 ├── manual/                        # Manual testing scripts
 │   ├── test-api-endpoints.ps1    # PowerShell API validation
 │   ├── test-api.ps1              # PowerShell private IP validation
@@ -56,18 +53,12 @@ tests/
 - Start their own Express servers on random ports
 - Do NOT require webapp to be running
 - Can run in parallel
-- Includes: `api-endpoints.test.ts`, `rate-limiting.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`, `static-serving.test.ts` (`kubernetes-network-api.test.ts` and `calculator-ui.test.ts` need no server at all)
-
-**Webapp-Dependent Tests** (marked with WARNING):
-- Require full webapp running: `npm run dev`
-- Check for server availability and skip gracefully if not running
-- Currently only `swagger-ui-theming.test.ts`
-- These tests will show `[SKIP]` message if server unavailable
+- Includes: `api-endpoints.test.ts`, `rate-limiting.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`, `swagger-ui-theming.test.ts`, `static-serving.test.ts` (`kubernetes-network-api.test.ts` and `calculator-ui.test.ts` need no server at all)
 
 ## Running Tests
 
 ```bash
-# Run all tests in watch mode (most don't need webapp)
+# Run all tests in watch mode (none need the webapp running)
 npm run test
 
 # Run tests once and exit (what CI runs)
@@ -77,29 +68,12 @@ npm run test -- --run
 npm run test -- tests/unit/subnet-utils.test.ts --run
 npm run test -- tests/unit/ui-styles.test.ts --run
 
-# Run emoji detection tests only
-npm run test:emoji
-
-# Check for emoji in codebase (detection only)
+# Check for emoji (demojify CLI, needs Go 1.24+; not part of Vitest)
 npm run emoji:check
 
-# Auto-fix emoji in codebase
+# Replace emoji with text tokens
 npm run emoji:fix
 ```
-
-### Testing With Webapp Running
-
-For tests that require the full webapp (currently only `swagger-ui-theming.test.ts`):
-
-```bash
-# Terminal 1: Start webapp
-npm run dev
-
-# Terminal 2: Run all tests (webapp-dependent tests will pass)
-npm run test -- --run
-```
-
-If webapp is not running, these tests automatically skip with informative messages.
 
 ## Test Organization
 
@@ -136,25 +110,22 @@ Unit tests verify individual functions and utilities in isolation.
 - IP allocation formulas for pod and node capacity
 - Deployment tier compliance testing
 - Network sizing validation
+- Hyperscale capacity as it is: the `/13` pod range holds 2,048 nodes at a `/24` per node; 5,000 nodes need a `/11` `podsCidr` (the override is accepted)
 
 **ui-styles.test.ts:**
-- WCAG contrast for every text pair the app renders, light and dark, with colors read from `client/src/index.css`
-- Focus ring non-text contrast (3:1)
+- WCAG contrast for every text pair the app renders, light and dark, with colors read from `client/src/index.css` (including tooltips on `popover` and the 404 page link on `card`)
+- Non-text contrast (3:1): focus ring, toast close icon
+- Fails on Tailwind palette colors (`text-green-600`, `bg-gray-50`, `--color-<palette>` variables) in client code; only `getDepthIndicatorClasses()` in `subnet-utils.ts` is exempt
 - Design system consistency (primary hue, ring, destructive)
-- Page semantics from `calculator.tsx` (alt text, aria-labels, labelled input and error)
-
-**emoji-detection.test.ts:**
-- Scans all markdown (.md) files for emoji
-- Scans all source files (.ts, .tsx, .js, .jsx) for emoji
-- Validates clean text-based documentation
-- Excludes meta-files (this test file and fix-emoji.ts)
-- Reports exact file location and line number of violations
+- Page semantics from `calculator.tsx` (alt text, `h1` followed by `h2`, aria-labels, labelled input and error)
 
 **config.test.ts:**
-- Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config)
+- Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config, replaced packages removed)
 - Theme tokens defined for both light and dark mode
 - Vite configuration verification
-- Build tool setup testing
+- Emoji check: `emoji:check` and `emoji:fix` pin demojify once, and CI and the pre-commit hook both call `npm run emoji:check`
+- Pre-commit hook: the `prepare` script (`scripts/install-hooks.mjs`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git, and skips (exit 0) without Go 1.24+
+- Frontend instructions recommend a real browser over VS Code Simple Browser
 
 ### Integration Tests (`tests/integration/`)
 
@@ -163,56 +134,59 @@ Integration tests verify system-wide features and API behavior.
 **Self-Contained Integration Tests (Start Own Servers)**:
 
 **api-endpoints.test.ts**:
-- Health check endpoints (/health, /health/ready, /health/live)
+- Health check endpoints (/health, /health/ready, /health/live), with ISO 8601 UTC timestamps
 - API version endpoint
 - OpenAPI specification (JSON/YAML)
 - Swagger UI presentation
-- Error handling consistency
+- Endpoint aliases return the same full plan (only the generation timestamp may differ)
+- Error handling consistency: unknown `/api` paths and methods get a JSON 404 (not the web app), a repeated `?format=` falls back to JSON, unknown fields are ignored and not echoed
+- Response formats: JSON and YAML for tiers and plans; YAML quotes strings such as `yes` and `no` that YAML 1.1 readers would load as booleans
 - Provider-specific and private-mode tier layouts (`?provider=`, `?networkMode=private`; an unknown `networkMode` returns 400)
 
 **kubernetes-network-api.test.ts** (calls `generateKubernetesNetworkPlan` and `getDeploymentTierInfo` directly; no HTTP server):
-- API endpoint integration
-- JSON/YAML output format validation
+- Plan workflow (tier info, then a plan) and real-world scenarios
+- Plans are plain data that survive a JSON round trip unchanged (JSON and YAML over HTTP are tested in `api-endpoints.test.ts`, "Response Format Support")
 - RFC 1918 private IP enforcement
 - Public IP rejection
-- All deployment tiers (micro -> hyperscale)
+- All deployment tiers (micro -> hyperscale); for each, an EKS plan in each RFC 1918 block has canonical, non-overlapping subnets inside the VPC
 - Provider support (EKS, GKE, AKS, Kubernetes)
 
 **rate-limiting.test.ts**:
-- Rate limiter configuration
+- Rate limiter configuration (SPA fallback: 30 requests per 15 minutes; API: 100 per minute, health probes exempt)
 - Request throttling behavior
-- Header verification (standard `RateLimit-*` headers; legacy `X-RateLimit-*` headers are not sent)
+- Header verification (`RateLimit-*` headers from the IETF draft, with `RateLimit-Reset` in seconds and `RateLimit-Policy: 30;w=900`; legacy `X-RateLimit-*` headers are not sent)
 - Multiple endpoints protected
+- Rate-limited (429) and malformed-body (400) requests are logged
 
 **csp-violation-endpoint.test.ts**:
+- Registers the production handler and limiter from `server/csp-report.ts`
 - CSP violation report handling
 - W3C spec compliance
-- Rate limiting for log flooding prevention
+- Rate limiting for log flooding prevention (`RateLimit-Policy: 100;w=900`)
 - Schema validation
 
 **swagger-ui-csp-middleware.test.ts**:
-- Route-specific CSP headers
-- Development vs production mode
-- CDN source permissions
-- Middleware isolation
+- Serves the real routes behind the production global headers (`createSecurityHeaders()` from `server/csp-config.ts`)
+- `/api/docs/ui` sends one policy (`buildSwaggerUICSP()`) in place of the global one; jsDelivr only in `script-src`, `style-src`, and `connect-src`
+- Every other route keeps the strict global CSP
+- Global headers in production vs development (`'unsafe-inline'`, HMR websockets, and `report-uri` only in development)
+- Headers parsed into directives and compared source token by source token
 
-**Webapp-Dependent Tests (Require `npm run dev`)**:
+**swagger-ui-theming.test.ts**:
+- Runs the docs page's inline scripts in a `node:vm` sandbox with stand-ins for `document`, `localStorage`, `window`, and `SwaggerUIBundle`
+- Saved theme applied before any stylesheet loads (anything but a saved `dark` is light)
+- Theme toggle: switches, saves to localStorage, and re-mounts Swagger UI with the matching code highlighting; still works when localStorage throws
+- Follows theme changes made in another tab
+- Version badge colored with the theme's primary tokens
+- **Note**: Starts its own in-process server, so it always runs (no `npm run dev` needed, no skips)
 
-**swagger-ui-theming.test.ts** WARNING:
-- HTML structure and theme scripts
-- Light/dark mode CSS loading
-- Theme persistence in localStorage
-- Color scheme validation
-- **Note**: Skips gracefully if server not running on port 5000
+**Calculator Logic Tests (No Server)**:
 
-**Component Tests (No Server)**:
-
-**calculator-ui.test.ts**:
-- React component behavior
-- Form submission and validation
-- Subnet splitting operations
-- CSV export functionality
-- Hide parents feature
+**calculator-ui.test.ts** (calls the real functions in `client/src/lib/subnet-utils.ts`, chained the way `calculator.tsx` uses them; no React is rendered, so markup, clipboard, toasts, and the CSV download itself are not covered):
+- Form validation before calculation (required value, format hint, host bits set rejected)
+- Subnet splitting and the tree size limit
+- Visible rows: expansion, depth-first order, Hide Parents, and selecting and exporting only visible rows
+- Network class badge
 - Depth indicator visual hierarchy
 
 ### Manual Testing Scripts (`tests/manual/`)
@@ -281,43 +255,17 @@ When adding new tests:
 
 ## Emoji Checking and Fixing
 
-The project enforces text-only documentation (no emoji) for consistency and portability.
-
-### Check for Emoji
+The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run emoji:check` before each commit and skips with a message when Go 1.24+ is missing. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
 
 ```bash
-# Run automated test (part of test suite)
-npm run test:emoji
-
-# Check manually with CLI tool
+# Audit every text file; exits 1 and reports file, line, and column for each emoji
 npm run emoji:check
-```
 
-### Auto-Fix Emoji
-
-The `scripts/fix-emoji.ts` tool can automatically replace emoji with text alternatives:
-
-```bash
-# Fix all emoji automatically
+# Replace emoji with text tokens such as [PASS], [FAIL], [WARNING]; review with git diff
 npm run emoji:fix
-
-# Or use directly with options
-npx tsx scripts/fix-emoji.ts --fix --verbose
 ```
 
-### Common Replacements
-
-| Emoji | Text Alternative |
-|-------|------------------|
-| Checkmark | [PASS] |
-| Cross mark | [FAIL] |
-| Warning | WARNING |
-| Light bulb | [TIP] |
-| Pin | [PINNED] |
-| Key | [KEY] |
-| Star | [FEATURED] |
-
-See [.github/emoji-prevention.md](../.github/emoji-prevention.md) for complete documentation.
+A test that needs emoji should build them from code points (`String.fromCodePoint(0x2705)`) so the file stays emoji-free. See [.github/emoji-prevention.md](../.github/emoji-prevention.md).
 
 ## Test Configuration
 
@@ -366,10 +314,10 @@ See [test-suite-analysis.md](../docs/test-suite-analysis.md) for complete analys
    - OpenAPI documentation is functional
    - K8s network planning API fully tested
 
-4. **Frontend Component Tests**
-   - Calculator UI behavior (form submission, validation)
-   - Subnet splitting operations and tree expansion
-   - CSV export functionality
+4. **Calculator Logic Tests**
+   - Form validation before calculation, through the real `subnet-utils.ts` functions
+   - Subnet splitting, tree expansion, and the tree size limit
+   - Which rows are selected and exported
    - Hide parents feature
    - Depth indicator visual hierarchy
 
@@ -394,7 +342,7 @@ npm run build              # Production build
 npm run smoke              # Start dist/index.cjs on port 5099 and check it over HTTP
 ```
 
-`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, app and CSP headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's SRI-pinned assets. In CI no dev server is running, so `swagger-ui-theming.test.ts` skips itself.
+`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, app and CSP headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's SRI-pinned assets. `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `emoji` job runs `npm run emoji:check` (demojify, Go).
 
 ---
 

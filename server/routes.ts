@@ -54,7 +54,15 @@ function formatZodError(error: ZodError): string {
 }
 
 /**
- * Format response as JSON or YAML based on format parameter or Accept header
+ * The ?format= query value. A repeated parameter (?format=json&format=yaml) parses
+ * as an array; anything that isn't a single string falls back to JSON.
+ */
+function formatOf(req: Request): string | undefined {
+  return typeof req.query.format === "string" ? req.query.format : undefined;
+}
+
+/**
+ * Format response as JSON or YAML based on the format parameter
  */
 function formatResponse(data: unknown, format?: string): { contentType: string; body: string } {
   const outputFormat = (format || "json").toLowerCase();
@@ -62,7 +70,9 @@ function formatResponse(data: unknown, format?: string): { contentType: string; 
   if (outputFormat === "yaml" || outputFormat === "yml") {
     return {
       contentType: "application/yaml",
-      body: YAML.stringify(data)
+      // YAML 1.1 quotes strings such as "yes", "no", "on" and "off", which YAML 1.1
+      // readers (Terraform yamldecode, PyYAML) would otherwise load as booleans
+      body: YAML.stringify(data, { version: "1.1" })
     };
   }
   
@@ -140,7 +150,7 @@ export async function registerRoutes(
 
   // OpenAPI specification endpoint
   get("/api/docs", (req, res) => {
-    const format = req.query.format as string | undefined;
+    const format = formatOf(req);
     const { contentType, body } = formatResponse(openApiSpec, format);
     res.type(contentType).send(body);
   });
@@ -174,12 +184,12 @@ export async function registerRoutes(
   const handleNetworkPlan = async (req: Request, res: Response) => {
     try {
       const plan = await generateKubernetesNetworkPlan(req.body);
-      const format = req.query.format as string | undefined;
+      const format = formatOf(req);
       const { contentType, body } = formatResponse(plan, format);
       
       res.type(contentType).send(body);
     } catch (error) {
-      const format = req.query.format as string | undefined;
+      const format = formatOf(req);
       let errorResponse: unknown;
       
       if (error instanceof KubernetesNetworkGenerationError) {
@@ -212,7 +222,7 @@ export async function registerRoutes(
 
   /** Handler for GET /api/k8s/tiers and its aliases */
   const handleTiers = (req: Request, res: Response) => {
-    const format = req.query.format as string | undefined;
+    const format = formatOf(req);
     // Layouts differ by provider (EKS needs two AZs; GKE/AKS subnets are regional)
     // and by network mode (private replaces public subnets with internal LB subnets)
     const query = TierQuerySchema.safeParse(req.query);
@@ -256,6 +266,12 @@ export async function registerRoutes(
   // Long-form descriptive endpoints (without version prefix)
   post("/api/kubernetes/network-plan", handleNetworkPlan);
   get("/api/kubernetes/tiers", handleTiers);
+
+  // Anything else under /api is a JSON 404, so clients (Terraform http data sources,
+  // scripts) never receive the web app's index.html for a mistyped path or method
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+  });
 
   return { server: httpServer, routes: registeredRoutes };
 }

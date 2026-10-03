@@ -13,6 +13,8 @@
  * - Compatible with open-source log forwarders
  */
 
+import type { Request, Response, NextFunction } from "express";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogEntry {
@@ -146,6 +148,27 @@ class Logger {
 
 // Export singleton instance
 export const logger = new Logger({ source: "server" });
+
+/**
+ * Logs each API request when its response finishes (health probes are skipped to
+ * keep logs useful). Register it before the body parsers and the rate limiter, so
+ * malformed or oversized bodies (400, 413) and rate-limited requests (429) are logged.
+ */
+export function requestLogger(req: Request, res: Response, next: NextFunction): void {
+  const start = Date.now();
+  const path = req.path;
+
+  res.on("finish", () => {
+    if (path.startsWith("/api") && !path.startsWith("/api/v1/health")) {
+      logger.request(req.method, path, res.statusCode, Date.now() - start, {
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+    }
+  });
+
+  next();
+}
 
 // Export factory for custom loggers
 export function createLogger(config: Partial<LoggerConfig>): Logger {

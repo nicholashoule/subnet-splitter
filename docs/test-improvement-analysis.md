@@ -2,7 +2,7 @@
 
 **Date**: 2025-01-XX  
 **Scope**: Integration test duplication and shared utilities  
-**Test Count**: 406 tests (218 unit + 188 integration) at the time of analysis; 528 today (310 unit + 218 integration)  
+**Test Count**: 406 tests (218 unit + 188 integration) at the time of analysis; 503 today (323 unit + 180 integration)  
 **Status**: Implemented. `tests/helpers/test-server.ts` exports `createTestServer`, `closeTestServer`, `createTestServers`, and `closeTestServers`, and `api-endpoints.test.ts`, `csp-violation-endpoint.test.ts`, and `swagger-ui-csp-middleware.test.ts` use it.
 
 ## Executive Summary
@@ -408,7 +408,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
 ### Step 3: Verify
 ```bash
-npm run test -- --run  # All tests should pass (406 at the time; 528 today)
+npm run test -- --run  # All tests should pass (406 at the time; 503 today)
 ```
 
 ### Step 4: Document Pattern

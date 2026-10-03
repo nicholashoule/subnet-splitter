@@ -1,8 +1,10 @@
 /**
  * tests/integration/kubernetes-network-api.test.ts
  * 
- * Integration tests for Kubernetes network planning API
- * Tests all deployment tiers, providers, and network generation scenarios
+ * End-to-end tests of the network plan generator behind /api/k8s/plan,
+ * called directly (no HTTP). Covers all deployment tiers, providers, and
+ * network generation scenarios. HTTP routing, error responses, and
+ * JSON/YAML output are tested in api-endpoints.test.ts.
  */
 
 import { describe, it, expect } from "vitest";
@@ -271,137 +273,21 @@ describe("Kubernetes Network Planning API Integration", () => {
     });
   });
 
-  describe("Output Format Support (JSON/YAML)", () => {
-    it("should generate valid JSON format for network plan", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "eks",
-        vpcCidr: "10.0.0.0/16",
-        deploymentName: "test-cluster"
-      });
+  describe("Serializable Output", () => {
+    // JSON and YAML responses over HTTP (?format=yaml) are tested in
+    // api-endpoints.test.ts "Response Format Support"; this checks the plan itself.
+    it("should be plain data that survives a JSON round trip unchanged", async () => {
+      for (const provider of ["eks", "gke", "aks", "kubernetes"] as const) {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          provider,
+          vpcCidr: "10.100.0.0/16",
+          deploymentName: "conversion-test"
+        });
 
-      // Verify can be JSON stringified
-      const jsonStr = JSON.stringify(plan, null, 2);
-      expect(jsonStr).toBeTruthy();
-
-      // Verify can be parsed back
-      const parsed = JSON.parse(jsonStr);
-      expect(parsed.deploymentSize).toBe("professional");
-      expect(parsed.subnets.public).toHaveLength(2);
-      expect(parsed.subnets.private).toHaveLength(2);
-    });
-
-    it("should output all subnet details in JSON format", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "eks",
-        vpcCidr: "10.50.0.0/16"
-      });
-
-      const jsonStr = JSON.stringify(plan, null, 2);
-      const parsed = JSON.parse(jsonStr);
-
-      // Verify public subnets are included
-      expect(parsed.subnets.public).toBeDefined();
-      expect(Array.isArray(parsed.subnets.public)).toBe(true);
-      parsed.subnets.public.forEach((subnet: any) => {
-        expect(subnet).toHaveProperty("cidr");
-        expect(subnet).toHaveProperty("name");
-        expect(subnet).toHaveProperty("type");
-        expect(subnet.type).toBe("public");
-      });
-
-      // Verify private subnets are included
-      expect(parsed.subnets.private).toBeDefined();
-      expect(Array.isArray(parsed.subnets.private)).toBe(true);
-      parsed.subnets.private.forEach((subnet: any) => {
-        expect(subnet).toHaveProperty("cidr");
-        expect(subnet).toHaveProperty("name");
-        expect(subnet).toHaveProperty("type");
-        expect(subnet.type).toBe("private");
-      });
-    });
-
-    it("should support YAML serialization of network plans", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "standard",
-        provider: "gke",
-        vpcCidr: "172.16.0.0/16"
-      });
-
-      // Verify structure is compatible with YAML
-      const jsonStr = JSON.stringify(plan);
-      const obj = JSON.parse(jsonStr);
-
-      // Check key YAML-compatible fields
-      expect(obj).toHaveProperty("deploymentSize");
-      expect(obj).toHaveProperty("provider");
-      expect(obj).toHaveProperty("vpc");
-      expect(obj).toHaveProperty("subnets");
-      expect(obj).toHaveProperty("pods");
-      expect(obj).toHaveProperty("services");
-      expect(obj).toHaveProperty("metadata");
-
-      // Verify nested structure
-      expect(obj.vpc).toHaveProperty("cidr");
-      expect(obj.subnets).toHaveProperty("public");
-      expect(obj.subnets).toHaveProperty("private");
-      expect(obj.pods).toHaveProperty("cidr");
-      expect(obj.services).toHaveProperty("cidr");
-    });
-
-    it("should include all subnet details for YAML/JSON export", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "kubernetes",
-        vpcCidr: "192.168.0.0/16",
-        deploymentName: "self-hosted-prod"
-      });
-
-      // All data should be serializable
-      const data = {
-        deploymentSize: plan.deploymentSize,
-        provider: plan.provider,
-        deploymentName: plan.deploymentName,
-        vpc: plan.vpc,
-        subnets: plan.subnets,
-        pods: plan.pods,
-        services: plan.services,
-        metadata: plan.metadata
-      };
-
-      // Verify can stringify
-      expect(() => JSON.stringify(data)).not.toThrow();
-
-      const json = JSON.stringify(data);
-      const restored = JSON.parse(json);
-
-      // Verify subnets are fully included
-      expect(restored.subnets.public.length).toBeGreaterThan(0);
-      expect(restored.subnets.private.length).toBeGreaterThan(0);
-    });
-
-    it("should maintain data integrity when converting between JSON formats", async () => {
-      const original = await generateKubernetesNetworkPlan({
-        deploymentSize: "enterprise",
-        provider: "eks",
-        vpcCidr: "10.100.0.0/16",
-        deploymentName: "conversion-test"
-      });
-
-      // Convert to JSON and back
-      const jsonStr = JSON.stringify(original);
-      const restored = JSON.parse(jsonStr);
-
-      // Verify integrity
-      expect(restored.deploymentSize).toBe(original.deploymentSize);
-      expect(restored.provider).toBe(original.provider);
-      expect(restored.deploymentName).toBe(original.deploymentName);
-      expect(restored.vpc.cidr).toBe(original.vpc.cidr);
-      expect(restored.subnets.public).toEqual(original.subnets.public);
-      expect(restored.subnets.private).toEqual(original.subnets.private);
-      expect(restored.pods.cidr).toBe(original.pods.cidr);
-      expect(restored.services.cidr).toBe(original.services.cidr);
+        // A Date, Map, Set, BigInt, NaN, undefined field or class instance would not survive this
+        expect(JSON.parse(JSON.stringify(plan))).toStrictEqual(plan);
+      }
     });
   });
 
