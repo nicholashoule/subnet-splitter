@@ -16,7 +16,7 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 
 **Key Findings**:
 -  All tier configurations support EKS scaling limits (100,000 nodes max)
--  VPC CNI compatibility verified for all configurations
+-  `pods.cidr` is an overlay CNI's pool (Calico, Cilium). With the default VPC CNI, pods take addresses from the node subnets, which hold far fewer: from 2 nodes (micro) to 108 (hyperscale) at 110 pods per node; each tier below states its VPC CNI capacity
 -  IP prefix delegation support confirmed
 -  RFC 1918 private addressing enforced
 -  **Multi-AZ distribution** in every tier: every subnet type has at least two subnets in two AZs (AWS: cluster subnets "must be in at least two different Availability Zones")
@@ -487,7 +487,7 @@ resource "aws_subnet" "pod_subnet" {
 }
 ```
 
-**Our API Assumption**: Users apply `pods.cidr` through an overlay CNI (Option A). With VPC CNI custom networking (Option B), use the API's subnets for nodes and pick a `100.64.0.0/10` block for pods.
+**Our API Assumption**: Users apply `pods.cidr` through an overlay CNI (Option A). With VPC CNI custom networking (Option B), use the API's subnets for nodes, pass a `podsCidr` of `/16` or smaller from `100.64.0.0/10`, and create the pod subnets in it. With the default VPC CNI (Model 1), pods share the node subnets; each tier in section 4 states how many nodes those hold at 110 pods per node.
 
 ### Network Architecture
 
@@ -546,7 +546,7 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 **Configuration**:
 - Public Subnets: 2 × `/26`; Private Subnets: 2 × `/25` (128 addresses each); Control-Plane Subnets: 2 × `/28`, across two AZs
 - Min VPC: `/23` (EKS needs subnets in two AZs)
-- Pod CIDR: `/20` (4,096 addresses)
+- `pods.cidr` (overlay CNI): `/20` (4,096 addresses)
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 1
 - Max Pods: ~110
@@ -554,7 +554,8 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 **EKS Compliance**:
 -  Single-node cluster suitable for PoC/development
 -  Cluster subnets in two AZs, as EKS requires
--  Pod CIDR vastly over-provisioned (safe)
+-  `pods.cidr` vastly over-provisioned for an overlay CNI
+-  Default VPC CNI: the two `/25` node subnets (246 usable addresses) hold 2 nodes at 110 pods each, enough for this tier
 -  No scaling concerns
 -  No VPC CNI optimization needed
 -  Subnet prefix contiguity: Not an issue with single node
@@ -568,14 +569,15 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 **Configuration**:
 - Public Subnets: 2 × `/25`; Private Subnets: 2 × `/24` (256 addresses each); Control-Plane Subnets: 2 × `/28`, across two AZs
 - Min VPC: `/22`
-- Pod CIDR: `/16` (65,536 addresses)
+- `pods.cidr` (overlay CNI): `/16` (65,536 addresses)
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 1-3
 - Max Pods: ~330-440
 
 **EKS Compliance**:
 -  Supports 1-3 node development clusters
--  Pod CIDR provides ~200 addresses per pod at 110 pods/node
+-  `pods.cidr` (overlay CNI) provides ~200 addresses per pod at 110 pods/node
+-  Default VPC CNI: the two `/24` node subnets (502 usable addresses) hold 4 nodes at 110 pods each, enough for this tier
 -  No fragmentation concerns with fresh subnet
 -  Primary subnet spacing adequate for test workloads
 -  Prefix delegation optional but could be enabled
@@ -596,7 +598,7 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 - Private Subnets: 2 × `/23` (1,024 addresses total)
 - Control-Plane Subnets: 2 × `/28`
 - Min VPC: `/21`
-- Pod CIDR: `/18` (16,384 addresses)
+- `pods.cidr` (overlay CNI): `/18` (16,384 addresses)
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 3-10
 - Max Pods: ~1,100-3,300
@@ -605,7 +607,8 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 -  `/23` private subnets provide 512 addresses per subnet
 -  Supports 3-10 node HA clusters
 -  Dual-AZ ready (2 subnets each type)
--  Pod CIDR: ~5 addresses per pod at 3,300 pods (safe)
+-  `pods.cidr` (overlay CNI): ~5 addresses per pod at 3,300 pods (safe)
+-  Default VPC CNI: the two `/23` node subnets (1,014 usable addresses) hold 8 nodes at 110 pods each, short of 10; use fewer pods per node, an overlay CNI, or custom networking
 -  Multi-AZ deployment recommended
 
 **VPC CNI Considerations**:
@@ -625,7 +628,7 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 - Private Subnets: 3 × `/21` (6,144 addresses total)
 - Control-Plane Subnets: 2 × `/28` (one `/27` in two AZs)
 - Min VPC: `/19`
-- Pod CIDR: `/16` (65,536 addresses)
+- `pods.cidr` (overlay CNI): `/16` (65,536 addresses)
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 10-50
 - Max Pods: ~3,300-16,500
@@ -634,7 +637,8 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 -  `/21` private subnets support up to 2,048 addresses each
 -  Supports 10-50 node enterprise clusters
 -  Triple-AZ ready (3 subnets each type)
--  Pod CIDR: ~4 addresses per pod at 110 pods/node (ample space)
+-  `pods.cidr` (overlay CNI): ~4 addresses per pod at 110 pods/node (ample space)
+-  Default VPC CNI: the three `/21` node subnets (6,129 usable addresses) hold 54 nodes at 110 pods each, at most; warm IP pools leave less headroom than that
 -  Three-way HA across availability zones
 
 **VPC CNI Requirements**:
@@ -660,7 +664,7 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 - Private Subnets: 3 × `/20` (4,096 addresses each) = 12,288 total addresses
 - Control-Plane Subnets: 2 × `/28` (16 addresses each), one `/27` in two AZs
 - Min VPC Prefix: `/18` (16,384 addresses)
-- Pod CIDR: `/13` (524,288 addresses total)
+- `pods.cidr` (overlay CNI): `/13` (524,288 addresses total)
 - Service CIDR: `/18` (16,384 addresses)
 - Nodes: 50-5,000 (up to 100,000 with AWS support)
 - Max Pods: 55,000-260,000
@@ -668,9 +672,10 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 **EKS Compliance**:
 -  `/20` private subnets support 4,096 addresses each (12,288 total across 3 AZs)
 -  3 subnets across 3 AZs for zone redundancy
--  Pod CIDR `/13` provides 524K addresses, sized to GKE's 200,000 pods-per-cluster limit (about 105 addresses per node at 5,000 nodes, so 5,000 nodes × 110 pods does not fit)
+-  `pods.cidr` (overlay CNI) `/13` provides 524K addresses, sized to GKE's 200,000 pods-per-cluster limit (about 105 addresses per node at 5,000 nodes, so 5,000 nodes × 110 pods does not fit)
 -  Service CIDR `/18` (16,384 ClusterIPs) is above Kubernetes' tested limit of 10,000 services
--  Supports EKS maximum documented scale (5,000 nodes) without AWS onboarding
+-  Supports EKS maximum documented scale (5,000 nodes) without AWS onboarding, with an overlay CNI or VPC CNI custom networking
+-  Default VPC CNI: the three `/20` node subnets (12,273 usable addresses) hold 108 nodes at 110 pods each, not 5,000
 
 **EKS Scaling Thresholds**:
 - **1,000+ nodes**: Notify AWS support team

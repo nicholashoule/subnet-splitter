@@ -707,7 +707,7 @@ Counts are for public mode. In private mode the public count moves to load-balan
 
 #### Supported Providers
 
-- **EKS** - AWS Elastic Kubernetes Service. Subnets across at least two AZs; `pods.cidr` is for an overlay CNI (Calico, Cilium). A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR for VPC CNI custom networking: AWS refuses CIDRs from a different RFC 1918 block than the VPC's, and secondary blocks must be /16 to /28. For custom networking, pass a `100.64.0.0/10` `podsCidr` of /16 or smaller
+- **EKS** - AWS Elastic Kubernetes Service. Subnets across at least two AZs; `pods.cidr` is for an overlay CNI (Calico, Cilium). With the default VPC CNI, pods take addresses from the node subnets instead, which hold far fewer: hyperscale's three /20s fit about 108 nodes at 110 pods each (see the [EKS tier table](docs/compliance/kubernetes-network-reference.md#eks-tier-compliance)). A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR for VPC CNI custom networking: AWS refuses CIDRs from a different RFC 1918 block than the VPC's, and secondary blocks must be /16 to /28. For custom networking, pass a `100.64.0.0/10` `podsCidr` of /16 or smaller
 - **GKE** - Google Kubernetes Engine (VPC-native). Node subnet with pod and service secondary ranges; regional subnets, no zones
 - **AKS** - Azure Kubernetes Service with Azure CNI Overlay (`network_plugin_mode = "overlay"`). Regional subnets, no zones
 - **Kubernetes** / **k8s** - Generic self-hosted or alternative cloud providers

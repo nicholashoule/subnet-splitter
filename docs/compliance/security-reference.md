@@ -125,7 +125,7 @@ Browsers send each violation as an `application/csp-report` body wrapped in a `"
 
 ### API Routes (`server/routes.ts`)
 
-Mounted for every `/api` route in `server/app.ts` (`createApp()`) with `app.use("/api", createApiRateLimiter())`. Health endpoints (`/api/v1/health*`) are skipped so probes are never throttled; the unprefixed `/health*` routes are outside `/api` and not limited.
+Mounted for every `/api` route in `server/app.ts` (`createApp()`) with `app.use("/api", createApiRateLimiter())`. Only health probes skip it, so probes are never throttled: `isHealthProbe()` in `server/health.ts` accepts a `GET` or `HEAD` of exactly `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (a trailing slash allowed). Any other method, such as a `POST` with a body, and any lookalike path, such as `/api/v1/healthz`, counts toward the limit. The unprefixed `/health*` routes are outside `/api` and not limited.
 
 ```typescript
 export function createApiRateLimiter(): RequestHandler {
@@ -135,9 +135,21 @@ export function createApiRateLimiter(): RequestHandler {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
-    skip: (req) => req.path.startsWith("/v1/health"),
+    // Mounted at /api: req.baseUrl is "/api" and req.path the rest
+    skip: (req) => isHealthProbe(req.method, req.baseUrl + req.path),
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : "unknown",
   });
+}
+
+// server/health.ts
+export const HEALTH_PATHS = ["/health", "/health/ready", "/health/live"] as const;
+
+export function isHealthProbe(method: string, fullPath: string): boolean {
+  if (method !== "GET" && method !== "HEAD") return false;
+  // Express treats a trailing slash as the same route (strict routing is off)
+  const path = fullPath.length > 1 && fullPath.endsWith("/") ? fullPath.slice(0, -1) : fullPath;
+  const relative = path.startsWith("/api/v1/") ? path.slice("/api/v1".length) : path;
+  return (HEALTH_PATHS as readonly string[]).includes(relative);
 }
 ```
 
@@ -199,9 +211,18 @@ if (allowedHosts.includes(host)) {
 **CSP directives** (server config -- hardcoded constants, not user input):
 
 ```typescript
+// buildSwaggerUICSP() in server/csp-config.ts
 const cdnSource = "https://cdn.jsdelivr.net";
-if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
-    swaggerDirectives.connectSrc.push(cdnSource);
+const additions: CSPDirectives = {
+  scriptSrc: ["'unsafe-inline'", cdnSource],
+  styleSrc: [cdnSource],
+  connectSrc: [cdnSource],
+};
+for (const [key, values] of Object.entries(additions)) {
+  const existing = (swaggerDirectives[key] ??= []);
+  for (const value of values) {
+    if (!existing.includes(value)) existing.push(value);
+  }
 }
 ```
 

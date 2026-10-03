@@ -1080,7 +1080,7 @@ All three plans use `pods.cidr` `172.16.0.0/16` and `services.cidr` `192.168.0.0
 ### Provider-Specific Features
 
 **EKS (AWS)**
-- VPC CNI with IP prefix delegation
+- `pods.cidr` for an overlay CNI; with the default VPC CNI (and IP prefix delegation), pods share the node subnets instead (see [Pod Networking Model](#critical-pod-networking-model))
 - Every subnet type in at least two AZs, in every tier
 - Two `/28` control-plane subnets in two AZs (one contiguous `/27`), for `vpc_config.subnet_ids`
 - Private mode: internal load-balancer subnets per AZ, tagged `kubernetes.io/role/internal-elb`
@@ -1483,7 +1483,7 @@ Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ran
 - Pods share VPC subnet IPs with nodes (no separate pod CIDR)
 - High IP exhaustion risk for large clusters
 - Simpler setup, no custom CNI required
-- **Our API output does NOT support this model directly**
+- **Our API output does NOT support this model directly**: `pods.cidr` goes unused, and the node subnets hold every pod. At 110 pods per node they fit 2 nodes (micro), 4 (standard), 8 (professional), 54 (enterprise) and 108 (hyperscale), at most ([EKS tier table](compliance/kubernetes-network-reference.md#eks-tier-compliance))
 
 **Model 2: Custom CNI or Secondary CIDR (Our API)**
 - Pods use separate CIDR range (our API's `pods.cidr` field)

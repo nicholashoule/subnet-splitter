@@ -20,6 +20,8 @@ With `?networkMode=private` the public subnets become internal load-balancer sub
 
 Every plan keeps four address spaces apart: nodes (`subnets.private`) and control plane (`subnets.controlPlane`: one network, a `/28`, or for EKS a `/27` split into two `/28`s) inside the VPC; pods and services outside it. Generated services go in an RFC 1918 block used by neither the VPC nor the pods (`192.168.0.0/16` preferred); generated pods go in an RFC 1918 block used by neither the VPC nor a caller's `servicesCidr` (`10.0.0.0/8` preferred), or in `100.64.0.0/10` (RFC 6598) when none has room. Public subnets, or internal load-balancer subnets (`subnets.loadBalancer`) in private network mode, are also inside the VPC. Subnets are placed first-fit (lowest free offset aligned to the subnet's size: public or load-balancer, then private, then control plane). Generated pod and service ranges never overlap `172.17.0.0/16`, and for AKS never overlap `172.30.0.0/16` or `172.31.0.0/16`, which AKS reserves (a VNet, `podsCidr`, or `servicesCidr` overlapping those is rejected; AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`). Every `vpcCidr` must be `/16` or smaller (EKS: AWS's VPC limit; other providers: a project standard), and a GKE `servicesCidr` must be `/16` to `/24`. See [api.md](../api.md#address-space-separation).
 
+On EKS the separate pod range is for an overlay CNI (Calico, Cilium). With the default AWS VPC CNI, pods take addresses from the node subnets and `pods.cidr` goes unused; those subnets hold far fewer pods (see [EKS](#eks-compliance--ip-formulas)).
+
 ## GKE Compliance & IP Formulas
 
 ### Pod CIDR Formula
@@ -70,12 +72,13 @@ Formulas assume 110 pods/node (Standard). Autopilot uses 32 default (over-provis
 
 ### Network Model
 
-- Nodes get IPs from primary VPC subnet
-- Pods get IPs via AWS VPC CNI (secondary ranges)
-- IP prefix delegation (Nitro instances): `/28` blocks per pod batch
+- Nodes get IPs from the node subnets (`subnets.private`)
+- **Overlay CNI (Calico, Cilium):** pods get IPs from `pods.cidr`, outside the VPC. This is what the plan's pod range is for
+- **AWS VPC CNI (the EKS default):** pods get secondary IPs, or `/28` prefixes with prefix delegation, on the node's network interfaces, taken from the node subnets. `pods.cidr` goes unused, and the node subnets bound pod capacity as well as node capacity (see [EKS Tier Compliance](#eks-tier-compliance))
+- **VPC CNI custom networking:** pods use subnets in a secondary VPC CIDR. A generated `pods.cidr` can't be one (AWS refuses a different RFC 1918 block than the VPC's, and secondary blocks are `/16` to `/28`); pass a `podsCidr` from `100.64.0.0/10` of `/16` or smaller, associate it with the VPC, and create one pod subnet per AZ in it
 - Maximum pods per node: 250 (with prefix delegation)
 
-### Pod CIDR Formula
+### Pods per Node (VPC CNI)
 
 ```
 With prefix delegation (Nitro):
@@ -100,13 +103,15 @@ Without prefix delegation:
 
 Node capacity per private subnet is `2^(32 - prefix) - 5`: AWS reserves 5 addresses in every subnet ([AWS: subnet CIDR blocks](https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html)).
 
-| Tier | Private | Pod CIDR | Node Cap | Actual Nodes |
-|------|---------|----------|----------|--------------|
-| Micro | /25 | /20 | 123 | 1 |
-| Standard | /24 | /16 | 251 | 1-3 |
-| Professional | /23 | /18 | 507 | 3-10 |
-| Enterprise | /21 | /16 | 2,043 | 10-50 |
-| Hyperscale | /20 | /13 | 4,091 | 50-5000 |
+| Tier | Node subnets | Node Cap per subnet | `pods.cidr` (overlay CNI) | VPC CNI: nodes at 110 pods | Tier nodes |
+|------|--------------|---------------------|---------------------------|----------------------------|------------|
+| Micro | 2 x /25 | 123 | /20 | 2 | 1 |
+| Standard | 2 x /24 | 251 | /16 | 4 | 1-3 |
+| Professional | 2 x /23 | 507 | /18 | 8 | 3-10 |
+| Enterprise | 3 x /21 | 2,043 | /16 | 54 | 10-50 |
+| Hyperscale | 3 x /20 | 4,091 | /13 | 108 | 50-5000 |
+
+With the default VPC CNI, a node running P pods takes at least P + 1 addresses from its subnet (more with warm IP pools and additional network interfaces), so the VPC CNI column is an upper bound: `floor(usable / 111)` per node subnet, summed. Professional at 10 nodes and hyperscale past about 100 nodes don't fit at 110 pods per node. Use an overlay CNI with `pods.cidr`, VPC CNI custom networking with a `100.64.0.0/10` `podsCidr`, or fewer pods per node.
 
 ### Prefix Delegation Notes
 
@@ -178,7 +183,7 @@ Error: HTTP 429, Header: Retry-After
 
 | Aspect | EKS | GKE | AKS |
 |--------|-----|-----|-----|
-| Pod model | ENI + secondary IPs | Alias IP ranges | CNI Overlay |
+| Pod model | VPC CNI: ENI secondary IPs from the node subnets; overlay CNI: `pods.cidr` | Alias IP ranges | CNI Overlay |
 | Config | Manual prefix delegation | Auto-managed | Overlay vs direct |
 | Max pods/node | 250 (prefix) | 110 (Standard) | 250 (overlay) |
 | Fragmentation risk | Yes | No | No |

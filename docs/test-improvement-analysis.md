@@ -158,6 +158,8 @@ beforeAll(async () => {
 
 ## Proposed Solution: Shared Test Utilities
 
+**History**: the proposal as written at the time of the analysis; read [tests/helpers/test-server.ts](../tests/helpers/test-server.ts) for the helper that shipped. It differs: it matches routes case-sensitively and caps JSON bodies at 16 KB, as production does; it registers production's `errorHandler` after `setup`; it takes `jsonOptions` instead of `defaultPort`; and a listen error fails the test instead of falling back to a fixed port.
+
 Create `tests/helpers/test-server.ts`:
 
 ```typescript

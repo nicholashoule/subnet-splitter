@@ -367,9 +367,10 @@ With Azure CNI Overlay:
 **Hyperscale Tier (5,000 nodes, 110 pods/node)**:
 - **Private Subnets**: 3 × `/20` (4,091 usable IPs per subnet = 12,273 IPs total; AWS reserves 5 per subnet)
 - **Public Subnets**: 3 × `/23` (507 usable IPs per subnet for load balancers)
-- **Why**: Private subnets for Nodes, public for ingress; `/20` provides ample Node + Pod headroom
+- **Why**: Private subnets for Nodes, public for ingress. Under the default VPC CNI the node subnets also hold every pod, and 12,273 addresses fit about 108 nodes at 110 pods per node (each takes at least 111), nowhere near 5,000
 - **Distribution**: 3 subnets across 3 AZs
-- **Pod CIDR**: `/13` (524K IPs) - separate configuration for VPC CNI. This is less than the 550,000 pods of 5,000 nodes × 110, so plan fewer pods per node at full scale
+- **Pod CIDR**: `/13` (524K IPs), for an overlay CNI (Calico, Cilium); the default VPC CNI does not use it. It is less than the 550,000 pods of 5,000 nodes × 110, so plan fewer pods per node at full scale
+- **VPC CNI at this scale**: use custom networking, with pods in subnets of a secondary VPC CIDR from `100.64.0.0/10` (pass it as `podsCidr`). A secondary block is at most `/16`, about 590 nodes at 110 pods, so 5,000 nodes needs several blocks (AWS allows 5 IPv4 CIDR blocks per VPC by default, a quota you can raise)
 - **IP Prefix Delegation**: REQUIRED for high-density (>100 pods/node)
 - **Control plane**: 2 × `/28` cluster subnets in two AZs, forming one `/27`, for `vpc_config.subnet_ids` (exactly two in every EKS tier)
 

@@ -494,11 +494,11 @@ describe("IP Calculation Compliance Validation", () => {
     /**
      * From EKS_COMPLIANCE_AUDIT.md:
      * - VPC CNI: Pods and Nodes share VPC CIDR (IP exhaustion risk)
-     * - Hyperscale uses /20 private subnets (4,096 IPs) for high pod density
+     * - Hyperscale uses /20 private subnets (4,096 IPs); pods.cidr serves an overlay CNI
      * - IP Prefix Delegation requires Nitro instances
      */
     describe("EKS Subnet Sizing for VPC CNI", () => {
-      it("should have /20 private subnets for hyperscale (high pod density support)", async () => {
+      it("should have /20 private subnets for hyperscale", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "hyperscale",
           provider: "eks",
@@ -516,6 +516,20 @@ describe("IP Calculation Compliance Validation", () => {
         expect(usableAddresses(config.privateSubnetSize, "eks")).toBe(4091);
         // Three /20 node subnets: 12,273 usable addresses for nodes (and VPC CNI pods)
         expect(config.privateSubnets * usableAddresses(config.privateSubnetSize, "eks")).toBe(12273);
+      });
+
+      it("holds the node counts the docs state under the default VPC CNI (110 pods per node)", () => {
+        // Pods share the node subnets, so a node with 110 pods takes at least 111 addresses.
+        // docs/compliance/kubernetes-network-reference.md ("EKS Tier Compliance"), the EKS
+        // audit and api.md quote these upper bounds; professional and hyperscale fall short.
+        const nodesAt110Pods = (tier: keyof typeof DEPLOYMENT_TIER_CONFIGS) => {
+          const config = getTierConfig(tier, "eks");
+          return config.privateSubnets * Math.floor(usableAddresses(config.privateSubnetSize, "eks") / 111);
+        };
+        const tiers = Object.keys(DEPLOYMENT_TIER_CONFIGS) as Array<keyof typeof DEPLOYMENT_TIER_CONFIGS>;
+        expect(Object.fromEntries(tiers.map((tier) => [tier, nodesAt110Pods(tier)]))).toEqual({
+          micro: 2, standard: 4, professional: 8, enterprise: 54, hyperscale: 108,
+        });
       });
     });
 

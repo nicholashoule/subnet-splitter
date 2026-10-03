@@ -181,6 +181,31 @@ describe("Colors come from theme tokens", () => {
   });
 });
 
+describe("Tailwind 4 variant order", () => {
+  // Tailwind 4 applies stacked variants left to right, as CSS reads: "[&>tr]:last:" is
+  // the element's last row, but "last:[&>tr]:" is every row of an element that is itself
+  // a last child (the Tailwind 3 meaning, which the upgrade tool preserves by swapping)
+  const POSITIONAL_BEFORE_CHILD = /(?<![\w-])(?:first|last|only|odd|even|first-of-type|last-of-type|only-of-type|nth-[\w[\]-]+):(?:\[&[^\]\s]*\]|\*{1,2}):/g;
+  const clientSrc = path.resolve(__dirname, "../../client/src");
+
+  it("puts child selectors before positional variants, so they match the child", () => {
+    const files = (fs.readdirSync(clientSrc, { recursive: true }) as string[]).filter((file) => /\.tsx?$/.test(file));
+    const offenders = files.flatMap((file) =>
+      (fs.readFileSync(path.join(clientSrc, file), "utf8").match(POSITIONAL_BEFORE_CHILD) ?? []).map((m) => `${file}: ${m}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it("catches the reversed order", () => {
+    expect("font-medium last:[&>tr]:border-b-0".match(POSITIONAL_BEFORE_CHILD)).toEqual(["last:[&>tr]:"]);
+    expect("first:*:pt-0".match(POSITIONAL_BEFORE_CHILD)).toEqual(["first:*:"]);
+    expect("font-medium [&>tr]:last:border-b-0 *:first:pt-0".match(POSITIONAL_BEFORE_CHILD)).toBeNull();
+  });
+
+  it("removes the bottom border from the table footer's last row only", () => {
+    expect(read("client/src/components/ui/table.tsx")).toContain("[&>tr]:last:border-b-0");
+  });
+});
+
 describe("Design System Consistency", () => {
   it("keeps the primary hue within 10 degrees across themes", () => {
     expect(Math.abs(themes.light.primary[0] - themes.dark.primary[0])).toBeLessThanOrEqual(10);

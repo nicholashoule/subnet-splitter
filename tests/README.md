@@ -112,6 +112,7 @@ Unit tests verify individual functions and utilities in isolation.
 - Deployment tier compliance testing
 - Network sizing validation
 - Hyperscale capacity as it is: the `/13` pod range holds 2,048 nodes at a `/24` per node; 5,000 nodes need a `/11` `podsCidr` (the override is accepted)
+- EKS under the default VPC CNI: pods share the node subnets, which hold 2, 4, 8, 54 and 108 nodes at 110 pods per node (micro to hyperscale), the figures the docs quote
 
 **ui-styles.test.ts:**
 - WCAG contrast for every text pair the app renders, light and dark, with colors read from `client/src/index.css` (including tooltips on `popover` and the 404 page link on `card`)
@@ -123,6 +124,7 @@ Unit tests verify individual functions and utilities in isolation.
 - Announcements: validation errors are alerts and `onSubmit` does not move focus; table status sits in a live region
 - Theme before first paint: `theme-init.js` loads as a blocking script in `<head>`, applies dark only for a saved `dark`, and keeps light when storage throws
 - Calculator wiring: memoized rows with a stable split callback, table and export built from the visible rows, a minus for the partial select-all state, header icons sized through their buttons, example loads confirmed through the announced toast
+- Tailwind 4 variant order: no positional variant (`first:`, `last:`, `odd:`, ...) before a child selector (`[&>tr]:`, `*:`), since v4 applies variants left to right
 
 **config.test.ts:**
 - Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config, replaced packages removed)
