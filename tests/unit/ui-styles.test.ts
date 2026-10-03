@@ -1,219 +1,160 @@
 /**
- * tests/integration/ui-styles.test.ts
- * 
- * Consolidated UI styling tests covering:
- * - WCAG accessibility compliance (contrast ratios)
- * - Color palette accessibility in light and dark modes
- * - Semantic structure validation
- * - Design system consistency
- * 
- * Removed: Redundant CSS class tests, implementation details
- * Focus: User-facing behavior and accessibility standards
+ * tests/unit/ui-styles.test.ts
+ *
+ * UI styling tests covering:
+ * - WCAG 2.x contrast for the color pairs the app renders, in both themes
+ * - Design system consistency across themes
+ * - Semantic structure of the calculator page
+ *
+ * Colors are read from client/src/index.css, so a palette change is checked
+ * as soon as it is made.
  */
 
 import { describe, it, expect } from "vitest";
+import fs from "fs";
+import path from "path";
 
-// Helper function to parse HSL string to RGB for contrast calculation
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+type Rgb = [number, number, number];
+type Hsl = [number, number, number];
+
+const css = fs.readFileSync(path.resolve(__dirname, "../../client/src/index.css"), "utf8");
+const calculator = fs.readFileSync(path.resolve(__dirname, "../../client/src/pages/calculator.tsx"), "utf8");
+
+// Reads "--name: H S% L%;" declarations from a selector block
+function readTokens(selector: string): Record<string, Hsl> {
+  const start = css.indexOf(`${selector} {`);
+  const block = css.slice(start, css.indexOf("\n}", start));
+  return Object.fromEntries(
+    [...block.matchAll(/--([\w-]+):\s*(\d+) (\d+)% (\d+)%;/g)].map(([, name, h, s, l]) => [name, [+h, +s, +l]])
+  );
+}
+
+const light = readTokens(":root");
+const themes = { light, dark: { ...light, ...readTokens(".dark") } };
+
+function hslToRgb([h, s, l]: Hsl): Rgb {
   s /= 100;
   l /= 100;
   const k = (n: number) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [
-    Math.round(255 * f(0)),
-    Math.round(255 * f(8)),
-    Math.round(255 * f(4)),
-  ];
+  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
 }
 
-// Calculate relative luminance (WCAG 2.0)
-function getLuminance(r: number, g: number, b: number): number {
-  const [rs, gs, bs] = [r, g, b].map((val) => {
-    val = val / 255;
-    return val <= 0.03928 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4);
-  });
-  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+// A translucent color (e.g. Tailwind's bg-muted/20) composited over an opaque one
+function over(top: Rgb, alpha: number, bottom: Rgb): Rgb {
+  return top.map((c, i) => Math.round(c * alpha + bottom[i] * (1 - alpha))) as Rgb;
 }
 
-// Calculate contrast ratio (WCAG 2.0)
-function getContrastRatio(rgb1: [number, number, number], rgb2: [number, number, number]): number {
-  const lum1 = getLuminance(rgb1[0], rgb1[1], rgb1[2]);
-  const lum2 = getLuminance(rgb2[0], rgb2[1], rgb2[2]);
-  const lighter = Math.max(lum1, lum2);
-  const darker = Math.min(lum1, lum2);
-  return (lighter + 0.05) / (darker + 0.05);
+// Relative luminance (WCAG 2.x)
+function luminance(rgb: Rgb): number {
+  const [r, g, b] = rgb.map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-describe("UI Accessibility - WCAG Compliance", () => {
-  describe("Light Mode Contrast Ratios", () => {
-    it("primary color on background meets WCAG AA (4.5:1) for text", () => {
-      // Primary: 221 83% 53% (#4F46E5)
-      // Background: 210 20% 98% (#FAFBFD)
-      const primaryRgb = hslToRgb(221, 83, 53);
-      const backgroundRgb = hslToRgb(210, 20, 98);
-      const contrastRatio = getContrastRatio(primaryRgb, backgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
-    });
+function contrast(a: Rgb, b: Rgb): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
-    it("foreground text on background meets WCAG AAA (7:1) standard", () => {
-      // Foreground: 222 47% 11% (#1E1B4B)
-      // Background: 210 20% 98% (#FAFBFD)
-      const foregroundRgb = hslToRgb(222, 47, 11);
-      const backgroundRgb = hslToRgb(210, 20, 98);
-      const contrastRatio = getContrastRatio(foregroundRgb, backgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(7);
-    });
-
-    it("secondary accent suitable for UI highlights (2:1 minimum)", () => {
-      // Secondary Accent: 160 60% 45% (#0891B2)
-      // Background: 210 20% 98% (#FAFBFD)
-      const accentRgb = hslToRgb(160, 60, 45);
-      const backgroundRgb = hslToRgb(210, 20, 98);
-      const contrastRatio = getContrastRatio(accentRgb, backgroundRgb);
-      
-      // Used for backgrounds/highlights, not text
-      expect(contrastRatio).toBeGreaterThanOrEqual(2);
-    });
-
-    it("destructive color on background meets WCAG AA (4.5:1)", () => {
-      // Destructive: 0 72% 51% (#EF4444)
-      // Background: 210 20% 98% (#FAFBFD)
-      const destructiveRgb = hslToRgb(0, 72, 51);
-      const backgroundRgb = hslToRgb(210, 20, 98);
-      const contrastRatio = getContrastRatio(destructiveRgb, backgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
-    });
-
-    it("muted foreground meets WCAG AA for graphics (3:1)", () => {
-      // Muted Foreground: 215 16% 47% (#6B7280)
-      // Background: 210 20% 98% (#FAFBFD)
-      const mutedForegroundRgb = hslToRgb(215, 16, 47);
-      const backgroundRgb = hslToRgb(210, 20, 98);
-      const contrastRatio = getContrastRatio(mutedForegroundRgb, backgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(3);
-    });
+describe("UI Accessibility - WCAG Contrast", () => {
+  it("reads the palette from index.css", () => {
+    for (const name of ["background", "foreground", "card", "primary", "muted", "muted-foreground", "destructive"]) {
+      expect(themes.light[name], `light --${name}`).toBeDefined();
+      expect(readTokens(".dark")[name], `dark --${name}`).toBeDefined();
+    }
   });
 
-  describe("Dark Mode Contrast Ratios", () => {
-    it("primary color on dark background meets WCAG AA (4.5:1)", () => {
-      // Primary (dark mode): 217 91% 60%
-      // Background (dark mode): 222 47% 8%
-      const primaryRgb = hslToRgb(217, 91, 60);
-      const darkBackgroundRgb = hslToRgb(222, 47, 8);
-      const contrastRatio = getContrastRatio(primaryRgb, darkBackgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
+  describe.each(Object.entries(themes))("%s theme", (_theme, tokens) => {
+    const color = (name: string) => hslToRgb(tokens[name]);
+    const background = color("background");
+    // Header and footer bands (bg-muted/20 and bg-muted/30 over the page)
+    const header = over(color("muted"), 0.2, background);
+    const footer = over(color("muted"), 0.3, background);
+
+    // Text pairs rendered by the app; WCAG AA requires 4.5:1 for normal-size text
+    const textPairs: Array<[string, Rgb, Rgb]> = [
+      ["foreground on background", color("foreground"), background],
+      ["card-foreground on card", color("card-foreground"), color("card")],
+      ["muted-foreground on background", color("muted-foreground"), background],
+      ["muted-foreground on card", color("muted-foreground"), color("card")],
+      ["muted-foreground on muted", color("muted-foreground"), color("muted")],
+      ["muted-foreground on header", color("muted-foreground"), header],
+      ["muted-foreground on footer", color("muted-foreground"), footer],
+      ["primary (links) on background", color("primary"), background],
+      ["primary (links) on footer", color("primary"), footer],
+      ["primary-foreground on primary (buttons, badges)", color("primary-foreground"), color("primary")],
+      ["secondary-foreground on secondary", color("secondary-foreground"), color("secondary")],
+      ["destructive (error text) on background", color("destructive"), background],
+      ["destructive (error text) on card", color("destructive"), color("card")],
+      ["destructive-foreground on destructive (toasts)", color("destructive-foreground"), color("destructive")],
+    ];
+
+    it.each(textPairs)("%s meets WCAG AA (4.5:1)", (_pair, fg, bg) => {
+      expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
     });
 
-    it("foreground text on dark background meets WCAG AAA (7:1)", () => {
-      // Foreground (dark mode): 210 20% 98%
-      // Background (dark mode): 222 47% 8%
-      const foregroundRgb = hslToRgb(210, 20, 98);
-      const darkBackgroundRgb = hslToRgb(222, 47, 8);
-      const contrastRatio = getContrastRatio(foregroundRgb, darkBackgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(7);
+    it("foreground on background meets WCAG AAA (7:1)", () => {
+      expect(contrast(color("foreground"), background)).toBeGreaterThanOrEqual(7);
     });
 
-    it("destructive color on dark background maintains WCAG AA", () => {
-      // Destructive (dark mode): 0 62% 63%
-      // Background (dark mode): 222 47% 8%
-      const destructiveRgb = hslToRgb(0, 62, 63);
-      const darkBackgroundRgb = hslToRgb(222, 47, 8);
-      const contrastRatio = getContrastRatio(destructiveRgb, darkBackgroundRgb);
-      
-      expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
-    });
-  });
-});
-
-describe("Semantic Structure", () => {
-  describe("Header Section", () => {
-    it("should have QR code image with accessible alt text", () => {
-      const expectedAlt = "GitHub QR Code";
-      expect(expectedAlt).toBe("GitHub QR Code");
-    });
-
-    it("should have descriptive title text", () => {
-      const expectedTitle = "CIDR Subnet Calculator";
-      expect(expectedTitle).toBe("CIDR Subnet Calculator");
-    });
-
-    it("should have theme toggle with proper aria-label", () => {
-      const expectedLabel = "Toggle dark mode";
-      expect(expectedLabel).toBe("Toggle dark mode");
-    });
-  });
-
-  describe("Footer Section", () => {
-    it("should have creator attribution", () => {
-      const expectedText = "Created by";
-      expect(expectedText).toBe("Created by");
-    });
-
-    it("should have GitHub profile link", () => {
-      const expectedLink = "https://github.com/nicholashoule";
-      expect(expectedLink).toContain("github.com/nicholashoule");
-    });
-
-    it("should have CIDR explanation for educational context", () => {
-      const expectedText = "CIDR (Classless Inter-Domain Routing)";
-      expect(expectedText).toContain("CIDR");
+    it("focus ring meets WCAG non-text contrast (3:1) on background and card", () => {
+      expect(contrast(color("ring"), background)).toBeGreaterThanOrEqual(3);
+      expect(contrast(color("ring"), color("card"))).toBeGreaterThanOrEqual(3);
     });
   });
 });
 
 describe("Design System Consistency", () => {
-  it("maintains consistent color palette across themes", () => {
-    // Light mode primary: 221 83% 53%
-    // Dark mode primary: 217 91% 60%
-    // Both are blue hues (217-221 range)
-    const lightHue = 221;
-    const darkHue = 217;
-    const hueDifference = Math.abs(lightHue - darkHue);
-    
-    // Hues should be close (within 10 degrees) for consistency
-    expect(hueDifference).toBeLessThanOrEqual(10);
+  it("keeps the primary hue within 10 degrees across themes", () => {
+    expect(Math.abs(themes.light.primary[0] - themes.dark.primary[0])).toBeLessThanOrEqual(10);
   });
 
-  it("uses appropriate contrast for button states", () => {
-    // Primary buttons should stand out from background
-    // This validates button hierarchy is visually clear
-    const primaryRgb = hslToRgb(221, 83, 53);
-    const backgroundRgb = hslToRgb(210, 20, 98);
-    const contrastRatio = getContrastRatio(primaryRgb, backgroundRgb);
-    
-    // Strong contrast for primary actions
-    expect(contrastRatio).toBeGreaterThanOrEqual(4.5);
+  it("uses the primary color for the focus ring in both themes", () => {
+    expect(themes.light.ring).toEqual(themes.light.primary);
+    expect(themes.dark.ring).toEqual(themes.dark.primary);
   });
 
-  it("provides sufficient distinction between primary and secondary colors", () => {
-    // Primary: blue (221 hue)
-    // Secondary accent: teal (160 hue)
-    const primaryHue = 221;
-    const secondaryHue = 160;
-    const hueDifference = Math.abs(primaryHue - secondaryHue);
-    
-    // Should be distinguishable (at least 30 degrees apart)
-    expect(hueDifference).toBeGreaterThanOrEqual(30);
+  it("separates destructive from primary by hue", () => {
+    for (const tokens of Object.values(themes)) {
+      const diff = Math.abs(tokens.primary[0] - tokens.destructive[0]);
+      expect(Math.min(diff, 360 - diff)).toBeGreaterThanOrEqual(90);
+    }
+  });
+});
+
+describe("Semantic Structure", () => {
+  it("gives the header QR code image alt text", () => {
+    expect(calculator).toMatch(/<img [^>]*alt="GitHub QR Code"/);
+  });
+
+  it("labels the theme toggle and docs link for screen readers", () => {
+    expect(calculator).toContain('aria-label="Toggle dark mode"');
+    expect(calculator).toContain('aria-label="Open API documentation"');
+  });
+
+  it("labels the CIDR input and ties validation errors to it", () => {
+    expect(calculator).toContain('<label htmlFor="cidr-input"');
+    expect(calculator).toContain('aria-describedby={cidrError ? "cidr-input-error" : undefined}');
+    expect(calculator).toContain('id="cidr-input-error"');
+  });
+
+  it("has a footer with the CIDR explanation and creator link", () => {
+    expect(calculator).toContain("CIDR (Classless Inter-Domain Routing)");
+    expect(calculator).toMatch(/Created by <a href="https:\/\/github\.com\/nicholashoule"/);
   });
 });
 
 describe("Responsive Behavior", () => {
-  it("validates container width constraint for readability", () => {
-    const maxWidth = 1600; // pixels
-    // Ensures content doesn't stretch too wide on large screens
-    expect(maxWidth).toBeGreaterThanOrEqual(1200);
-    expect(maxWidth).toBeLessThanOrEqual(1920);
+  it("caps the content width at 1600px", () => {
+    expect(calculator).toContain("max-w-[1600px]");
   });
 
-  it("validates elegant scrollbar styling exists", () => {
-    const scrollbarClass = "elegant-scrollbar";
-    expect(scrollbarClass).toBe("elegant-scrollbar");
+  it("styles the subnet table scrollbar with elegant-scrollbar", () => {
+    expect(css).toContain(".elegant-scrollbar {");
+    expect(calculator).toContain("elegant-scrollbar");
   });
 });

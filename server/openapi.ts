@@ -6,13 +6,60 @@
  * 
  * Security: Minimal implementation, no authentication required
  * (API endpoints are stateless and perform only calculations)
+ *
+ * Request/response examples are produced by the real generator at startup, so
+ * they can never drift from what the API returns.
  */
+
+import { version as APP_VERSION } from "../package.json";
+import { buildKubernetesNetworkPlan, getDeploymentTierInfo } from "../client/src/lib/kubernetes-network-generator";
+
+const EXAMPLE_TIME = new Date("2026-10-02T12:00:00.000Z");
+
+/** Example requests shown in Swagger UI; responses are generated from them */
+const PLAN_EXAMPLES: Record<string, { summary: string; request: Record<string, unknown> }> = {
+  eks_enterprise: {
+    summary: "AWS EKS Enterprise (us-east-1)",
+    request: { deploymentSize: "enterprise", provider: "eks", region: "us-east-1", vpcCidr: "10.100.0.0/18", deploymentName: "prod-eks-us-east-1" },
+  },
+  gke_enterprise: {
+    summary: "GCP GKE Enterprise (us-central1)",
+    request: { deploymentSize: "enterprise", provider: "gke", region: "us-central1", vpcCidr: "10.100.0.0/18", deploymentName: "prod-gke-us-central1" },
+  },
+  aks_enterprise: {
+    summary: "Azure AKS Enterprise (eastus)",
+    request: { deploymentSize: "enterprise", provider: "aks", region: "eastus", vpcCidr: "10.100.0.0/18", deploymentName: "prod-aks-eastus" },
+  },
+  eks_micro: {
+    summary: "AWS EKS Micro (two AZs, as EKS requires)",
+    request: { deploymentSize: "micro", provider: "eks", region: "us-west-2", vpcCidr: "10.0.0.0/23" },
+  },
+  eks_explicit_zones: {
+    summary: "AWS EKS with explicit zones (ap-northeast-1 has no 1b for new accounts)",
+    request: { deploymentSize: "professional", provider: "eks", region: "ap-northeast-1", vpcCidr: "10.10.0.0/16", availabilityZones: ["ap-northeast-1a", "ap-northeast-1c"] },
+  },
+  gke_private: {
+    summary: "GKE private network (no public subnets; Cloud NAT egress, proxy-only subnet for internal LBs)",
+    request: { deploymentSize: "enterprise", provider: "gke", region: "us-central1", vpcCidr: "10.20.0.0/16", networkMode: "private" },
+  },
+  eks_private: {
+    summary: "EKS private network (internal-elb subnets per AZ, no public subnets)",
+    request: { deploymentSize: "professional", provider: "eks", region: "us-east-1", vpcCidr: "10.30.0.0/16", networkMode: "private" },
+  },
+  second_cluster: {
+    summary: "Second GKE cluster in the same network (explicit, non-overlapping pods/services)",
+    request: { deploymentSize: "professional", provider: "gke", region: "us-central1", vpcCidr: "10.1.0.0/16", podsCidr: "172.16.64.0/18", servicesCidr: "192.168.16.0/20" },
+  },
+};
+
+const exampleEntries = <T>(build: (example: { summary: string; request: Record<string, unknown> }) => T) =>
+  Object.fromEntries(Object.entries(PLAN_EXAMPLES).map(([key, example]) => [key, { summary: example.summary, value: build(example) }]));
 
 export const openApiSpec = {
   openapi: "3.0.0",
   info: {
     title: "CIDR Subnet Calculator API",
-    version: "1.0.0",
+    version: APP_VERSION,
     description: "REST API for subnet calculations and Kubernetes network planning. Generate optimized network configurations for EKS, GKE, AKS, and self-hosted Kubernetes clusters with battle-tested subnet allocations."
   },
   servers: [
@@ -35,6 +82,7 @@ export const openApiSpec = {
     "/v1/health": {
       get: {
         tags: ["Health"],
+        operationId: "getHealth",
         summary: "Health check",
         description: "Check if the service is healthy and operational. Use for Kubernetes readiness/liveness probes.",
         responses: {
@@ -48,7 +96,7 @@ export const openApiSpec = {
                     status: { type: "string", example: "healthy" },
                     timestamp: { type: "string", format: "date-time" },
                     uptime: { type: "number", description: "Server uptime in seconds" },
-                    version: { type: "string", example: "1.0.0" }
+                    version: { type: "string", example: APP_VERSION }
                   }
                 }
               }
@@ -60,6 +108,7 @@ export const openApiSpec = {
     "/v1/health/ready": {
       get: {
         tags: ["Health"],
+        operationId: "getReadiness",
         summary: "Readiness check",
         description: "Kubernetes readiness probe - returns 200 when service can accept traffic",
         responses: {
@@ -83,6 +132,7 @@ export const openApiSpec = {
     "/v1/health/live": {
       get: {
         tags: ["Health"],
+        operationId: "getLiveness",
         summary: "Liveness check",
         description: "Kubernetes liveness probe - returns 200 when service process is alive",
         responses: {
@@ -106,8 +156,9 @@ export const openApiSpec = {
     "/k8s/plan": {
       post: {
         tags: ["Kubernetes"],
+        operationId: "generateNetworkPlan",
         summary: "Generate Kubernetes network plan",
-        description: "Generate optimized VPC and subnet configuration for Kubernetes clusters. Supports deployment tiers from micro (1 node) to hyperscale (5000 nodes). All VPC CIDRs must use private RFC 1918 ranges.",
+        description: "Generate a VPC layout for a Kubernetes cluster with nodes, control plane, pods, and services each in separate, non-overlapping ranges. Load-balancer (public, or internal in private mode), node, and control-plane subnets sit inside the VPC; pods and services sit outside it, each in its own RFC 1918 block, clear of 172.17.0.0/16. EKS plans spread every subnet type across at least two AZs; GKE and AKS subnets are regional (no zone). Supports tiers from micro (1 node) to hyperscale. The VPC must be private RFC 1918 space.",
         requestBody: {
           required: true,
           content: {
@@ -129,68 +180,56 @@ export const openApiSpec = {
                   },
                   region: {
                     type: "string",
+                    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+                    maxLength: 64,
                     description: "Cloud region/location (provider-specific naming). AWS: {continent}-{direction}-{number} (e.g., us-east-1, eu-west-2). GCP: {continent}-{direction}{number} - NO hyphen before number (e.g., us-central1, europe-west1). Azure: lowercase concatenated (e.g., eastus, westeurope, northcentralus). Uses provider default if omitted.",
-                    examples: {
-                      eks: "us-east-1",
-                      gke: "us-central1",
-                      aks: "eastus"
-                    }
+                    example: "us-east-1"
                   },
                   vpcCidr: {
                     type: "string",
-                    pattern: "^(10|172\\.1[6-9]|172\\.2[0-9]|172\\.3[0-1]|192\\.168)\\.",
+                    pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
+                    maxLength: 18,
                     example: "10.100.0.0/18",
-                    description: "Private RFC 1918 CIDR (auto-generated if omitted)"
+                    description: "Private RFC 1918 CIDR. The entire range must fall within 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16; host bits are cleared. A random /18 is generated if omitted."
+                  },
+                  podsCidr: {
+                    type: "string",
+                    pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
+                    maxLength: 18,
+                    example: "172.16.64.0/18",
+                    description: "Optional pod range, e.g. so several clusters in one network don't overlap. RFC 1918 or 100.64.0.0/10, /8 to /24; must not overlap the VPC, servicesCidr, or 172.17.0.0/16. Generated if omitted."
+                  },
+                  servicesCidr: {
+                    type: "string",
+                    pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
+                    maxLength: 18,
+                    example: "192.168.16.0/20",
+                    description: "Optional service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12); must not overlap the VPC, podsCidr, or 172.17.0.0/16. Generated if omitted. Pass your current range to keep it stable: it cannot change after cluster creation."
+                  },
+                  availabilityZones: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    uniqueItems: true,
+                    items: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 64 },
+                    example: ["ap-northeast-1a", "ap-northeast-1c"],
+                    description: "Optional zone names, assigned round-robin (EKS and generic Kubernetes; EKS needs at least two). Rejected for GKE and AKS, whose subnets are regional. Generated EKS names follow {region}{letter}, but available letters vary by region and account, so pass the zones your account has (e.g. from data.aws_availability_zones)."
+                  },
+                  networkMode: {
+                    type: "string",
+                    enum: ["public", "private"],
+                    default: "public",
+                    description: "public: public subnets for internet-facing load balancers and NAT. private: no public subnets; internal load-balancer subnets instead (GKE: the region's proxy-only subnet; AKS: one internal LB subnet; EKS: internal-elb subnets in each AZ), with egress outside the layout (Cloud NAT, an Azure NAT gateway, or for EKS a transit gateway to an egress VPC or VPC endpoints)."
                   },
                   deploymentName: {
                     type: "string",
+                    maxLength: 128,
                     example: "prod-us-east-1",
                     description: "Optional reference name for deployment"
                   }
                 }
               },
-              examples: {
-                eks_production: {
-                  summary: "AWS EKS Production (us-east-1)",
-                  value: {
-                    deploymentSize: "enterprise",
-                    provider: "eks",
-                    region: "us-east-1",
-                    vpcCidr: "10.100.0.0/18",
-                    deploymentName: "prod-eks-us-east-1"
-                  }
-                },
-                gke_production: {
-                  summary: "GCP GKE Production (us-central1)",
-                  value: {
-                    deploymentSize: "enterprise",
-                    provider: "gke",
-                    region: "us-central1",
-                    vpcCidr: "10.100.0.0/18",
-                    deploymentName: "prod-gke-us-central1"
-                  }
-                },
-                aks_production: {
-                  summary: "Azure AKS Production (eastus)",
-                  value: {
-                    deploymentSize: "enterprise",
-                    provider: "aks",
-                    region: "eastus",
-                    vpcCidr: "10.100.0.0/18",
-                    deploymentName: "prod-aks-eastus"
-                  }
-                },
-                hyperscale: {
-                  summary: "Hyperscale deployment (500+ nodes)",
-                  value: {
-                    deploymentSize: "hyperscale",
-                    provider: "eks",
-                    region: "us-west-2",
-                    vpcCidr: "10.100.0.0/16",
-                    deploymentName: "hyperscale-eks-us-west-2"
-                  }
-                }
-              }
+              examples: exampleEntries((example) => example.request)
             }
           }
         },
@@ -214,103 +253,7 @@ export const openApiSpec = {
                 schema: {
                   $ref: "#/components/schemas/NetworkPlan"
                 },
-                examples: {
-                  eks_enterprise: {
-                    summary: "AWS EKS Enterprise Response",
-                    value: {
-                      deploymentSize: "enterprise",
-                      provider: "eks",
-                      region: "us-east-1",
-                      deploymentName: "prod-eks-us-east-1",
-                      vpc: { cidr: "10.100.0.0/18" },
-                      subnets: {
-                        public: [
-                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
-                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
-                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
-                        ],
-                        private: [
-                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
-                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
-                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
-                        ]
-                      },
-                      pods: { cidr: "172.16.0.0/16" },
-                      services: { cidr: "192.168.0.0/16" },
-                      metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
-                    }
-                  },
-                  gke_enterprise: {
-                    summary: "GCP GKE Enterprise Response",
-                    value: {
-                      deploymentSize: "enterprise",
-                      provider: "gke",
-                      region: "us-central1",
-                      deploymentName: "prod-gke-us-central1",
-                      vpc: { cidr: "10.100.0.0/18" },
-                      subnets: {
-                        public: [
-                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-central1-a" },
-                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-central1-b" },
-                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-central1-c" }
-                        ],
-                        private: [
-                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-central1-a" },
-                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-central1-b" },
-                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-central1-c" }
-                        ]
-                      },
-                      pods: { cidr: "172.16.0.0/16" },
-                      services: { cidr: "192.168.0.0/16" },
-                      metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
-                    }
-                  },
-                  aks_enterprise: {
-                    summary: "Azure AKS Enterprise Response",
-                    value: {
-                      deploymentSize: "enterprise",
-                      provider: "aks",
-                      region: "eastus",
-                      deploymentName: "prod-aks-eastus",
-                      vpc: { cidr: "10.100.0.0/18" },
-                      subnets: {
-                        public: [
-                          { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "eastus-1" },
-                          { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "eastus-2" },
-                          { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "eastus-3" }
-                        ],
-                        private: [
-                          { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "eastus-1" },
-                          { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "eastus-2" },
-                          { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "eastus-3" }
-                        ]
-                      },
-                      pods: { cidr: "172.16.0.0/16" },
-                      services: { cidr: "192.168.0.0/16" },
-                      metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
-                    }
-                  },
-                  micro_minimal: {
-                    summary: "Micro Tier (Single Node POC)",
-                    value: {
-                      deploymentSize: "micro",
-                      provider: "kubernetes",
-                      region: "default",
-                      vpc: { cidr: "10.0.0.0/24" },
-                      subnets: {
-                        public: [
-                          { cidr: "10.0.0.0/26", name: "public-1", type: "public", availabilityZone: "default-a" }
-                        ],
-                        private: [
-                          { cidr: "10.0.0.128/25", name: "private-1", type: "private", availabilityZone: "default-a" }
-                        ]
-                      },
-                      pods: { cidr: "172.16.0.0/20" },
-                      services: { cidr: "192.168.0.0/16" },
-                      metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
-                    }
-                  }
-                }
+                examples: exampleEntries((example) => buildKubernetesNetworkPlan(example.request, EXAMPLE_TIME))
               },
               "application/yaml": {
                 schema: {
@@ -345,9 +288,30 @@ export const openApiSpec = {
     "/k8s/tiers": {
       get: {
         tags: ["Kubernetes"],
+        operationId: "getDeploymentTiers",
         summary: "Get deployment tier information",
-        description: "Retrieve details about all deployment tiers (micro, standard, professional, enterprise, hyperscale) including node counts, subnet sizes, and pod/service CIDR allocations",
+        description: "Retrieve every deployment tier's layout (micro, standard, professional, enterprise, hyperscale) as the generator applies it for a provider: subnet counts and sizes (public, node, control plane), pod and service prefixes, and the exact minimum VPC prefix that fits them",
         parameters: [
+          {
+            name: "provider",
+            in: "query",
+            description: "Provider whose layout to return. EKS raises every subnet type to at least two (two AZs); GKE and AKS use one regional control-plane range.",
+            schema: {
+              type: "string",
+              enum: ["eks", "gke", "aks", "kubernetes", "k8s"],
+              default: "kubernetes"
+            }
+          },
+          {
+            name: "networkMode",
+            in: "query",
+            description: "public (default) or private: private replaces public subnets with internal load-balancer subnets.",
+            schema: {
+              type: "string",
+              enum: ["public", "private"],
+              default: "public"
+            }
+          },
           {
             name: "format",
             in: "query",
@@ -370,57 +334,20 @@ export const openApiSpec = {
                     $ref: "#/components/schemas/TierInfo"
                   }
                 },
-                example: {
-                  micro: {
-                    publicSubnets: 1,
-                    privateSubnets: 1,
-                    publicSubnetSize: 26,
-                    privateSubnetSize: 25,
-                    minVpcPrefix: 24,
-                    podsPrefix: 20,
-                    servicesPrefix: 16,
-                    description: "Single Node: 1 node, minimal subnet allocation (proof of concept)"
-                  },
-                  standard: {
-                    publicSubnets: 1,
-                    privateSubnets: 1,
-                    publicSubnetSize: 25,
-                    privateSubnetSize: 24,
-                    minVpcPrefix: 23,
-                    podsPrefix: 16,
-                    servicesPrefix: 16,
-                    description: "Development/Testing: 1-3 nodes, minimal subnet allocation"
-                  },
-                  professional: {
-                    publicSubnets: 2,
-                    privateSubnets: 2,
-                    publicSubnetSize: 25,
-                    privateSubnetSize: 23,
-                    minVpcPrefix: 21,
-                    podsPrefix: 18,
-                    servicesPrefix: 16,
-                    description: "Small Production: 3-10 nodes, dual AZ ready"
-                  },
-                  enterprise: {
-                    publicSubnets: 3,
-                    privateSubnets: 3,
-                    publicSubnetSize: 24,
-                    privateSubnetSize: 21,
-                    minVpcPrefix: 18,
-                    podsPrefix: 16,
-                    servicesPrefix: 16,
-                    description: "Large Production: 10-50 nodes, triple AZ ready with HA"
-                  },
-                  hyperscale: {
-                    publicSubnets: 3,
-                    privateSubnets: 3,
-                    publicSubnetSize: 23,
-                    privateSubnetSize: 20,
-                    minVpcPrefix: 18,
-                    podsPrefix: 13,
-                    servicesPrefix: 16,
-                    description: "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
-                  }
+                examples: {
+                  generic: { summary: "Generic Kubernetes (default)", value: getDeploymentTierInfo() },
+                  eks: { summary: "EKS (?provider=eks): two AZs for node and load-balancer subnets, a two-subnet control plane", value: getDeploymentTierInfo(undefined, "eks") },
+                  gke_private: { summary: "GKE private (?provider=gke&networkMode=private)", value: getDeploymentTierInfo(undefined, "gke", "private") }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Invalid provider or networkMode",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/Error"
                 }
               }
             }
@@ -443,10 +370,11 @@ export const openApiSpec = {
     schemas: {
       NetworkPlan: {
         type: "object",
-        description: "Complete Kubernetes network configuration including VPC, subnets, pod CIDR, and service CIDR",
+        description: "Complete Kubernetes network layout. Public, node (private), and control-plane subnets sit inside the VPC; pods and services sit outside it, each in its own RFC 1918 block. No two ranges overlap.",
         properties: {
           deploymentSize: { type: "string", enum: ["micro", "standard", "professional", "enterprise", "hyperscale"], example: "enterprise" },
           provider: { type: "string", enum: ["eks", "gke", "aks", "kubernetes"], example: "eks" },
+          networkMode: { type: "string", enum: ["public", "private"], example: "public" },
           region: { type: "string", description: "Cloud region/location (provider-specific format)", example: "us-east-1" },
           deploymentName: { type: "string", description: "Optional deployment reference name", example: "prod-eks-us-east-1" },
           vpc: {
@@ -458,89 +386,78 @@ export const openApiSpec = {
           },
           subnets: {
             type: "object",
-            description: "Public and private subnet allocations across availability zones",
+            description: "Subnets inside the VPC, placed first-fit at aligned offsets",
             properties: {
               public: {
                 type: "array",
-                description: "Public subnets for load balancers, NAT gateways, bastion hosts",
-                items: {
-                  $ref: "#/components/schemas/Subnet"
-                }
+                description: "Public subnets for internet-facing load balancers, NAT gateways, bastion hosts. Empty in private mode.",
+                items: { $ref: "#/components/schemas/Subnet" }
               },
               private: {
                 type: "array",
                 description: "Private subnets for Kubernetes worker nodes",
-                items: {
-                  $ref: "#/components/schemas/Subnet"
-                }
+                items: { $ref: "#/components/schemas/Subnet" }
+              },
+              loadBalancer: {
+                type: "array",
+                description: "Internal load-balancer subnets, private mode only (empty in public mode). GKE: one regional proxy-only subnet (purpose REGIONAL_MANAGED_PROXY) for internal Application Load Balancers and Gateway; only one can be active per region and network. AKS: one subnet for internal load balancer frontends. EKS: one per AZ (at least two), tagged kubernetes.io/role/internal-elb. Generic: one per zone.",
+                items: { $ref: "#/components/schemas/Subnet" }
+              },
+              controlPlane: {
+                type: "array",
+                description: "The control-plane network. GKE: one /28 for private_cluster_config.master_ipv4_cidr_block (or a private_endpoint_subnetwork). AKS: one /28 for API Server VNet Integration. Generic: one /28 for control-plane nodes and a floating API server address. EKS: one /27 split into two /28s in two AZs (EKS requires two) for vpc_config.subnet_ids.",
+                items: { $ref: "#/components/schemas/Subnet" }
               }
             }
           },
           pods: {
             type: "object",
-            description: "Pod network configuration. **EKS Note**: This represents a SEPARATE pod CIDR (Model 2 - Custom CNI or Secondary VPC CIDR), NOT default AWS VPC CNI where pods share VPC subnet IPs. Requires custom CNI plugin (Calico, Cilium) or secondary VPC CIDR blocks.",
+            description: "Pod network, outside the VPC. GKE: the pod secondary range. AKS: the CNI Overlay pod_cidr (each node takes a fixed /24). EKS: an overlay CNI pool (Calico, Cilium); it cannot be a VPC secondary CIDR, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's.",
             properties: {
-              cidr: { 
-                type: "string", 
-                example: "172.16.0.0/16", 
-                description: "CIDR for pod IPs. For EKS: Use with custom CNI (Calico, Cilium, Weave) or secondary VPC CIDR blocks. For GKE/AKS: Always separate from VPC/VNet." 
+              cidr: {
+                type: "string",
+                example: "172.16.0.0/16",
+                description: "Pod CIDR. Generated in an RFC 1918 block the VPC does not use (preferring 10.0.0.0/8), clear of 172.17.0.0/16, unless podsCidr was supplied."
               }
             }
           },
           services: {
             type: "object",
-            description: "Kubernetes service network configuration. **EKS-specific**: Must be RFC 1918 private IP, /24 to /12 prefix, no overlap with VPC/Pod CIDR. Can only be set at cluster creation (immutable).",
+            description: "Kubernetes service (ClusterIP) network, outside the VPC and the pod range. Immutable after cluster creation.",
             properties: {
-              cidr: { 
-                type: "string", 
-                example: "192.168.0.0/16", 
-                description: "Service IPv4 CIDR for Kubernetes ClusterIP services. Defaults: EKS auto-assigns 10.100.0.0/16 or 172.20.0.0/16 if not specified. Our API uses 192.168.0.0/16 to avoid conflicts. **Requirements**: RFC 1918 private IPs only, prefix between /24 and /12, must not overlap with VPC CIDR. **Critical**: Cannot be changed after cluster creation.",
-                pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[2-9]|2[0-4])$"
+              cidr: {
+                type: "string",
+                example: "192.168.0.0/20",
+                description: "Service CIDR: /20 (4,096 ClusterIPs), /18 for hyperscale. Generated in an RFC 1918 block used by neither the VPC nor the pods (preferring 192.168.0.0/16), unless servicesCidr was supplied. Meets EKS (RFC 1918, /12-/24) and AKS (smaller than /12) rules.",
+                pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[3-9]|2[0-4])$"
               }
             }
+          },
+          warnings: {
+            type: "array",
+            items: { type: "string" },
+            description: "Non-fatal issues with the requested ranges, such as a VPC that overlaps 172.17.0.0/16. Omitted when there are none."
           },
           metadata: {
             type: "object",
             description: "Generation metadata",
             properties: {
-              generatedAt: { type: "string", format: "date-time", example: "2026-02-04T12:00:00.000Z" },
-              version: { type: "string", example: "1.0" }
+              generatedAt: { type: "string", format: "date-time", example: "2026-10-02T12:00:00.000Z" },
+              version: { type: "string", example: "2.0", description: "Plan format and allocation rules version" }
             }
           }
-        },
-        example: {
-          deploymentSize: "enterprise",
-          provider: "eks",
-          region: "us-east-1",
-          deploymentName: "prod-eks-us-east-1",
-          vpc: { cidr: "10.100.0.0/18" },
-          subnets: {
-            public: [
-              { cidr: "10.100.0.0/24", name: "public-1", type: "public", availabilityZone: "us-east-1a" },
-              { cidr: "10.100.1.0/24", name: "public-2", type: "public", availabilityZone: "us-east-1b" },
-              { cidr: "10.100.2.0/24", name: "public-3", type: "public", availabilityZone: "us-east-1c" }
-            ],
-            private: [
-              { cidr: "10.100.8.0/21", name: "private-1", type: "private", availabilityZone: "us-east-1a" },
-              { cidr: "10.100.16.0/21", name: "private-2", type: "private", availabilityZone: "us-east-1b" },
-              { cidr: "10.100.24.0/21", name: "private-3", type: "private", availabilityZone: "us-east-1c" }
-            ]
-          },
-          pods: { cidr: "172.16.0.0/16" },
-          services: { cidr: "192.168.0.0/16" },
-          metadata: { generatedAt: "2026-02-04T12:00:00.000Z", version: "1.0" }
         }
       },
       Subnet: {
         type: "object",
-        description: "Individual subnet configuration within the VPC",
+        description: "Individual subnet within the VPC",
         properties: {
           cidr: { type: "string", example: "10.0.0.0/24", description: "Subnet CIDR block" },
-          name: { type: "string", example: "public-1", description: "Subnet identifier (public-N or private-N)" },
-          type: { type: "string", enum: ["public", "private"], description: "Public (internet-facing) or private (internal only)" },
-          availabilityZone: { 
-            type: "string", 
-            description: "Availability Zone (provider-specific format). AWS: {region}{letter} (e.g., us-east-1a). GCP: {region}-{letter} (e.g., us-central1-a). Azure: {region}-{number} (e.g., eastus-1).",
+          name: { type: "string", example: "public-1", description: "Subnet identifier (public-N, private-N, load-balancer-N, or control-plane-N)" },
+          type: { type: "string", enum: ["public", "private", "load-balancer", "control-plane"], description: "Public (internet-facing), private (nodes), load-balancer (internal, private mode), or control-plane" },
+          availabilityZone: {
+            type: "string",
+            description: "Zone for this subnet. EKS: {region}{letter} (e.g. us-east-1a) or the caller's availabilityZones. Generic: zone-N. Omitted for GKE and AKS, whose subnets are regional.",
             example: "us-east-1a"
           }
         },
@@ -554,31 +471,26 @@ export const openApiSpec = {
       TierInfo: {
         type: "object",
         properties: {
-          publicSubnets: { type: "integer", example: 3, description: "Number of public subnets (for load balancers, NAT gateways)" },
+          networkMode: { type: "string", enum: ["public", "private"], example: "public" },
+          publicSubnets: { type: "integer", example: 3, description: "Number of public subnets (0 in private mode)" },
+          loadBalancerSubnets: { type: "integer", example: 0, description: "Number of internal load-balancer subnets (private mode only)" },
           privateSubnets: { type: "integer", example: 3, description: "Number of private subnets (for worker nodes)" },
-          publicSubnetSize: { type: "integer", example: 24, description: "CIDR prefix for public subnets (e.g., 24 = /24 = 254 usable IPs)" },
-          privateSubnetSize: { type: "integer", example: 21, description: "CIDR prefix for private subnets (e.g., 21 = /21 = 2,046 usable IPs)" },
-          minVpcPrefix: { type: "integer", example: 18, description: "Minimum VPC prefix required to fit all subnets" },
-          podsPrefix: { type: "integer", example: 16, description: "CIDR prefix for pod network (CNI plugin IP range)" },
-          servicesPrefix: { type: "integer", example: 16, description: "CIDR prefix for Kubernetes services (ClusterIP range)" },
+          controlPlaneSubnets: { type: "integer", example: 2, description: "Number of control-plane subnets: 2 for EKS (one /27 across two AZs), 1 otherwise" },
+          publicSubnetSize: { type: "integer", example: 24, description: "CIDR prefix for public subnets (e.g., 24 = /24)" },
+          privateSubnetSize: { type: "integer", example: 21, description: "CIDR prefix for private subnets (e.g., 21 = /21)" },
+          loadBalancerSubnetSize: { type: "integer", example: 24, description: "CIDR prefix for internal load-balancer subnets (same as publicSubnetSize)" },
+          controlPlaneSubnetSize: { type: "integer", example: 28, description: "CIDR prefix for control-plane subnets (always 28)" },
+          podsPrefix: { type: "integer", example: 16, description: "CIDR prefix for the pod network (node capacity at a /24 per node: 2^(24 - podsPrefix))" },
+          servicesPrefix: { type: "integer", example: 20, description: "CIDR prefix for Kubernetes services (ClusterIP range)" },
+          minVpcPrefix: { type: "integer", example: 19, description: "Largest VPC prefix (smallest VPC) that fits every subnet, computed from the actual layout" },
           description: { type: "string", example: "Large Production: 10-50 nodes, triple AZ ready with HA" }
-        },
-        example: {
-          publicSubnets: 3,
-          privateSubnets: 3,
-          publicSubnetSize: 24,
-          privateSubnetSize: 21,
-          minVpcPrefix: 18,
-          podsPrefix: 16,
-          servicesPrefix: 16,
-          description: "Large Production: 10-50 nodes, triple AZ ready with HA"
         }
       },
       Error: {
         type: "object",
         properties: {
           error: { type: "string" },
-          code: { type: "string" }
+          code: { type: "string", enum: ["INVALID_REQUEST", "NETWORK_GENERATION_ERROR", "RATE_LIMITED", "INTERNAL_ERROR"] }
         }
       }
     }

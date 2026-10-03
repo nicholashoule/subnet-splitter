@@ -18,6 +18,8 @@ The system detects emoji in 4 Unicode ranges:
 - **U+2700-U+27BF** - Dingbats (decorative symbols)
 - **U+1F600-U+1F64F** - Emoticons and common symbols (examples: Checkmark, Cross-mark, etc.)
 
+It also blocks individual symbols that render as emoji: U+2139, U+203C, U+2049, U+231A-U+231B, U+23E9-U+23FA, U+25AA-U+25AB, U+25B6, U+25C0, and U+25FB-U+25FE. The pattern and the replacement map live in `tests/helpers/emoji-config.ts`, shared by the test and the auto-fix script.
+
 ## Text Alternatives
 
 Instead of emoji, use these text-based alternatives in documentation:
@@ -42,11 +44,12 @@ Instead of emoji, use these text-based alternatives in documentation:
 ### Run Emoji Detection Tests
 
 ```bash
-npm run test -- tests/unit/emoji-detection.test.ts --run
+npm run test:emoji
+# same as: npm run test -- tests/unit/emoji-detection.test.ts --run
 ```
 
 This test:
-- Scans markdown files (.md) for forbidden emoji
+- Scans markdown files (.md) for forbidden emoji (except `docs/compliance/`)
 - Scans source files (.ts, .tsx, .js, .jsx) for emoji
 - Scans configuration files (package.json, tsconfig.json, etc.) for emoji
 - Allows common symbols like apostrophes, brackets, and math operators
@@ -72,6 +75,8 @@ The tool is included in the project and requires no additional dependencies.
 
 ### Usage
 
+`npm run emoji:check` and `npm run emoji:fix` wrap the first two commands below.
+
 ```bash
 # Detect emoji (dry-run, no changes)
 npx tsx scripts/fix-emoji.ts
@@ -90,30 +95,33 @@ npx tsx scripts/fix-emoji.ts --help
 
 ```
 $ npx tsx scripts/fix-emoji.ts --fix --verbose
+Scanning 76 files for emoji...
 
-Scanning project for emoji violations...
-
-[SCANNING] .github/copilot-instructions.md
-[SCANNING] client/src/pages/calculator.tsx
-[SCANNING] tests/unit/emoji-detection.test.ts
-
-Found emoji violations:
-- .github/copilot-instructions.md (2 violations)
-  * Line 42: Checkmark [PASS]
-  * Line 156: Lock Security
-- client/src/pages/calculator.tsx (1 violation)
-  * Line 394: Rocket Deployment
-
-Fixing emoji...
-[PASS] Fixed: .github/copilot-instructions.md
 [PASS] Fixed: client/src/pages/calculator.tsx
+   Line 394: <the original line, with the emoji>
+[SKIP] Protected file: scripts/fix-emoji.ts
+[SKIP] Protected file: tests/helpers/emoji-config.ts
+[SKIP] Protected file: tests/unit/emoji-detection.test.ts
 
-Summary:
-- Files scanned: 3
-- Emoji found: 3
-- Emoji fixed: 3
-- Status: SUCCESS - All emoji have been auto-fixed!
+============================================================
+EMOJI SCAN SUMMARY
+============================================================
+
+Files with emoji: 1
+Total emoji violations: 1
+  [PASS] FIXED: client/src/pages/calculator.tsx (1)
+
+Total emoji replaced: 1
+[PASS] All emoji have been fixed!
+
+Next steps:
+  1. Review the changes: git diff
+  2. Run tests: npm run test -- --run
+  3. Commit: git add . && git commit -m "fix: replace emoji with text"
+============================================================
 ```
+
+Without `--fix` the script reports `WARNING  FOUND` for each file and exits with code 1 if it found any emoji; a clean scan prints `[PASS] No emoji found. Your codebase is clean!`.
 
 ## Supported File Types
 
@@ -121,13 +129,14 @@ The emoji detection system scans:
 - **Markdown files** (.md) - Documentation
 - **Source files** (.ts, .tsx, .js, .jsx) - Code
 - **Configuration files** - package.json, tsconfig.json, vitest.config.ts, etc.
-- **Build files** - vite.config.ts, tailwind.config.ts, etc.
+- **Build files** - vite.config.ts, tsconfig.json, etc.
 
 Excluded files:
 - `node_modules/` - Dependencies
 - `dist/` - Build output
 - `.git/` - Version control
 - `coverage/` - Test coverage
+- `.next/`, `.nuxt/`, `.cache/` - Framework caches (`EXCLUDE_DIRS` in `tests/helpers/emoji-config.ts`)
 
 ## Why This Matters
 
@@ -163,7 +172,7 @@ npm run test
 ```
 
 It will cause test failures if emoji is found in:
-- Documentation files (except approved documentation files)
+- Documentation files (except `docs/compliance/`)
 - Source code (outside of test definitions)
 - Configuration files
 
@@ -173,7 +182,7 @@ This ensures no accidental emoji slips into the repository.
 
 ### Q: Can I use emoji in test data?
 
-**A:** Yes, but only in `tests/unit/emoji-detection.test.ts` and `scripts/fix-emoji.ts`. These files are specifically designed to test emoji detection and define the mapping of emoji to text alternatives. They're excluded from the detection checks because they're meta-testing files.
+**A:** Yes, but only in `tests/unit/emoji-detection.test.ts`, `tests/helpers/emoji-config.ts`, and `scripts/fix-emoji.ts`. These files are specifically designed to test emoji detection and define the mapping of emoji to text alternatives. They're excluded from the detection checks because they're meta-testing files.
 
 ### Q: What if I need emoji for a specific reason?
 
@@ -198,10 +207,10 @@ npx tsx scripts/fix-emoji.ts --fix
 
 ```bash
 # Run emoji check
-npm run test -- tests/unit/emoji-detection.test.ts --run
+npm run test:emoji
 
 # If failures, auto-fix
-npx tsx scripts/fix-emoji.ts --fix
+npm run emoji:fix
 
 # Commit the auto-fixed files
 git add -A
@@ -210,7 +219,7 @@ git commit -m "fix: remove emoji from documentation"
 
 ### In CI/CD
 
-The emoji detection test is part of the normal test suite:
+The emoji detection test is part of the normal test suite, which the CI workflow (`.github/workflows/ci.yml`) runs on Node.js 24 and 26 for every push to `main` and every pull request:
 
 ```bash
 npm run test -- --run
@@ -224,29 +233,30 @@ If any emoji is detected outside of approved test files, the build will fail.
 
 If you need to add a new emoji to the replacement map:
 
-1. Edit `tests/unit/emoji-detection.test.ts`
+1. Edit `tests/helpers/emoji-config.ts`
 2. Find the `EMOJI_REPLACEMENTS` object
 3. Add the emoji and its text alternative:
    ```typescript
    "Target symbol": "Target",  // New entry
    ```
-4. The auto-fix script will immediately support the new mapping
+4. The test and the auto-fix script will immediately support the new mapping
 
 ### Updating Detection Patterns
 
 The emoji Unicode ranges are in the `FORBIDDEN_EMOJI_PATTERN`:
 
 ```typescript
-/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}]/gu
+/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{2139}\u{203C}\u{2049}\u{231A}-\u{231B}\u{23E9}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}]/gu
 ```
 
-If you need to exclude or include additional Unicode ranges, update this pattern in `tests/unit/emoji-detection.test.ts`.
+If you need to exclude or include additional Unicode ranges, update this pattern in `tests/helpers/emoji-config.ts`.
 
 ## Related Files
 
-- [tests/unit/emoji-detection.test.ts](../tests/unit/emoji-detection.test.ts) - Test definitions and emoji mappings
+- [tests/unit/emoji-detection.test.ts](../tests/unit/emoji-detection.test.ts) - Test definitions
+- [tests/helpers/emoji-config.ts](../tests/helpers/emoji-config.ts) - Detection pattern, emoji mappings, and excluded files (shared by the test and the script)
 - [scripts/fix-emoji.ts](../scripts/fix-emoji.ts) - Auto-fix CLI tool
-- [.github/copilot-instructions.md](.github/copilot-instructions.md) - Developer guidelines
+- [.github/copilot-instructions.md](copilot-instructions.md) - Developer guidelines
 
 ## Questions?
 
@@ -285,7 +295,8 @@ npx tsx scripts/fix-emoji.ts --fix
 
 ### Protected Files
 
-These files are NEVER auto-fixed:
-- \tests/unit/emoji-detection.test.ts\ - Emoji test mappings
-- \scripts/fix-emoji.ts\ - Auto-fix script definitions
+These files are NEVER auto-fixed (`EXCLUDE_FILES` in `tests/helpers/emoji-config.ts`):
+- `tests/unit/emoji-detection.test.ts` - Emoji detection tests
+- `tests/helpers/emoji-config.ts` - Emoji pattern and mappings
+- `scripts/fix-emoji.ts` - Auto-fix script definitions
 

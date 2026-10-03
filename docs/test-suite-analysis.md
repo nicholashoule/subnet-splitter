@@ -2,40 +2,46 @@
 
 ## Executive Summary
 
-**Current State**: 406 tests across 13 test files  
+**Current State**: 528 tests across 15 test files (inventory and per-file counts refreshed October 2, 2026)  
 **Status**: All tests passing  
 **Assessment**: **A** - Test suite is healthy with comprehensive coverage and proper organization  
 **Execution Time**: ~3.5 seconds total  
-**Pass Rate**: 100% (406/406)
+**Pass Rate**: 100% (528/528)
+
+The inventory below and the **Tests**/**Lines** figures in each file section reflect the current suite. The issues, recommendations, and before/after totals further down record the February 8, 2026 audit (406 tests in 13 files) and are kept as history.
 
 ---
 
 ## Test Inventory
 
-### Unit Tests (6 files, 218 tests, ~1,600 lines)
+### Unit Tests (7 files, 310 tests, ~3,180 lines)
 
 | File | Tests | Lines | Purpose | Status |
 |------|-------|-------|---------|--------|
-| [subnet-utils.test.ts](#subnet-utilsts) | 67 | ~500 | Core subnet utilities + tree functions | [PASS] Keep as-is |
-| [kubernetes-network-generator.test.ts](#kubernetes-network-generatorts) | 57 | 623 | K8s network logic | [PASS] Keep as-is |
-| [ip-calculation-compliance.test.ts](#ip-calculation-compliancets) | 56 | ~450 | IP allocation compliance | [PASS] Keep as-is |
-| [ui-styles.test.ts](#ui-stylests) | 19 | 196 | WCAG accessibility (pure math) | [PASS] MOVED from integration |
-| [emoji-detection.test.ts](#emoji-detectionts) | 11 | 391 | Emoji validation | [PASS] Keep as-is |
-| [config.test.ts](#configts) | 8 | 98 | Configuration validation | [PASS] MOVED from integration |
+| [subnet-utils.test.ts](#subnet-utilstestts) | 67 | 727 | Core subnet utilities + tree functions | [PASS] Keep as-is |
+| [kubernetes-network-generator.test.ts](#kubernetes-network-generatortestts) | 57 | 770 | K8s network logic | [PASS] Keep as-is |
+| network-separation.test.ts | 68 | 354 | Address space separation for every tier, provider, and network mode | [PASS] Added after this audit |
+| [ip-calculation-compliance.test.ts](#ip-calculation-compliancetestts) | 58 | 783 | IP allocation compliance | [PASS] Keep as-is |
+| [ui-styles.test.ts](#ui-stylestestts) | 42 | 160 | WCAG contrast read from index.css, page semantics | [PASS] MOVED from integration |
+| [emoji-detection.test.ts](#emoji-detectiontestts) | 11 | 292 | Emoji validation | [PASS] Keep as-is |
+| [config.test.ts](#configtestts) | 7 | 95 | Configuration validation | [PASS] MOVED from integration |
 
-### Integration Tests (7 files, 188 tests, ~2,500 lines)
+### Integration Tests (8 files, 218 tests, ~3,335 lines)
 
 | File | Tests | Lines | Purpose | Status |
 |------|-------|-------|---------|--------|
-| [api-endpoints.test.ts](#api-endpointsts) | 38 | 517 | API infrastructure & health checks | [PASS] Keep as-is |
-| [calculator-ui.test.ts](#calculator-uits) | 52 | ~550 | React component behavior | [PASS] Keep as-is |
-| [kubernetes-network-api.test.ts](#kubernetes-network-apits) | 33 | ~500 | K8s API integration | [PASS] Keep as-is |
-| [rate-limiting.test.ts](#rate-limitingts) | 23 | 281 | Security middleware | [PASS] Keep as-is |
-| [swagger-ui-csp-middleware.test.ts](#swagger-ui-csp-middlewarets) | 18 | 301 | CSP middleware | [PASS] Keep as-is |
-| [swagger-ui-theming.test.ts](#swagger-ui-themingts) | 12 | 175 | Swagger UI themes | [PASS] Keep as-is |
-| [csp-violation-endpoint.test.ts](#csp-violation-endpointts) | 12 | 351 | CSP security endpoint | [PASS] Keep as-is |
+| [api-endpoints.test.ts](#api-endpointstestts) | 44 | 681 | API infrastructure & health checks | [PASS] Keep as-is |
+| [calculator-ui.test.ts](#calculator-uitestts) | 52 | 631 | React component behavior | [PASS] Keep as-is |
+| [kubernetes-network-api.test.ts](#kubernetes-network-apitestts) | 48 | 600 | K8s API integration | [PASS] Keep as-is |
+| [rate-limiting.test.ts](#rate-limitingtestts) | 25 | 369 | Security middleware | [PASS] Keep as-is |
+| [swagger-ui-csp-middleware.test.ts](#swagger-ui-csp-middlewaretestts) | 20 | 353 | CSP middleware | [PASS] Keep as-is |
+| [swagger-ui-theming.test.ts](#swagger-ui-themingtestts) | 12 | 189 | Swagger UI themes | [PASS] Keep as-is |
+| [csp-violation-endpoint.test.ts](#csp-violation-endpointtestts) | 12 | 398 | CSP security endpoint | [PASS] Keep as-is |
+| static-serving.test.ts | 5 | 114 | Production static serving (cache headers, compression) | [PASS] Added after this audit |
 
-**Total**: 406 tests across 13 files
+**Total**: 528 tests across 15 files
+
+The production bundle itself is checked outside Vitest by `npm run smoke` (`scripts/smoke-test.ts`), which CI runs after `npm run build`.
 
 ---
 
@@ -44,7 +50,7 @@
 ### Integration Tests
 
 #### api-endpoints.test.ts
-**Tests**: 38 | **Lines**: 517 | **Lines/Test**: 13.6
+**Tests**: 44 | **Lines**: 681 | **Lines/Test**: 15.5
 
 **Purpose**: Comprehensive API infrastructure testing including health checks, API versioning, OpenAPI specification, Swagger UI presentation, and error handling.
 
@@ -52,10 +58,11 @@
 - Health checks (4 tests): /health, /health/ready, /health/live
 - API version (2 tests): Version endpoint validation
 - OpenAPI specification (6 tests): JSON/YAML format validation
-- Swagger UI (8 tests): HTML presentation, CDN loading, theme scripts
+- Swagger UI (10 tests): HTML presentation, CDN loading, theme scripts
 - Path variations (5 tests): Trailing slashes, case sensitivity
-- Error handling (11 tests): 404s, invalid routes, malformed requests
-- Response formats (2 tests): Content-type validation
+- Provider-specific tiers and generated examples (4 tests)
+- Error handling (10 tests): 404s, invalid routes, malformed requests
+- Response formats (3 tests): Content-type validation
 
 **Assessment**: [PASS] **Excellent** - Each test validates specific API behavior with no redundancy. Comprehensive coverage is justified for production API infrastructure.
 
@@ -66,7 +73,7 @@
 ---
 
 #### calculator-ui.test.ts
-**Tests**: 52 | **Lines**: ~550 | **Lines/Test**: ~10.6
+**Tests**: 52 | **Lines**: 631 | **Lines/Test**: 12.1
 
 **Purpose**: React component tests for subnet calculator UI including form validation, subnet operations, row selection, CSV export, hide parents feature, depth indicator visual hierarchy, and error handling.
 
@@ -93,15 +100,14 @@
 ---
 
 #### config.test.ts
-**Tests**: 8 | **Lines**: 98 | **Lines/Test**: 12.3
+**Tests**: 7 | **Lines**: 95 | **Lines/Test**: 13.6
 
-**Purpose**: Configuration file validation for build tools (Tailwind, PostCSS, Vite, TypeScript). **MOVED from integration/** - pure file validation, no server needed.
+**Purpose**: Configuration file validation for build tools (Tailwind CSS v4, Vite). **MOVED from integration/** - pure file validation, no server needed.
 
 **Test Coverage**:
-- TypeScript configuration (2 tests): Strict mode, path aliases
-- Vite configuration (2 tests): Build settings, dev server
-- Tailwind configuration (2 tests): Content paths, theme customization
-- PostCSS configuration (2 tests): Plugin order, autoprefixer
+- Vite configuration (1 test): config file present
+- Documentation (1 test): frontend instructions recommend a real browser over VS Code Simple Browser
+- Tailwind v4 setup (5 tests): Vite plugin registered, no `tailwind.config.ts`/`postcss.config.js`, replaced packages removed, stylesheet imports, every theme color backed by a token in both themes
 
 **Assessment**: [PASS] **Excellent** - Small, focused test file that validates critical configuration. Prevents build failures from config drift.
 
@@ -112,7 +118,7 @@
 ---
 
 #### csp-violation-endpoint.test.ts
-**Tests**: 12 | **Lines**: 351 | **Lines/Test**: 29.3
+**Tests**: 12 | **Lines**: 398 | **Lines/Test**: 33.2
 
 **Purpose**: Security endpoint for CSP violation reporting with W3C spec compliance, rate limiting, and schema validation.
 
@@ -132,17 +138,19 @@
 ---
 
 #### kubernetes-network-api.test.ts
-**Tests**: 33 | **Lines**: ~500 | **Lines/Test**: ~15
+**Tests**: 48 | **Lines**: 600 | **Lines/Test**: 12.5
 
 **Purpose**: Core business logic for Kubernetes network generation with RFC 1918 enforcement, deployment tier validation, and provider support.
 
 **Test Coverage**:
-- Deployment tiers (5 tests): Micro, standard, professional, enterprise, hyperscale
-- Provider support (4 tests): EKS, GKE, AKS, Kubernetes
-- RFC 1918 validation (7 tests): Private IP enforcement, public IP rejection
+- API workflow, tier coverage, and providers (3 tests): Micro to hyperscale; EKS, GKE, AKS, Kubernetes
+- Real-world scenarios (3 tests)
+- Error cases (3 tests): Invalid tiers, malformed VPC CIDRs
+- Tier information endpoint (2 tests)
+- Public and private subnets (3 tests)
 - Output formats (5 tests): JSON/YAML serialization
-- Subnet allocation (7 tests): Public/private subnet generation
-- Error handling (5 tests): Invalid tiers, malformed VPC CIDRs
+- Private IP security enforcement (14 tests): RFC 1918 enforcement, public IP rejection
+- Subnet allocation correctness (15 tests)
 
 **Assessment**: [PASS] **Excellent** - Core business logic with comprehensive coverage. Security enforcement (RFC 1918) is critical for production.
 
@@ -153,16 +161,17 @@
 ---
 
 #### rate-limiting.test.ts
-**Tests**: 23 | **Lines**: 281 | **Lines/Test**: 12.2
+**Tests**: 25 | **Lines**: 369 | **Lines/Test**: 14.8
 
 **Purpose**: Security middleware testing for rate limiting with header validation, request throttling, and protection against DoS attacks.
 
 **Test Coverage**:
-- Rate limiter configuration (5 tests): Limits, windows, headers
-- Request throttling (6 tests): Sequential requests, burst protection
-- Header verification (4 tests): X-RateLimit-Limit, X-RateLimit-Remaining
-- Multiple endpoints (4 tests): Different rate limits per route
-- Error responses (4 tests): 429 status, Retry-After header
+- SPA fallback limit enforcement (3 tests): 30 requests per 15 minutes, then 429
+- Rate-limit headers (5 tests): standard `RateLimit-*` headers; legacy `X-RateLimit-*` headers are not sent
+- Per-IP limiting (1 test) and DoS protection (2 tests)
+- Configuration validation (2 tests) and security regression prevention (3 tests)
+- HTTP method handling (7 tests)
+- API limiter (2 tests): 100 requests per minute
 
 **Assessment**: [PASS] **Excellent** - Security middleware requires comprehensive testing. DoS protection is production-critical.
 
@@ -173,15 +182,17 @@
 ---
 
 #### swagger-ui-csp-middleware.test.ts
-**Tests**: 18 | **Lines**: 301 | **Lines/Test**: 16.7
+**Tests**: 20 | **Lines**: 353 | **Lines/Test**: 17.7
 
 **Purpose**: CSP security headers for Swagger UI with route-specific permissions, development vs production mode, and CDN source validation.
 
 **Test Coverage**:
-- Route-specific CSP (6 tests): Only /api/docs/ui gets CDN access
-- Development vs production (4 tests): Unsafe-inline for dev, strict for prod
-- CDN permissions (4 tests): cdn.jsdelivr.net source validation
-- Middleware isolation (4 tests): CSP doesn't leak to other routes
+- Header presence and format (2 tests) and base directives (3 tests)
+- Development vs production (3 tests): Unsafe-inline for dev, strict for prod
+- CDN sources (3 tests): cdn.jsdelivr.net source validation
+- Style and font sources (3 tests)
+- Route-specific application (1 test), header preservation (2 tests), and global CSP scope (2 tests): Only /api/docs/ui gets CDN access; CSP doesn't leak to other routes
+- Directive completeness (1 test)
 
 **Assessment**: [PASS] **Good** - Higher lines/test ratio justified by security testing. Route-specific CSP is critical for defense-in-depth security architecture.
 
@@ -192,7 +203,7 @@
 ---
 
 #### swagger-ui-theming.test.ts
-**Tests**: 12 | **Lines**: 175 | **Lines/Test**: 14.6
+**Tests**: 12 | **Lines**: 189 | **Lines/Test**: 15.8
 
 **Purpose**: Validate Swagger UI light/dark theme functionality including theme persistence, CSS loading, and cross-tab synchronization.
 
@@ -228,16 +239,20 @@
 ---
 
 #### ip-calculation-compliance.test.ts
-**Tests**: 56 | **Lines**: ~450 | **Lines/Test**: ~8
+**Tests**: 58 | **Lines**: 783 | **Lines/Test**: 13.5
 
 **Purpose**: Validates IP allocation formulas, deployment tier compliance, and network sizing for Kubernetes deployments across all cloud providers.
 
 **Test Coverage**:
-- Pod CIDR capacity formulas (15 tests): GKE, EKS, AKS mathematical models
-- Node capacity calculations (12 tests): Primary subnet sizing validation
-- Deployment tier compliance (15 tests): All 5 tiers (micro → hyperscale)
-- Provider-specific requirements (8 tests): EKS prefix delegation, GKE alias IPs, AKS overlay
-- Edge cases (6 tests): Minimum/maximum cluster sizes, pod density variations
+- Tier configuration verification (7 tests): All 5 tiers (micro → hyperscale)
+- Primary subnet sizing formula (5 tests): Node capacity per tier
+- GKE pod CIDR formula (6 tests): Node and pod capacity, Standard and Autopilot
+- Service CIDR (2 tests) and pod CIDR space (3 tests)
+- Availability zone distribution (3 tests)
+- Subnet overlap prevention (12 tests)
+- Provider-specific requirements (9 tests, 3 each): EKS, GKE, AKS
+- RFC 1918 compliance (4 tests)
+- Cross-provider IP consumption comparison (7 tests)
 
 **Assessment**: [PASS] **Excellent** - Critical validation of network sizing algorithms that prevent production capacity issues. Efficient test structure.
 
@@ -248,31 +263,29 @@
 ---
 
 #### ui-styles.test.ts
-**Tests**: 19 | **Lines**: 196 | **Lines/Test**: 10.3
+**Tests**: 42 | **Lines**: 160 | **Lines/Test**: 3.8
 
-**Purpose**: WCAG accessibility compliance validation with contrast ratio testing, color palette consistency, and design system verification. **MOVED from integration/** - pure math functions (HSL→RGB, luminance), no rendering needed.
+**Purpose**: WCAG contrast for the color pairs the app renders, plus page semantics. Tokens are read from `client/src/index.css` (and the page markup from `client/src/pages/calculator.tsx`), so a palette or markup change is checked as soon as it is made. **MOVED from integration/**; no rendering needed.
 
 **Test Coverage**:
-- Primary color contrast (3 tests): WCAG AAA compliance (7.2:1)
-- Foreground text contrast (3 tests): WCAG AAA compliance (12.5:1)
-- Secondary accent contrast (2 tests): UI highlights (2.5:1)
-- Destructive color contrast (2 tests): WCAG AA compliance (5.2:1)
-- Muted foreground contrast (2 tests): WCAG AA compliance (4.2:1)
-- Color palette (4 tests): Light/dark mode consistency
-- Design system (3 tests): CSS variables, Tailwind integration
+- Text pairs at WCAG AA, 4.5:1 (14 per theme, light and dark): foreground, muted foreground on background/card/muted/header/footer bands, primary links, text on primary/secondary/destructive surfaces, destructive error text
+- Foreground on background at AAA, 7:1 (1 per theme)
+- Focus ring at the non-text minimum, 3:1 (1 per theme)
+- Design system (3 tests): primary hue stable across themes, ring matches primary, destructive distinct from primary
+- Semantics (4 tests) and layout (2 tests): alt text, aria-labels, labelled input with linked error, footer content, 1600px cap, table scrollbar
 
-**Assessment**: [PASS] **Excellent** - WCAG compliance testing is essential for accessibility. Efficient test structure with clear separation between color tests. Pure math functions make this properly a unit test.
+**Assessment**: [PASS] Rewritten October 2, 2026. The earlier version hard-coded HSL values (one of which no longer matched the stylesheet), tested a removed `--secondary-accent` token, and had six tests that compared a constant with itself.
 
 **Reduction Potential**: None
 
-**Recommendation**: **Keep as-is** - Accessibility compliance is non-negotiable. Tests are already efficient and focused.
+**Recommendation**: **Keep as-is**. Add a pair to `textPairs` when a new text color is introduced.
 
 ---
 
 ### Unit Tests
 
 #### emoji-detection.test.ts
-**Tests**: 11 | **Lines**: 391 | **Lines/Test**: 35.5
+**Tests**: 11 | **Lines**: 292 | **Lines/Test**: 26.5
 
 **Purpose**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers.
 
@@ -291,7 +304,7 @@
 ---
 
 #### kubernetes-network-generator.test.ts
-**Tests**: 57 | **Lines**: 623 | **Lines/Test**: 10.9
+**Tests**: 57 | **Lines**: 770 | **Lines/Test**: 13.5
 
 **Purpose**: Core business logic for Kubernetes network generation including deployment tier configurations, RFC 1918 enforcement, subnet allocation, and provider support.
 
@@ -308,12 +321,12 @@
 
 **Reduction Potential**: None
 
-**Recommendation**: **Keep as-is** - Business-critical functionality requires comprehensive validation. Tests are already efficient (~11 lines per test).
+**Recommendation**: **Keep as-is** - Business-critical functionality requires comprehensive validation. Tests are already efficient (~13.5 lines per test).
 
 ---
 
 #### subnet-utils.test.ts
-**Tests**: 67 | **Lines**: ~500 | **Lines/Test**: ~7.5
+**Tests**: 67 | **Lines**: 727 | **Lines/Test**: 10.9
 
 **Purpose**: Core subnet calculation utilities including IP conversion, CIDR calculations, subnet splitting, network class identification, tree collection functions, and error handling.
 
@@ -329,7 +342,7 @@
 - Edge cases (15 tests): RFC 3021 /31, /32 host routes, /0 all-IPv4
 - RFC 1918 ranges (7 tests): Private networks
 
-**Assessment**: [PASS] **Excellent** - Foundational utilities with comprehensive coverage. Very efficient (~7.5 lines per test). Edge cases well covered. Added 14 tests for tree collection functions.
+**Assessment**: [PASS] **Excellent** - Foundational utilities with comprehensive coverage. Very efficient (~11 lines per test). Edge cases well covered. Added 14 tests for tree collection functions.
 
 **Reduction Potential**: None
 

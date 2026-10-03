@@ -1,6 +1,8 @@
 # GKE Compliance Audit - Kubernetes Network Planning API
 
-> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [api.md](../api.md) for current tier values.
+>
+> **Updated**: October 2, 2026 (plan format 2.0). GKE plans now carry no `availabilityZone` (GCP subnets are regional; node pools choose zones), include one `/28` control-plane range (`subnets.controlPlane[0]`) for `master_ipv4_cidr_block` or a private endpoint subnetwork, and use a `/20` service range (`/18` for hyperscale). Generated ranges avoid `172.17.0.0/16`, and `podsCidr`/`servicesCidr` let several clusters share one network. `"networkMode": "private"` replaces the public subnets with one proxy-only-sized load-balancer subnet (see [Private Network Mode](#private-network-mode)). See [api.md](../api.md#address-space-separation).
 
 **Audit Date:** February 1, 2026  
 **Document:** GKE Requirements vs. Implementation Analysis  
@@ -16,8 +18,8 @@
 -  Correct Pod CIDR calculation using GKE algorithms
 -  Proper Service range sizing per GKE recommendations
 -  RFC 1918 compliance for all tiers
--  **Multi-zone distribution** automatically configured for all tiers
--  **GKE zones** properly assigned using real region names (e.g., `us-central1-a`, `us-central1-b`, `us-central1-c`)
+-  **Regional subnets**: GCP subnets are regional, so plans carry no zone per subnet; node pools choose zones (e.g., `us-central1-a`, `us-central1-b`, `us-central1-c`)
+-  **Control-plane range**: one `/28` (the size GKE requires for `master_ipv4_cidr_block`) inside the VPC, clear of every other range
 - WARNING - Minor optimization opportunity for pod density (addressed below)
 -  Supports all GKE cluster sizes up to 5000 nodes (GKE Autopilot/Standard limit)
 -  **Subnet overlap validation** guarantees non-conflicting IP ranges
@@ -112,19 +114,16 @@ GCP zones follow the pattern: `<region>-<letter>`
 
 ### API Implementation
 
-Our API uses real GCP region names for zone assignment:
+GCP subnets are regional, so GKE plans assign no zone to any subnet (the `availabilityZone` field is omitted, and the `availabilityZones` request field is rejected for GKE). Zones are chosen on the cluster or node pool (for example `node_locations`):
 
 ```typescript
 // Default region for GKE
 const region = "us-central1";
 
-// Zone assignment for subnets
-private-1 -> us-central1-a
-private-2 -> us-central1-b
-private-3 -> us-central1-c
-public-1  -> us-central1-a
-public-2  -> us-central1-b
-public-3  -> us-central1-c
+// Enterprise plan: regional subnets, no zone per subnet
+private-1, private-2, private-3 -> region us-central1 (one subnet is enough for every zone)
+public-1, public-2, public-3    -> region us-central1
+control-plane-1                 -> /28 for private_cluster_config.master_ipv4_cidr_block
 ```
 
 **Reference**: [GCP Regions and Zones](https://cloud.google.com/compute/docs/regions-zones)
@@ -160,7 +159,7 @@ Google GKE uses **Alias IP ranges** for pod networking, where **Pods use automat
 **Source**: Alias IP ranges (automatic secondary ranges managed by Google)
 
 **Allocation Method**:
-- Each Node gets a `/24` alias IP range (256 addresses) from Pod CIDR
+- Each Node gets an alias IP range from the Pod CIDR sized by its max pods per node: `/24` (256 addresses) at 65-128 pods; 8 pods `/28`, 9-16 `/27`, 17-32 `/26`, 33-64 `/25`, 129-256 `/23`
 - **Google-Managed**: Alias ranges automatically allocated by GKE
 - Pods get IPs from their Node's `/24` alias range
 - **Does NOT consume Node subnet**: Pod IPs come from separate secondary range
@@ -202,10 +201,10 @@ Example (Hyperscale /13 Pod CIDR):
 
 #### 3. Service IP Allocation
 
-**Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+**Source**: Separate virtual IP range (our API provides a `/20` Service CIDR, `/18` for hyperscale)
 
 **Allocation Method**:
-- ClusterIP services get IPs from Service CIDR (e.g., `10.2.0.0/16`)
+- ClusterIP services get IPs from Service CIDR (e.g., `192.168.0.0/20`, which the API returns for a non-hyperscale VPC in `10.0.0.0/8`)
 - **NOT routable outside cluster**: Internal routing managed by kube-proxy
 - **Does NOT overlap with VPC CIDR or Pod CIDR**: Completely separate range
 - **Does NOT consume VPC subnet space**: Virtual IPs only
@@ -231,7 +230,7 @@ Example (Hyperscale /13 Pod CIDR):
 **Why GKE is Better Than EKS**:
 ```
 VPC Subnet: 10.0.0.0/24 (256 IPs for Nodes)
-Pod CIDR: 10.1.0.0/13 (524K IPs for Pods - separate alias range)
+Pod CIDR: 172.24.0.0/13 (524K IPs for Pods - separate alias range)
 
 - 252 Nodes: 252 Node IPs used from VPC subnet
 - 110 Pods/Node: 27,720 Pod IPs used from Pod CIDR (alias ranges)
@@ -255,7 +254,7 @@ Pod CIDR: 10.1.0.0/13 (524K IPs for Pods - separate alias range)
 
 1.  **Pods do NOT consume Node subnet space** (alias ranges are separate)
 2.  **Google automatically manages alias IP allocation** (no manual configuration)
-3.  **Each Node gets a `/24` alias range** (256 Pod IPs per Node)
+3.  **Each Node gets a `/24` alias range at 65-128 max pods** (256 Pod IPs per Node; a `/26` at 17-32 max pods)
 4.  **Service CIDR is separate** (does not consume VPC space)
 5.  **LoadBalancers are external** (do not consume VPC space)
 6.  **Pod density assumptions**: 110 pods/node (Standard), 32 pods/node (Autopilot)
@@ -325,36 +324,52 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / 64,512
 - Internal LBs: ~10 services = 10 VPC IPs consumed
 - **Total VPC IPs**: 5,000 (nodes) + 10 (internal LBs) = **5,010 IPs**
 
+### Private Network Mode
+
+With `"networkMode": "private"` the plan has no public subnets (`subnets.public` is empty). Egress goes through Cloud NAT, which is configured per region on a Cloud Router, serves GKE nodes without external IPs, and takes no subnet in the plan.
+
+`subnets.loadBalancer` holds exactly one regional subnet (no zone), at the tier's public subnet size (`/26` micro to `/23` hyperscale), meant as the region's proxy-only subnet (`purpose` `REGIONAL_MANAGED_PROXY`). Proxy-only subnets power regional internal and external Application Load Balancers, regional proxy Network Load Balancers, and cross-region internal Application Load Balancers. The minimum is `/26`, and Google recommends starting with `/23`. Only one `REGIONAL_MANAGED_PROXY` subnet can be active per region per VPC network, so clusters in the same region and network share it, and it can't be used for anything else (no VMs). Internal passthrough Network Load Balancers, like the internal load balancer row above, take IPs from the node subnet unless another subnet is chosen.
+
+An enterprise plan for VPC `10.20.0.0/16` puts the proxy-only subnet at `10.20.0.0/24`, the control-plane range at `10.20.1.0/28`, and nodes at `10.20.8.0/21`, `10.20.16.0/21`, and `10.20.24.0/21`; node, control-plane, pod, and service ranges and the minimum VPC size are the same as in public mode. See [api.md](../api.md#private-network-mode).
+
 ---
 
 ## 1. Subnet Overlap Validation
 
 ### Non-Overlapping Subnet Guarantee
 
- **VALIDATED** - The API guarantees that public and private subnets never overlap within the VPC CIDR.
+ **VALIDATED** - The API guarantees that public, private (node), and control-plane subnets never overlap within the VPC CIDR, and that the pod and service ranges sit outside the VPC in two other RFC 1918 blocks.
 
-**Implementation**:
-- Public subnets are generated first from the VPC base address
-- Private subnets use an offset parameter to start AFTER all public subnets
-- Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
-- Offset for private subnets = number of public subnets
+**Implementation** (first-fit):
+- Each subnet takes the lowest offset, aligned to its own size, that is still free
+- Public subnets (the proxy-only subnet in private mode) are placed first (at the VPC base), then private subnets, then the single `/28` control-plane range, which usually fills the alignment gap between the two
+- Every emitted CIDR is a canonical network address (no host bits)
 
-**Example (Enterprise tier with VPC 10.0.0.0/16, /23 subnets)**:
+**Example (Enterprise tier, provider `gke`, VPC 10.0.0.0/16, /24 public, /21 private, /28 control plane)**:
 ```
-Public subnets (offset=0):
-  public-1:  10.0.0.0/23  (10.0.0.0 - 10.0.1.255)
-  public-2:  10.0.2.0/23  (10.0.2.0 - 10.0.3.255)
-  public-3:  10.0.4.0/23  (10.0.4.0 - 10.0.5.255)
+Public subnets (start at VPC base):
+  public-1:  10.0.0.0/24  (10.0.0.0 - 10.0.0.255)
+  public-2:  10.0.1.0/24  (10.0.1.0 - 10.0.1.255)
+  public-3:  10.0.2.0/24  (10.0.2.0 - 10.0.2.255)
 
-Private subnets (offset=3):
-  private-1: 10.0.6.0/23  (10.0.6.0 - 10.0.7.255)   [PASS] No overlap
-  private-2: 10.0.8.0/23  (10.0.8.0 - 10.0.9.255)   [PASS] No overlap
-  private-3: 10.0.10.0/23 (10.0.10.0 - 10.0.11.255) [PASS] No overlap
+Private subnets (lowest free /21 slots):
+  private-1: 10.0.8.0/21  (10.0.8.0 - 10.0.15.255)   [PASS] No overlap
+  private-2: 10.0.16.0/21 (10.0.16.0 - 10.0.23.255)  [PASS] No overlap
+  private-3: 10.0.24.0/21 (10.0.24.0 - 10.0.31.255)  [PASS] No overlap
+
+Control-plane range (fills the gap after the public subnets):
+  control-plane-1: 10.0.3.0/28 (10.0.3.0 - 10.0.3.15)  [PASS] No overlap
+
+Pods (secondary range):     172.16.0.0/16
+Services (secondary range): 192.168.0.0/20
 ```
 
 **Test Coverage**:
 - [PASS] Unit test: `should ensure public and private subnets do not overlap`
 - [PASS] Unit test: `should validate all subnets fit within VPC CIDR`
+- [PASS] Unit test: `should leave GKE subnets regional (no zone) with one control-plane range`
+- [PASS] `tests/unit/network-separation.test.ts`: every tier and provider keeps nodes, control plane, pods, and services separated
+- [PASS] `tests/unit/network-separation.test.ts` ("Control plane is one network", "Private network mode"): GKE gets a single `/28` in both network modes, and in private mode exactly one regional load-balancer subnet between `/26` and `/23`
 - Validated across all 5 deployment tiers
 
 **GKE Relevance**: Critical for VPC-native clusters where alias IP ranges for pods must not conflict with primary subnet addresses. Prevents Google Cloud Router configuration errors.
@@ -393,10 +408,11 @@ Our hyperscale tier (5000 nodes) aligns with GKE Autopilot maximum, which is the
 | Enterprise | 50 | 110 | 5,500 | 200K |  |
 | Hyperscale | 5,000 | 110 | 550,000 | 200K | WARNING - Can exceed |
 
-**Analysis:** The hyperscale tier can theoretically support 550K pods, which exceeds the GKE 200K pod limit. However:
+**Analysis:** 5,000 nodes at 110 pods/node would mean 550K pods, which exceeds the GKE 200K pod limit and also the hyperscale `/13` pod range (524,288 addresses; with a `/24` per node it covers 2,048 nodes). However:
 - Real deployments rarely hit pod limits (they hit IP exhaustion first)
 - GKE Autopilot automatically configures pod density based on cluster size
 - Pod CIDR sizing (`/13`) is sufficient for the 200K pod limit
+- Reaching 5,000 nodes on `/13` requires max pods per node <= 32 (`/26` per node), or pass a `/11` `podsCidr`
 
 **Status:**  **COMPLIANT** (with documentation note)
 
@@ -489,15 +505,15 @@ If pod CIDR = /DS:
 
 | Tier | Pod Prefix | Available Bits | Max Nodes | Our Tier Range | Status |
 |------|-----------|----------------|-----------|-----------------|--------|
-| Hyperscale | /13 | 32-13-8=11 | 2^11=2,048 | 50-5,000 |  |
+| Hyperscale | /13 | 32-13-8=11 | 2^11=2,048 | 50-5,000 | WARNING - 2,048 at 110 pods/node |
 | Enterprise | /16 | 32-16-8=8 | 2^8=256 | 10-50 |  |
-| Professional | /16 | 32-16-8=8 | 2^8=256 | 3-10 |  |
+| Professional | /18 | 32-18-8=6 | 2^6=64 | 3-10 |  |
 | Standard | /16 | 32-16-8=8 | 2^8=256 | 1-3 |  |
-| Micro | /18 | 32-18-8=6 | 2^6=64 | 1 |  |
+| Micro | /20 | 32-20-8=4 | 2^4=16 | 1 |  |
 
-**Status:**  **HIGHLY COMPLIANT**
+**Status:**  **HIGHLY COMPLIANT** (Hyperscale with a pod density note)
 
-All tiers provide sufficient node capacity. Micro tier with `/18` supports up to 64 nodes, far exceeding the 1-node specification.
+Micro through Enterprise provide sufficient node capacity. Micro tier with `/20` supports up to 16 nodes, far exceeding the 1-node specification. Hyperscale's `/13` covers 2,048 nodes at 110 max pods per node (`/24` per node); 5,000 nodes requires max pods per node <= 32 (`/26` per node, 8,192 nodes).
 
 ---
 
@@ -541,15 +557,15 @@ This provides sufficient capacity for 5,000 nodes (with minor accommodation need
 
 | Tier | Services Prefix | Max Services | GKE Recommendation | Status |
 |------|-----------------|--------------|-------------------|--------|
-| Hyperscale | /16 | 65,536 | /20 (4,096) |  Over-provisioned |
-| Enterprise | /16 | 65,536 | /20 (4,096) |  Over-provisioned |
-| Professional | /16 | 65,536 | /20 (4,096) |  Over-provisioned |
-| Standard | /16 | 65,536 | /20 (4,096) |  Over-provisioned |
-| Micro | /16 | 65,536 | /20 (4,096) |  Over-provisioned |
+| Hyperscale | /18 | 16,384 | /20 (4,096) |  Above Kubernetes' 10,000-service tested limit |
+| Enterprise | /20 | 4,096 | /20 (4,096) |  Matches GKE default |
+| Professional | /20 | 4,096 | /20 (4,096) |  Matches GKE default |
+| Standard | /20 | 4,096 | /20 (4,096) |  Matches GKE default |
+| Micro | /20 | 4,096 | /20 (4,096) |  Matches GKE default |
 
-**Status:**  **COMPLIANT** (generous allocation)
+**Status:**  **COMPLIANT**
 
-Using `/16` for all tiers provides 65,536 service addresses - far exceeding GKE's recommendations. This ensures clusters can scale services freely without IP exhaustion.
+Micro through enterprise use GKE's own default services size (`/20`); hyperscale uses `/18` (16,384), above Kubernetes' tested limit of 10,000 services. Earlier versions used `/16` for every tier, which consumed all of `192.168.0.0/16` and left no room for a second cluster's service range in the same network. Several clusters can share a network by passing distinct `podsCidr` and `servicesCidr` values, since GKE secondary ranges in one network must not collide.
 
 ---
 
@@ -565,17 +581,18 @@ Using `/16` for all tiers provides 65,536 service addresses - far exceeding GKE'
 **Our Implementation:**
 
 ```
-Example: Hyperscale with auto-generated VPC CIDR "10.0.0.0/16"
+Example: Hyperscale with VPC CIDR "10.0.0.0/16" (provider "gke")
 
 VPC/Nodes:     10.0.0.0/16   (Primary subnet - node IPs)
-  ├─ Public:   10.0.0.0/20   (8 public subnets × /24)
-  └─ Private:  10.0.128.0/20 (8 private subnets × /24)
+  ├─ Public:        10.0.0.0/23, 10.0.2.0/23, 10.0.4.0/23     (3 × /23, regional)
+  ├─ Private:       10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20  (3 × /20, regional)
+  └─ Control plane: 10.0.6.0/28                               (master_ipv4_cidr_block)
 
-Pods:          10.1.0.0/13   (Secondary range - pod IPs, RFC 1918 Class A)
-Services:      10.2.0.0/16   (Secondary range - service IPs, RFC 1918 Class A)
+Pods:          172.24.0.0/13   (Secondary range - pod IPs, RFC 1918 172.16.0.0/12, clear of 172.17.0.0/16)
+Services:      192.168.0.0/18  (Secondary range - service IPs, RFC 1918 192.168.0.0/16)
 
- Non-overlapping: 10.0.x.x, 10.1.x.x, 10.2.x.x are distinct
- RFC 1918: All ranges within 10.0.0.0/8 private space
+ Non-overlapping: VPC, pods, and services each use a different RFC 1918 block
+ RFC 1918: All ranges within private space
  VPC-native: Uses secondary ranges (alias IPs)
 ```
 
@@ -593,13 +610,15 @@ Services:      10.2.0.0/16   (Secondary range - service IPs, RFC 1918 Class A)
 
 **Our Implementation:**
 
-| Tier | Public | Private | AZ Readiness | Status |
-|------|--------|---------|--------------|--------|
-| Hyperscale | 8 | 8 | Multi-region ready |  |
-| Enterprise | 3 | 3 | Triple-AZ ready |  |
-| Professional | 2 | 2 | Dual-AZ ready |  |
-| Standard | 1 | 1 | Single-AZ |  |
-| Micro | 1 | 1 | Single-AZ |  |
+| Tier | Public | Private | Control Plane | Min VPC | AZ Readiness | Status |
+|------|--------|---------|---------------|---------|--------------|--------|
+| Hyperscale | 3 | 3 | 1 × /28 | /18 | Triple-AZ ready |  |
+| Enterprise | 3 | 3 | 1 × /28 | /19 | Triple-AZ ready |  |
+| Professional | 2 | 2 | 1 × /28 | /21 | Dual-AZ ready |  |
+| Standard | 1 | 1 | 1 × /28 | /23 | Single-AZ |  |
+| Micro | 1 | 1 | 1 × /28 | /24 | Single-AZ |  |
+
+GCP subnets are regional, so the subnet counts do not pin zones: a single node subnet serves node pools in every zone of the region, and the plan carries no `availabilityZone`.
 
 **Status:**  **COMPLIANT & EXCEEDS RECOMMENDATIONS**
 
@@ -611,7 +630,7 @@ Services:      10.2.0.0/16   (Secondary range - service IPs, RFC 1918 Class A)
 
 1. **Pod range calculation** - Uses GKE's `/24 per node` alias IP model 
 2. **Node limiting** - Primary range sized to support node count 
-3. **Service range allocation** - `/16` provides 65K+ service IPs 
+3. **Service range allocation** - `/20` (4,096 service IPs, GKE's default size); `/18` (16,384) for hyperscale 
 4. **RFC 1918 support** - All tiers use private ranges 
 5. **VPC-native design** - Secondary ranges for pods/services 
 
@@ -646,9 +665,10 @@ Services:      10.2.0.0/16   (Secondary range - service IPs, RFC 1918 Class A)
 -  **VPC-native cluster support** - Uses alias IP ranges
 -  **RFC 1918 compliance** - All ranges are private
 -  **Pod CIDR formula** - Implements GKE's calculation correctly
--  **Service range sizing** - `/16` exceeds recommendations
+-  **Service range sizing** - `/20` matches GKE's default; `/18` for hyperscale
+-  **Control-plane range** - one `/28` for `master_ipv4_cidr_block`, clear of all other ranges
 -  **Non-overlapping ranges** - All ranges distinct and routable
--  **Max cluster size** - Supports up to 5,000 nodes
+-  **Max cluster size** - Supports up to 5,000 nodes (the hyperscale `/13` pod range needs max pods per node <= 32 at that size)
 -  **Max pods** - Supports 200K+ pod IP space
 -  **Multi-AZ ready** - Provides proper subnet distribution
 
@@ -692,7 +712,7 @@ For Autopilot deployments, pod IP space calculations will be more generous
 than actual needs. This is safe but may over-provision pod CIDR ranges.
 
 To calculate for Autopilot (32 pods/node max):
-- Reduce podsPrefix by 1 (e.g., /14 instead of /13 for hyperscale)
+- No change needed: at 32 pods/node each node takes a /26, so the hyperscale /13 holds 8,192 nodes
 - Use the GKE formula: MN = 2^(HD - HM) where M = 31 - ⌈log₂(32)⌉ = 26
 ```
 
@@ -700,7 +720,7 @@ To calculate for Autopilot (32 pods/node max):
 
 #### Recommendation 2.1: Add GKE-Specific Calculation Examples
 
-**Add to `.github/copilot-instructions.md`:**
+**Add to [kubernetes-network-reference.md](kubernetes-network-reference.md#gke-compliance--ip-formulas)** (`.github/copilot-instructions.md` is now a short index, capped at 10 lines by CI):
 
 ```markdown
 ### GKE Pod CIDR Calculation Examples
@@ -724,18 +744,14 @@ Result: /16 provides 28K pod IPs, sufficient for 50-node cluster
 
 #### Recommendation 2.2: Add Quota Warnings
 
-**Document in API responses:**
+**Status:** Partially in place. Plans now carry an optional `warnings` array of strings (omitted when empty); today it reports a VPC that overlaps `172.17.0.0/16`. A GKE quota warning would be another entry in that array:
 
 ```typescript
-// When generating hyperscale plan
+// Proposed entry when generating a hyperscale GKE plan (not implemented)
 {
   "subnets": { /* ... */ },
   "warnings": [
-    {
-      "level": "info",
-      "message": "GKE cluster pod limit is 200,000 pods total. This /13 pod range supports up to 225K pod IPs. Monitor pod density if scaling beyond 200K pods.",
-      "link": "https://docs.cloud.google.com/kubernetes-engine/quotas"
-    }
+    "GKE cluster pod limit is 200,000 pods total. This /13 pod range supports up to 225K pod IPs. Monitor pod density if scaling beyond 200K pods."
   ]
 }
 ```
@@ -777,6 +793,8 @@ Response: {
 ## 10. Test Recommendations
 
 ### Add Validation Tests
+
+**Status**: Covered by `tests/unit/ip-calculation-compliance.test.ts` ("GKE Pod CIDR Formula Validation", "GKE-Specific Compliance"); there is no separate `gke-compliance.test.ts`. The sketch below is kept for reference.
 
 ```typescript
 // tests/unit/gke-compliance.test.ts
@@ -837,7 +855,8 @@ describe("GKE Compliance", () => {
 | **IP Ranges** | RFC 1918 | Yes, all tiers |  |
 | **Pod Calculation** | GKE formula | Correctly implemented |  |
 | **Node Sizing** | Primary range | `/20` × 3 for hyperscale (12,276 nodes total) |  |
-| **Service Range** | `/20` recommended | Uses `/16` (over-provisioned, safe) |  |
+| **Service Range** | `/20` recommended | Uses `/20` (`/18` for hyperscale) |  |
+| **Control-Plane Range** | `/28` for `master_ipv4_cidr_block` | One `/28` per plan, not used by any other range |  |
 | **Cluster Size** | Max 5,000 nodes (Autopilot) | Hyperscale tier 50-5,000 |  |
 | **Pod Limit** | 200,000 max | Supported with documentation |  |
 | **Multi-AZ** | Proper subnets | Yes, 3 AZs per tier (production) |  |
@@ -853,7 +872,7 @@ describe("GKE Compliance", () => {
 2. **IP range allocation** - All ranges properly non-overlapping
 3. **RFC 1918 usage** - All private addresses RFC 1918 compliant
 4. **Pod CIDR sizing** - Implements GKE's mathematical formulas correctly
-5. **Service scaling** - Over-provisioned for flexibility (`/16` vs. `/20`)
+5. **Service scaling** - `/20` (GKE's default size), `/18` for hyperscale
 6. **Cluster tier sizes** - Align with GKE documentation limits
 7. **High-availability** - Multi-AZ/Multi-region subnets included
 
@@ -868,7 +887,7 @@ describe("GKE Compliance", () => {
 
 **High Priority (Completed):**
 1.  Hyperscale uses 3 × `/20` private subnets (12,276 nodes capacity)
-2.  Pod density documentation in copilot-instructions.md
+2.  Pod density documentation in [kubernetes-network-reference.md](kubernetes-network-reference.md#gke-compliance--ip-formulas) (110 pods/node Standard, 32 Autopilot)
 3.  Tier configurations use differentiated public/private sizes
 
 **Medium Priority (3-5 days):**
@@ -959,12 +978,12 @@ These optional configurations can improve scalability and observability for larg
 
 **The Kubernetes Network Planning API is fully GKE-compliant.** It correctly implements GKE's networking algorithms and provides production-ready configurations for enterprise deployments.
 
-**Current Tier Configuration Summary:**
-- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC, /18 pods
-- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC, /16 pods
-- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC, /16 pods
-- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC, /16 pods
-- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
+**Current GKE Tier Configuration Summary** (`GET /api/k8s/tiers?provider=gke`; every tier also has one `/28` control-plane range):
+- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC, /20 pods, /20 services
+- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC, /16 pods, /20 services
+- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC, /18 pods, /20 services
+- **Enterprise**: 3 × /24 public, 3 × /21 private, /19 min VPC, /16 pods, /20 services
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods, /18 services
 
 **Next Steps:**
 1.  Review this audit

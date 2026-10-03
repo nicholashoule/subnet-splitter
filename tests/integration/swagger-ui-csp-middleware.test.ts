@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { buildSwaggerUICSP } from "../../server/csp-config";
+import { buildSwaggerUICSP, baseCSPDirectives } from "../../server/csp-config";
 import { createTestServers, closeTestServers, type TestServer } from "../helpers/test-server";
 
 /**
@@ -300,6 +300,23 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
       expect(response.status).toBe(200);
       expect(body).toContain("Swagger UI");
+    });
+  });
+
+  describe("Global CSP Scope", () => {
+    it("should not allow third-party script or connect origins outside Swagger UI", () => {
+      // jsDelivr serves arbitrary npm packages, so allowing it globally would let an
+      // injected <script> tag load attacker-controlled code on the main app.
+      expect(baseCSPDirectives.scriptSrc).toEqual(["'self'"]);
+      expect(baseCSPDirectives.connectSrc).toEqual(["'self'"]);
+      expect(JSON.stringify(baseCSPDirectives)).not.toContain("cdn.jsdelivr.net");
+    });
+
+    it("should not mutate the shared base directives when building Swagger CSP", () => {
+      const before = JSON.stringify(baseCSPDirectives);
+      buildSwaggerUICSP();
+      buildSwaggerUICSP();
+      expect(JSON.stringify(baseCSPDirectives)).toBe(before);
     });
   });
 

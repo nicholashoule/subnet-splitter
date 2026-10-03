@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { rateLimit } from "express-rate-limit";
-import { cspViolationReportSchema } from "@shared/schema";
+import { cspViolationReportSchema } from "../../server/csp-config";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
 
 /**

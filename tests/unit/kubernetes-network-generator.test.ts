@@ -9,7 +9,8 @@ import { describe, it, expect } from "vitest";
 import {
   generateKubernetesNetworkPlan,
   getDeploymentTierInfo,
-  KubernetesNetworkGenerationError
+  KubernetesNetworkGenerationError,
+  PLAN_FORMAT_VERSION
 } from "@/lib/kubernetes-network-generator";
 
 describe("Kubernetes Network Generator", () => {
@@ -339,22 +340,24 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.private[2].availabilityZone).toBe("us-east-1c");
       });
 
-      it("should assign GKE-style zones for GKE provider", async () => {
+      it("should leave GKE subnets regional (no zone) with one control-plane range", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "professional",
           provider: "gke",
           vpcCidr: "10.50.0.0/16"
         });
 
-        // Professional tier: 2 public + 2 private subnets
+        // Professional tier: 2 public + 2 private subnets, 1 regional control-plane /28
         expect(plan.subnets.public).toHaveLength(2);
         expect(plan.subnets.private).toHaveLength(2);
+        expect(plan.subnets.controlPlane).toEqual([
+          { cidr: "10.50.1.0/28", name: "control-plane-1", type: "control-plane" }
+        ]);
 
-        // Check zone assignments (GKE default region: us-central1)
-        expect(plan.subnets.public[0].availabilityZone).toBe("us-central1-a");
-        expect(plan.subnets.public[1].availabilityZone).toBe("us-central1-b");
-        expect(plan.subnets.private[0].availabilityZone).toBe("us-central1-a");
-        expect(plan.subnets.private[1].availabilityZone).toBe("us-central1-b");
+        // GCP subnets span every zone in the region; node pools pick zones
+        for (const subnet of [...plan.subnets.public, ...plan.subnets.private]) {
+          expect(subnet).not.toHaveProperty("availabilityZone");
+        }
       });
 
       it("should assign numerical zones for generic Kubernetes", async () => {
@@ -440,7 +443,8 @@ describe("Kubernetes Network Generator", () => {
           deploymentSize: "standard"
         });
 
-        expect(plan.metadata.version).toBe("1.0");
+        expect(plan.metadata.version).toBe(PLAN_FORMAT_VERSION);
+        expect(PLAN_FORMAT_VERSION).toBe("2.0");
       });
 
       it("should include deployment name when provided", async () => {

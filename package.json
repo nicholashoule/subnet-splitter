@@ -1,18 +1,24 @@
 {
-  "name": "rest-express",
-  "version": "1.0.0",
+  "name": "subnet-splitter",
+  "version": "2.0.0",
+  "description": "CIDR subnet calculator and Kubernetes (EKS, GKE, AKS) network planning API",
+  "private": true,
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicholashoule/subnet-splitter.git"
+  },
   "engines": {
     "node": "^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "dev": "cross-env NODE_ENV=development tsx server/index.ts",
+    "dev": "tsx server/index.ts",
     "build": "tsx scripts/build.ts",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "start": "node dist/index.cjs",
+    "smoke": "tsx scripts/smoke-test.ts",
     "check": "tsc",
     "test": "vitest",
-    "test:ui": "vitest --ui",
     "test:emoji": "vitest run tests/unit/emoji-detection.test.ts",
     "emoji:check": "tsx scripts/fix-emoji.ts",
     "emoji:fix": "tsx scripts/fix-emoji.ts --fix",
@@ -20,9 +26,7 @@
     "audit:fix": "npm audit fix"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-checkbox": "^1.1.5",
-    "@radix-ui/react-label": "^2.1.3",
     "@radix-ui/react-slot": "^1.2.0",
     "@radix-ui/react-toast": "^1.2.7",
     "@radix-ui/react-tooltip": "^1.2.0",
@@ -35,17 +39,12 @@
     "lucide-react": "^0.453.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-hook-form": "^7.55.0",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7",
-    "wouter": "^3.3.5",
     "yaml": "^2.8.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@replit/vite-plugin-cartographer": "^0.4.4",
-    "@replit/vite-plugin-dev-banner": "^0.1.1",
-    "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
@@ -53,13 +52,11 @@
     "@types/react-dom": "^18.3.1",
     "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "autoprefixer": "^10.4.20",
-    "cross-env": "^10.1.0",
     "esbuild": "^0.28.1",
-    "postcss": "^8.5.25",
     "supertest": "^7.2.2",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.20.5",
+    "tw-animate-css": "^1.4.0",
     "typescript": "5.6.3",
     "vite": "^8.1.0",
     "vitest": "^5.0.0"

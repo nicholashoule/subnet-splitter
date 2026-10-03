@@ -7,10 +7,12 @@ Detailed security configuration, examples, and issue history for the CIDR Subnet
 ### Audit Commands
 
 ```bash
-npm audit               # Check for vulnerabilities
-npm audit fix --force   # Fix vulnerabilities
-npm audit               # Verify 0 vulnerabilities
+npm run audit           # Check for vulnerabilities (npm audit)
+npm run audit:fix       # Fix vulnerabilities (npm audit fix)
+npm run audit           # Verify 0 vulnerabilities
 ```
+
+`npm audit fix --force` can install breaking major versions; use it only after reviewing what it would change. CI runs `npm audit` on every push to `main` and every pull request (`.github/workflows/ci.yml`).
 
 ### When to Run
 
@@ -23,14 +25,14 @@ npm audit               # Verify 0 vulnerabilities
 
 | Dependency | Issue | Resolution |
 |-----------|-------|------------|
-| `qs` 6.14.1 | arrayLimit bypass DoS (GHSA-w7fw-mjwx-w883) | `"qs": "6.14.2"` in `overrides` |
-| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 |
+| `qs` 6.14.1 | arrayLimit bypass DoS (GHSA-w7fw-mjwx-w883) | `"qs": "6.14.2"` in `overrides` (now pinned to 6.16.0) |
+| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 (now ^5.0.0) |
 
 ### Failed Audit Recovery
 
 1. Review `package.json` changes
 2. Run `npm install` to sync `package-lock.json`
-3. Test: `npm run dev` (starts), `npm run test` (passes), `npm run build` (succeeds)
+3. Test: `npm run dev` (starts), `npm run test -- --run` (passes), `npm run build` (succeeds), `npm run smoke` (the built server passes)
 4. Manually review and revert if issues persist
 
 ## Helmet & CSP Configuration
@@ -41,12 +43,19 @@ npm audit               # Verify 0 vulnerabilities
 
 ```typescript
 {
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   imgSrc: ["'self'", "data:"],
+  connectSrc: ["'self'"],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  frameAncestors: ["'self'"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
 }
 ```
+
+No third-party script origins: the app bundle is served from `'self'`, and only `/api/docs/ui` gets `cdn.jsdelivr.net` (see below).
 
 **Development additions:**
 
@@ -58,18 +67,22 @@ cspDirectives.reportUri = ["/__csp-violation"];
 
 ### Swagger UI Route-Specific CSP
 
-Only `/api/docs/ui` gets `cdn.jsdelivr.net` in `connectSrc` (principle of least privilege):
+Only `/api/docs/ui` adds `'unsafe-inline'` and `https://cdn.jsdelivr.net` to `script-src`, and `https://cdn.jsdelivr.net` to `style-src` and `connect-src` (principle of least privilege):
 
 ```typescript
-export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
-  const swaggerDirectives = { ...baseCSPDirectives };
-  if (isDevelopment) {
-    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
-  }
-  swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
-  return convertToCSPString(swaggerDirectives);
+export function buildSwaggerUICSP(): string {
+  const cdnSource = "https://cdn.jsdelivr.net";
+  const additions: CSPDirectives = {
+    scriptSrc: ["'unsafe-inline'", cdnSource],
+    styleSrc: [cdnSource],
+    connectSrc: [cdnSource],
+  };
+  // Copy baseCSPDirectives (never mutate the shared object), append the
+  // additions without duplicates, then serialize to "script-src ...; ..."
 }
 ```
+
+**Subresource Integrity:** Swagger UI assets are pinned to `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1` and loaded with `sha384` `integrity` hashes and `crossorigin="anonymous"` (`SWAGGER_UI_VERSION` and `SRI` in `server/swagger-ui.ts`), so the browser refuses a changed or compromised CDN file. When upgrading Swagger UI, update the version and both hashes (CSS and bundle) as described in `.github/swagger-ui-theming.md`.
 
 ### CSP Violation Reporting
 
@@ -89,7 +102,7 @@ Browsers send CSP violations wrapped in `"csp-report"` key per W3C spec:
 }
 ```
 
-Validation uses `cspViolationReportSchema` in `shared/schema.ts`. Always returns 204 No Content (W3C spec).
+Validation uses `cspViolationReportSchema` in `server/csp-config.ts`. Always returns 204 No Content (W3C spec).
 
 ### Helmet v8 Rules
 
@@ -99,6 +112,28 @@ Validation uses `cspViolationReportSchema` in `shared/schema.ts`. Always returns
 - `crossOriginEmbedderPolicy: false` (allow SPA resource embedding)
 
 ## Rate Limiting Configuration
+
+### API Routes (`server/routes.ts`)
+
+Mounted for every `/api` route in `server/index.ts` with `app.use("/api", createApiRateLimiter())`. Health endpoints (`/api/v1/health*`) are skipped so probes are never throttled; the unprefixed `/health*` routes are outside `/api` and not limited.
+
+```typescript
+export function createApiRateLimiter(): RequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
+    skip: (req) => req.path.startsWith("/v1/health"),
+    keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : "unknown",
+  });
+}
+```
+
+### Request Body Limit (`server/index.ts`)
+
+`express.json()` and `express.urlencoded()` are capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`.
 
 ### Production SPA Fallback (`server/static.ts`)
 
@@ -197,6 +232,6 @@ Before committing:
 - [ ] `npm run check` -- TypeScript strict passes
 - [ ] `npm run test -- --run` -- all tests pass
 - [ ] Dev server: no console errors
-- [ ] Production build: `npm run build && npm start`
+- [ ] Production build: `npm run build && npm run smoke` (checks the strict CSP, `nosniff`, rate-limit headers, and docs-page SRI on the bundle; `npm start` to try it by hand)
 - [ ] CSP: test in Chrome/Edge/Firefox, check DevTools
 - [ ] If modifying CSP: document rationale, test both modes

@@ -17,6 +17,7 @@ jobs:
   validate:
     name: Validate (Node.js ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         node-version: [24, 26]
@@ -44,3 +45,11 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Tests import the source; this starts dist/index.cjs and checks the bundle
+      # over HTTP. It also saves the served OpenAPI document to dist/openapi.json.
+      - name: Smoke test the production build
+        run: npm run smoke
+
+      - name: Validate the OpenAPI document
+        run: npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json

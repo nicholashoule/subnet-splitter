@@ -19,7 +19,7 @@ Full examples and detailed rules for the Conventional Commits specification used
 | `feat:` | New feature | `feat: add subnet split validation` |
 | `fix:` | Bug fix | `fix: correct /31 subnet splitting` |
 | `docs:` | Documentation | `docs: update API endpoints` |
-| `style:` | Formatting | `style: format code with Prettier` |
+| `style:` | Formatting | `style: fix indentation in subnet-utils` |
 | `refactor:` | Restructuring | `refactor: extract subnet tree logic` |
 | `test:` | Tests | `test: add subnet calculation tests` |
 | `chore:` | Maintenance | `chore: update dependencies` |

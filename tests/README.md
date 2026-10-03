@@ -4,6 +4,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
+**Test Count**: 528 tests in 15 files (unit: 310 in 7 files; integration: 218 in 8 files)  
 **Pass Rate**: 100% passing  
 **Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
@@ -24,6 +25,7 @@ tests/
 ├── unit/                          # Unit tests - Pure functions, no I/O
 │   ├── subnet-utils.test.ts      # Subnet calculation utilities
 │   ├── kubernetes-network-generator.test.ts  # K8s network generation
+│   ├── network-separation.test.ts  # Address space separation invariants (every tier x provider)
 │   ├── ip-calculation-compliance.test.ts  # IP allocation compliance
 │   ├── ui-styles.test.ts         # WCAG accessibility
 │   ├── emoji-detection.test.ts   # Emoji validation
@@ -31,11 +33,15 @@ tests/
 ├── integration/                   # Integration tests - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure - Starts own server
 │   ├── calculator-ui.test.ts     # React components - No server
-│   ├── kubernetes-network-api.test.ts  # K8s API - Starts own server
+│   ├── kubernetes-network-api.test.ts  # K8s API flow - Calls the generator, no server
 │   ├── rate-limiting.test.ts     # Rate limiting - Starts own server
 │   ├── swagger-ui-csp-middleware.test.ts  # CSP middleware - Starts own server
 │   ├── swagger-ui-theming.test.ts  # Swagger themes - WARNING REQUIRES WEBAPP
-│   └── csp-violation-endpoint.test.ts  # CSP violations - Starts own server
+│   ├── csp-violation-endpoint.test.ts  # CSP violations - Starts own server
+│   └── static-serving.test.ts    # Production static serving (caching, gzip)
+├── helpers/                       # Shared test utilities
+│   ├── test-server.ts            # HTTP server lifecycle for integration tests
+│   └── emoji-config.ts           # Emoji pattern and replacements (shared with scripts/fix-emoji.ts)
 ├── manual/                        # Manual testing scripts
 │   ├── test-api-endpoints.ps1    # PowerShell API validation
 │   ├── test-api.ps1              # PowerShell private IP validation
@@ -50,7 +56,7 @@ tests/
 - Start their own Express servers on random ports
 - Do NOT require webapp to be running
 - Can run in parallel
-- Includes: `api-endpoints.test.ts`, `kubernetes-network-api.test.ts`, `rate-limiting.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`
+- Includes: `api-endpoints.test.ts`, `rate-limiting.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`, `static-serving.test.ts` (`kubernetes-network-api.test.ts` and `calculator-ui.test.ts` need no server at all)
 
 **Webapp-Dependent Tests** (marked with WARNING):
 - Require full webapp running: `npm run dev`
@@ -61,14 +67,11 @@ tests/
 ## Running Tests
 
 ```bash
-# Run all tests (most don't need webapp)
+# Run all tests in watch mode (most don't need webapp)
 npm run test
 
-# Run tests once and exit
+# Run tests once and exit (what CI runs)
 npm run test -- --run
-
-# Run tests with interactive UI
-npm run test:ui
 
 # Run specific test file
 npm run test -- tests/unit/subnet-utils.test.ts --run
@@ -120,16 +123,25 @@ Unit tests verify individual functions and utilities in isolation.
 - Subnet allocation algorithms
 - Provider support (EKS, GKE, AKS, Kubernetes)
 
+**network-separation.test.ts:**
+- Property tests for every tier, provider, and `networkMode` (`public`, `private`): nodes, control-plane, and public or load-balancer subnets inside the VPC; pods and services outside it, each in its own RFC 1918 block; no two ranges overlap; every CIDR canonical; subnet counts match the published tier layout
+- Control plane is one network: GKE, AKS, and generic Kubernetes get a single `/28`; EKS gets exactly two `/28`s in two AZs, starting on a `/27` boundary and contiguous
+- Private network mode: no public subnets for any provider or tier; `subnets.loadBalancer` holds `load-balancer` subnets (GKE: one regional proxy-only-sized subnet, `/26` to `/23`; AKS: one regional subnet; EKS: at least two AZs); `subnets.loadBalancer` is empty in public mode; private tier layouts; an unknown `networkMode` is rejected
+- Generated pod and service ranges avoid `172.17.0.0/16`; a VPC overlapping it yields a `warnings` entry (omitted otherwise)
+- EKS puts every subnet type in at least two AZs; GKE and AKS subnets carry no zone
+- `podsCidr`, `servicesCidr`, and `availabilityZones` overrides and their rejections
+- Provider-specific tier layouts and `minVpcPrefix` ("VPC too small" errors name the minimum)
+
 **ip-calculation-compliance.test.ts:**
 - IP allocation formulas for pod and node capacity
 - Deployment tier compliance testing
 - Network sizing validation
 
 **ui-styles.test.ts:**
-- WCAG accessibility compliance (contrast ratios)
-- Color palette consistency across light/dark modes
-- Design system validation
-- Pure math functions (HSL→RGB conversion, luminance calculations)
+- WCAG contrast for every text pair the app renders, light and dark, with colors read from `client/src/index.css`
+- Focus ring non-text contrast (3:1)
+- Design system consistency (primary hue, ring, destructive)
+- Page semantics from `calculator.tsx` (alt text, aria-labels, labelled input and error)
 
 **emoji-detection.test.ts:**
 - Scans all markdown (.md) files for emoji
@@ -139,8 +151,8 @@ Unit tests verify individual functions and utilities in isolation.
 - Reports exact file location and line number of violations
 
 **config.test.ts:**
-- Tailwind CSS configuration validation
-- PostCSS configuration validation
+- Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config)
+- Theme tokens defined for both light and dark mode
 - Vite configuration verification
 - Build tool setup testing
 
@@ -156,8 +168,9 @@ Integration tests verify system-wide features and API behavior.
 - OpenAPI specification (JSON/YAML)
 - Swagger UI presentation
 - Error handling consistency
+- Provider-specific and private-mode tier layouts (`?provider=`, `?networkMode=private`; an unknown `networkMode` returns 400)
 
-**kubernetes-network-api.test.ts**:
+**kubernetes-network-api.test.ts** (calls `generateKubernetesNetworkPlan` and `getDeploymentTierInfo` directly; no HTTP server):
 - API endpoint integration
 - JSON/YAML output format validation
 - RFC 1918 private IP enforcement
@@ -168,7 +181,7 @@ Integration tests verify system-wide features and API behavior.
 **rate-limiting.test.ts**:
 - Rate limiter configuration
 - Request throttling behavior
-- Header verification (X-RateLimit-*)
+- Header verification (standard `RateLimit-*` headers; legacy `X-RateLimit-*` headers are not sent)
 - Multiple endpoints protected
 
 **csp-violation-endpoint.test.ts**:
@@ -243,7 +256,7 @@ When adding new tests:
 
 1. **Create test file** in appropriate subdirectory:
    - Unit tests: `tests/unit/`
-   - Integration tests: `tests/integration/` (if needed in future)
+   - Integration tests: `tests/integration/` (shared server helpers in `tests/helpers/test-server.ts`)
 
 2. **Name convention**: `{module}.test.ts`
 
@@ -304,7 +317,7 @@ npx tsx scripts/fix-emoji.ts --fix --verbose
 | Key | [KEY] |
 | Star | [FEATURED] |
 
-See [.github/EMOJI_PREVENTION.md](../.github/EMOJI_PREVENTION.md) for complete documentation.
+See [.github/emoji-prevention.md](../.github/emoji-prevention.md) for complete documentation.
 
 ## Test Configuration
 
@@ -371,14 +384,18 @@ Tests should pass before:
 - Creating pull requests
 - Deploying to production
 
-Include test verification in development workflow:
+Include test verification in development workflow (the same steps CI runs):
 ```bash
+npm ci                     # Install exact dependencies
 npm audit                  # Security audit (0 vulnerabilities required)
 npm run check              # Type checking
 npm run test -- --run      # Full test suite
 npm run build              # Production build
+npm run smoke              # Start dist/index.cjs on port 5099 and check it over HTTP
 ```
+
+`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, app and CSP headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's SRI-pinned assets. In CI no dev server is running, so `swagger-ui-theming.test.ts` skips itself.
 
 ---
 
-**Last Updated**: February 14, 2026
+**Last Updated**: October 2, 2026

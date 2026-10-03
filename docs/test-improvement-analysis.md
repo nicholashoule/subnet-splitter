@@ -2,7 +2,8 @@
 
 **Date**: 2025-01-XX  
 **Scope**: Integration test duplication and shared utilities  
-**Test Count**: 406 tests (218 unit + 188 integration)
+**Test Count**: 406 tests (218 unit + 188 integration) at the time of analysis; 528 today (310 unit + 218 integration)  
+**Status**: Implemented. `tests/helpers/test-server.ts` exports `createTestServer`, `closeTestServer`, `createTestServers`, and `closeTestServers`, and `api-endpoints.test.ts`, `csp-violation-endpoint.test.ts`, and `swagger-ui-csp-middleware.test.ts` use it.
 
 ## Executive Summary
 
@@ -122,7 +123,7 @@ afterEach(async () => {
 });
 ```
 
-**Recommendation**: Currently only used in one test. Consider extracting if pattern repeats in future tests.
+**Recommendation**: Only used in one test at the time of analysis; consider extracting if the pattern repeats. It has since repeated in `tests/integration/static-serving.test.ts` (see [Future Considerations](#future-considerations)).
 
 ---
 
@@ -407,7 +408,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
 ### Step 3: Verify
 ```bash
-npm run test -- --run  # All 406 tests should pass
+npm run test -- --run  # All tests should pass (406 at the time; 528 today)
 ```
 
 ### Step 4: Document Pattern
@@ -434,7 +435,7 @@ export async function removeTempDir(dirPath: string): Promise<void> {
 }
 ```
 
-Currently only used in rate-limiting.test.ts, but pattern available if needed.
+Used in rate-limiting.test.ts and static-serving.test.ts; no shared helper exists yet.
 
 ---
 
@@ -459,5 +460,5 @@ Currently only used in rate-limiting.test.ts, but pattern available if needed.
 ## References
 
 - [Test Suite Analysis](./test-suite-analysis.md) - Current test audit
-- [Testing Instructions](./.github/instructions/testing.instructions.md) - Test conventions
+- [Testing Instructions](../.github/instructions/testing.instructions.md) - Test conventions
 - [tests/README.md](../tests/README.md) - Test documentation

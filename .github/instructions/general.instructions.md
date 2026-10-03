@@ -14,10 +14,10 @@ applyTo: "**"
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 18, TypeScript, Tailwind CSS, shadcn/ui, React Hook Form, Zod, Vite |
-| **Backend** | Express.js 5, TypeScript, Node.js, no database |
-| **Testing** | Vitest 3+ (unit + integration) |
-| **Dev Tools** | TypeScript strict mode, PostCSS, tsx |
+| **Frontend** | React 18, TypeScript, Tailwind CSS 4, shadcn/ui, Vite 8 (forms use plain React state) |
+| **Backend** | Express.js 5, TypeScript, Node.js 24 or 26, Zod 3, no database |
+| **Testing** | Vitest 5 (unit + integration), supertest |
+| **Dev Tools** | TypeScript 5.6 strict mode, Tailwind CSS v4 (Vite plugin), tsx, esbuild (server bundle) |
 
 ## Project Structure
 
@@ -27,30 +27,34 @@ server/             # Express backend (routes, CSP, middleware, OpenAPI)
 shared/             # Shared TypeScript types and Zod schemas
 tests/unit/         # Unit tests
 tests/integration/  # Integration tests
-scripts/            # Build and CLI tools
+scripts/            # Build, smoke test, and emoji tools
 docs/               # API reference, compliance audits, test audit
 ```
 
 ## Running the Project
 
+Requires Node.js 24 or 26 (`engines`) and npm 11.
+
 ```bash
-npm.cmd install          # Install dependencies
-npm.cmd run dev          # Development server (127.0.0.1:5000)
-npm.cmd run build        # Production build
-npm.cmd run start        # Production server
+npm.cmd ci               # Install exact dependencies from package-lock.json
+npm.cmd run dev          # Dev server, API + client via Vite middleware (127.0.0.1:5000)
+npm.cmd run build        # Client to dist/public, server bundle to dist/index.cjs
+npm.cmd run start        # Production server (node dist/index.cjs)
+npm.cmd run smoke        # Start dist/index.cjs on port 5099 and check it over HTTP
 npm.cmd run check        # TypeScript type checker
-npm.cmd run test         # Vitest test suite
-npm.cmd run test:ui      # Vitest interactive UI
+npm.cmd run test         # Vitest test suite (watch; add -- --run to run once)
 ```
+
+`npm run dev` hot-reloads React and CSS; restart it after server changes. Environment: `PORT` (default `5000`), `HOST` (default `0.0.0.0` in production, `127.0.0.1` in development), `TRUST_PROXY` (default `false`). Health checks: `/health`, `/health/ready`, `/health/live` (also under `/api/v1`).
 
 ## Security Audit Protocol (MANDATORY)
 
 **Run before ANY code execution:**
 
 ```bash
-npm audit               # Step 1: Check vulnerabilities
-npm audit fix --force   # Step 2: Fix if needed
-npm audit               # Step 3: Verify 0 vulnerabilities
+npm run audit           # Step 1: Check vulnerabilities (npm audit)
+npm run audit:fix       # Step 2: Fix if needed (npm audit fix)
+npm run audit           # Step 3: Verify 0 vulnerabilities
 npm run check           # Step 4: TypeScript compilation
 ```
 
@@ -63,7 +67,10 @@ npm audit              # 0 vulnerabilities required
 npm run check          # No TypeScript errors
 npm run test -- --run  # All tests pass
 npm run build          # Production build succeeds
+npm run smoke          # Built server passes the smoke checks
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same steps on Node.js 24 and 26; see [testing instructions](testing.instructions.md#continuous-integration).
 
 ## Git Commit Conventions
 
@@ -90,7 +97,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 ## Agent Guidelines
 
 1. **Type Safety** -- TypeScript strict mode, no `any` without justification
-2. **Cross-Platform** -- Windows primary dev environment, use `cross-env` for env vars
+2. **Cross-Platform** -- Windows primary dev environment; npm scripts set no inline env vars (`NODE_ENV=production` is inlined at build time)
 3. **Performance** -- subnet calculations client-side, optimize React re-renders
 4. **UI/UX** -- no horizontal scrollbars, shadcn/ui components, dark/light mode support
 5. **Testing** -- run `npm run dev`, `npm run check`, test both themes
@@ -119,8 +126,8 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 
 ### Adding a Feature
 1. Create component in `client/src/components/`
-2. Add types to `shared/schema.ts` if needed
-3. Use React Hook Form + Zod for validation
+2. Add types to `shared/schema.ts` if needed (keep it dependency-free)
+3. Validate input with plain React state and a validator function (e.g., `validateCidrInput()` in `client/src/lib/subnet-utils.ts`)
 4. Style with Tailwind CSS, test with `npm run dev`
 
 ### Fixing a Bug
@@ -133,7 +140,6 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Backend instructions](backend.instructions.md)
 - [Frontend instructions](frontend.instructions.md)
 - [Testing instructions](testing.instructions.md)
-- [Agent reasoning](../../docs/archive/agent-reasoning.md)
 - [Emoji prevention](../emoji-prevention.md)
 - [Security reference](../../docs/compliance/security-reference.md)
 - [Test suite analysis](../../docs/test-suite-analysis.md)

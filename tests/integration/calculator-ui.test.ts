@@ -586,7 +586,7 @@ describe("Depth Indicator Visual Hierarchy", () => {
     expect(classes).toContain("w-1.5");
     expect(classes).toContain("h-7");
     expect(classes).toContain("rounded-full");
-    expect(classes).toContain("shadow-sm");
+    expect(classes).toContain("shadow-xs"); // Tailwind v4 name for v3's shadow-sm (same shadow)
     expect(classes).toContain("border");
   });
 

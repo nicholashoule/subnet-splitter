@@ -1,6 +1,8 @@
 # EKS Compliance Audit - Kubernetes Network Planning API
 
-> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [API.md](../API.md) for current tier values.
+> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [api.md](../api.md) for current tier values.
+>
+> **Updated**: October 2, 2026 (plan format 2.0). Every EKS plan now has every subnet type (public, private, control plane) in at least two AZs in every tier, plus a dedicated control-plane network (`subnets.controlPlane`) for `vpc_config.subnet_ids`: exactly two `/28` subnets in two AZs (never three), forming one contiguous `/27`. A `networkMode` request field adds a private mode with internal load-balancer subnets and no public subnets (see [Private Network Mode](#private-network-mode)). Services are `/20` (`/18` for hyperscale), generated ranges avoid `172.17.0.0/16`, and micro and standard EKS plans need `/23` and `/22` VPCs. See [api.md](../api.md#address-space-separation).
 
 **Date**: February 1, 2026  
 **Scope**: AWS EKS (Elastic Kubernetes Service)  
@@ -17,11 +19,12 @@ The Kubernetes Network Planning API has been validated against AWS EKS best prac
 -  VPC CNI compatibility verified for all configurations
 -  IP prefix delegation support confirmed
 -  RFC 1918 private addressing enforced
--  **Multi-AZ distribution** automatically configured for all tiers
--  **AWS availability zones** properly assigned using real region names (e.g., `us-east-1a`, `us-east-1b`, `us-east-1c`)
+-  **Multi-AZ distribution** in every tier: every subnet type has at least two subnets in two AZs (AWS: cluster subnets "must be in at least two different Availability Zones")
+-  **Dedicated control-plane subnets**: exactly two `/28`s in two AZs, forming one contiguous `/27` (each needs at least 6 IPs, 16 recommended), for `aws_eks_cluster` `vpc_config.subnet_ids`. EKS requires subnets in at least two different AZs, and AWS advises naming only two subnets to control where the control-plane network interfaces land
+-  **AWS availability zones** named `{region}{letter}` (e.g., `us-east-1a`, `us-east-1b`, `us-east-1c`), or taken from the request's `availabilityZones`
 -  Subnet sizing appropriate for EKS node types
 -  Pod IP space sufficient for maximum density deployments
--  Service CIDR allocation exceeds EKS recommendations
+-  Service CIDR (`/20`, `/18` for hyperscale) meets EKS rules (RFC 1918, `/12` to `/24`)
 
 **Compliance Level**: **PRODUCTION READY**
 
@@ -94,7 +97,7 @@ AWS AZs follow the pattern: `<region-code><letter>`
 **Important Notes**:
 1. **AZ letters are randomized per account**: `us-east-1a` for Account A may physically differ from `us-east-1a` for Account B
 2. **Use AZ IDs for cross-account consistency**: `use1-az1`, `use1-az2`, etc.
-3. **Minimum 3 AZs per region**: Most regions have at least 3 AZs (some have 6)
+3. **Most regions have 3 or more AZs**, but some offer only 2 to a given account (e.g. `us-west-1`); EKS needs subnets in at least 2
 4. **Not all letters are sequential**: Some regions skip letters (e.g., `us-west-1` has `a` and `c` but no `b`)
 
 ### API Implementation
@@ -105,14 +108,18 @@ Our API uses real AWS region names for AZ assignment:
 // Default region for EKS
 const region = "us-east-1";
 
-// AZ assignment for subnets
-private-1 -> us-east-1a
-private-2 -> us-east-1b
-private-3 -> us-east-1c
-public-1  -> us-east-1a
-public-2  -> us-east-1b
-public-3  -> us-east-1c
+// AZ assignment for subnets (enterprise tier, round-robin within each subnet type)
+private-1       -> us-east-1a
+private-2       -> us-east-1b
+private-3       -> us-east-1c
+public-1        -> us-east-1a
+public-2        -> us-east-1b
+public-3        -> us-east-1c
+control-plane-1 -> us-east-1a
+control-plane-2 -> us-east-1b   (the control plane is always exactly two subnets)
 ```
+
+Every tier gets at least two subnets of each type, so even micro and standard EKS plans span two AZs. The control plane never takes a third AZ: its two `/28`s form one `/27`. Because AZ letters vary by region and account (`ap-northeast-1` offers `a`, `c`, and `d` to new accounts), pass the zones your account has as `availabilityZones` (for example, the names from `data.aws_availability_zones`); EKS requires at least two.
 
 **Reference**: [AWS Global Infrastructure - Regions & AZs](https://aws.amazon.com/about-aws/global-infrastructure/regions_az/)
 
@@ -176,10 +183,10 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 
 #### 3. Service IP Allocation
 
-**Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+**Source**: Separate virtual IP range (our API provides a `/20` Service CIDR, `/18` for hyperscale)
 
 **Allocation Method**:
-- ClusterIP services get IPs from Service CIDR (e.g., `10.2.0.0/16`)
+- ClusterIP services get IPs from Service CIDR (e.g., `192.168.0.0/20`, which the API returns for a non-hyperscale VPC in `10.0.0.0/8`)
 - **NOT routable outside cluster**: Internal routing managed by kube-proxy
 - **Does NOT overlap with VPC CIDR**: Completely separate range
 - **Does NOT consume VPC subnet space**: Virtual IPs only
@@ -214,12 +221,15 @@ VPC Subnet: 10.0.0.0/24 (256 total IPs)
 
 **Solution (Our Hyperscale Tier)**:
 ```
-VPC Subnet: 10.0.0.0/20 (4,096 total IPs per private subnet, 3 AZs)
+VPC: 10.0.0.0/18; private subnets 10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
+  (4,096 total IPs per private subnet, 3 AZs)
 - Total Private Capacity: 3 × 4,096 = 12,288 IPs
 - 5,000 Nodes: 5,000 IPs used (distributed across 3 AZs)
-- 110 Pods/Node (with IP Prefix Delegation): 550,000 Pod IPs potential
+- 110 Pods/Node (with IP Prefix Delegation): 550,000 Pod IPs needed
 - Pod CIDR: /13 (524,288 IPs) - separate CNI configuration
-- Result: Sufficient IP space for high-density deployments
+- Result: Node IPs fit easily. The /13 pod range is below 550,000 and is
+  sized to GKE's 200,000 pods-per-cluster limit, so a 5,000-node cluster
+  must run fewer pods per node
 ```
 
 ### Comparison to Other Platforms
@@ -248,28 +258,36 @@ VPC Subnet: 10.0.0.0/20 (4,096 total IPs per private subnet, 3 AZs)
 
 ### Non-Overlapping Subnet Guarantee
 
- **VALIDATED** - The API guarantees that public and private subnets never overlap within the VPC CIDR.
+ **VALIDATED** - The API guarantees that public, private (node), and control-plane subnets never overlap within the VPC CIDR, and that pods and services sit outside the VPC in two other RFC 1918 blocks.
 
-**Implementation**:
-- Public subnets are generated first from the VPC base address
-- Private subnets use an offset parameter to start AFTER all public subnets
-- Calculation: `subnetStart = vpcNum + ((offset + index) * subnetAddresses)`
-- Offset for private subnets = number of public subnets
+**Implementation** (first-fit):
+- Each subnet takes the lowest offset, aligned to its own size, that is still free
+- Public subnets (internal load-balancer subnets in private mode) are placed first (at the VPC base), then private subnets, then the control-plane network: one aligned `/27` split into the two `/28` control-plane subnets, which usually fills the alignment gap between the two
+- Every emitted CIDR is a canonical network address (no host bits)
 
-**Example (Professional tier with VPC 10.0.0.0/16, /23 subnets)**:
+**Example (Professional tier, provider `eks`, VPC 10.0.0.0/16, /25 public, /23 private, /28 control plane)**:
 ```
-Public subnets (offset=0):
-  public-1:  10.0.0.0/23  (10.0.0.0 - 10.0.1.255)
-  public-2:  10.0.2.0/23  (10.0.2.0 - 10.0.3.255)
+Public subnets (start at VPC base):
+  public-1:  10.0.0.0/25    (10.0.0.0 - 10.0.0.127)
+  public-2:  10.0.0.128/25  (10.0.0.128 - 10.0.0.255)
 
-Private subnets (offset=2):
-  private-1: 10.0.4.0/23  (10.0.4.0 - 10.0.5.255)  [PASS] No overlap
-  private-2: 10.0.6.0/23  (10.0.6.0 - 10.0.7.255)  [PASS] No overlap
+Private subnets (lowest free /23 slots):
+  private-1: 10.0.2.0/23  (10.0.2.0 - 10.0.3.255)  [PASS] No overlap
+  private-2: 10.0.4.0/23  (10.0.4.0 - 10.0.5.255)  [PASS] No overlap
+
+Control-plane subnets (one /27, 10.0.1.0/27, in the gap at 10.0.1.0 - 10.0.1.255):
+  control-plane-1: 10.0.1.0/28   (us-east-1a)  [PASS] No overlap
+  control-plane-2: 10.0.1.16/28  (us-east-1b)  [PASS] No overlap
+
+Pods: 172.16.0.0/18   Services: 192.168.0.0/20   (outside the VPC)
 ```
 
 **Test Coverage**:
 - [PASS] Unit test: `should ensure public and private subnets do not overlap`
 - [PASS] Unit test: `should validate all subnets fit within VPC CIDR`
+- [PASS] `tests/unit/network-separation.test.ts`: every tier and provider keeps nodes, control plane, pods, and services separated, and EKS puts every subnet type in at least two AZs
+- [PASS] `tests/unit/network-separation.test.ts` ("Control plane is one network"): EKS gets exactly two `/28`s in two AZs, starting on a `/27` boundary and contiguous, in both network modes
+- [PASS] `tests/unit/network-separation.test.ts` ("Private network mode"): no public subnets, and EKS internal load-balancer subnets in at least two AZs
 - Validated across all 5 deployment tiers
 
 **EKS Relevance**: Prevents routing conflicts where VPC CNI could assign duplicate IPs to pods and nodes, which would cause network failures.
@@ -332,9 +350,9 @@ Elastic IPs: 23-30
 
 | LB Type | IP Consumption | VPC Impact |
 |---------|----------------|------------|
-| **ALB (Internet-facing)** | AWS-managed public IPs | [FAIL] NO |
-| **ALB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
-| **NLB (Internet-facing)** | 1 EIP/AZ | [FAIL] NO |
+| **ALB (Internet-facing)** | Private IPs in its public subnets (plus public IPs); keep at least 8 free per subnet | [PASS] YES (public subnets) |
+| **ALB (Internal)** | Private IPs in its subnets; keep at least 8 free per subnet | [PASS] YES |
+| **NLB (Internet-facing)** | 1 private IP per AZ in its public subnet, plus 1 EIP per AZ | [PASS] YES (public subnets) |
 | **NLB (Internal)** | 1 IP/AZ from VPC subnet | [PASS] YES |
 
 **Hyperscale Estimate** (5,000 nodes, 3 AZs):
@@ -345,6 +363,12 @@ Elastic IPs: 23-30
 - **Total VPC IPs**: 5,000 (nodes+pods) + 24 (LBs) = **~5,024 IPs**
 
 **Critical**: EKS Pods share VPC CIDR with Nodes. Use `/20` private subnets × 3 AZs for Hyperscale.
+
+### Private Network Mode
+
+With `"networkMode": "private"` the plan has no public subnets (`subnets.public` is empty), so the NAT gateway model above does not apply inside the VPC: a public NAT gateway must sit in a public subnet, and a private NAT gateway reaches only other VPCs or on-premises networks, not the internet. Private EKS clusters reach the internet through a transit gateway to a shared egress VPC, or run without internet access using VPC endpoints. Neither takes a subnet in the plan.
+
+Internal load balancers get their own subnets in `subnets.loadBalancer` (type `load-balancer`): one per AZ, at least two, at the tier's public subnet size. A professional plan for VPC `10.30.0.0/16` puts them at `10.30.0.0/25` (`us-east-1a`) and `10.30.0.128/25` (`us-east-1b`). Tag them `kubernetes.io/role/internal-elb`: the AWS Load Balancer Controller uses that tag to find subnets for internal load balancers, ALBs need subnets in at least two AZs, and the controller skips subnets with fewer than 8 free IPs. Node, control-plane, pod, and service ranges and the minimum VPC size are the same as in public mode. See [api.md](../api.md#private-network-mode).
 
 ---
 
@@ -360,10 +384,11 @@ Based on AWS EKS documentation and best practices:
 | **Max Pods (Standard EKS)** | 50,000 pods (with planning) | 260,000+ pods |  Over-provisioned (safe) |
 | **Max Nodes (Specialized)** | 100,000 nodes (with AWS onboarding) | 5,000 nodes |  Supported |
 | **Max Pods per Node** | 110 default, 250 with ENI/prefix | 110+ |  Supported |
-| **Min Subnet Size** | /28 per prefix (16 addresses) | /19 hyperscale |  Compliant |
-| **Primary Subnet** | Depends on node count | /19 (8,188 nodes) |  Sufficient |
+| **Min Subnet Size** | /28 per prefix (16 addresses) | /20 hyperscale |  Compliant |
+| **Primary Subnet** | Depends on node count | 3 × /20 (4,092 nodes each) |  Sufficient |
 | **Pod CIDR** | Secondary range required | /13 hyperscale |  Compliant |
-| **Service CIDR** | Minimum /20 recommended | /16 all tiers |  Over-provisioned |
+| **Service CIDR** | RFC 1918, /12 to /24 | /20 (/18 hyperscale) |  Compliant |
+| **Cluster subnets** | At least two AZs, 6+ IPs each (16 recommended) | Exactly two /28s (16 addresses each) in two AZs, one contiguous /27, in every tier |  Compliant |
 
 ### Scaling Guidelines from AWS
 
@@ -389,7 +414,7 @@ Based on AWS EKS documentation and best practices:
 
 ### CRITICAL: EKS Pod Networking Models
 
-**Our API generates configurations for Model 2 (Custom CNI / Secondary CIDR), NOT Model 1 (default AWS VPC CNI).**
+**Our API generates configurations for Model 2 (overlay CNI), NOT Model 1 (default AWS VPC CNI). `pods.cidr` cannot be used as a secondary VPC CIDR (see Option B).**
 
 #### Model 1: AWS VPC CNI (Default EKS Behavior)
 
@@ -413,13 +438,14 @@ resource "aws_eks_cluster" "main" {
 }
 ```
 
-#### Model 2: Custom CNI or Secondary VPC CIDR (Our API Output)
+#### Model 2: Overlay CNI (Our API Output)
 
 **Pod IP Allocation**:
 - [PASS] Pods use SEPARATE CIDR range (not VPC subnets)
 - [PASS] Does NOT consume VPC primary subnet IPs
 - [PASS] No IP exhaustion risk
-- [PASS] Requires custom CNI plugin OR secondary VPC CIDR blocks
+- [PASS] Used as the IP pool of an overlay CNI (Calico or Cilium in VXLAN/IP-in-IP mode)
+- WARNING `pods.cidr` cannot be associated with the VPC as a secondary CIDR (see Option B)
 
 **When to Use**:
 - Large clusters (1000+ nodes)
@@ -437,28 +463,31 @@ kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
 # Configure pod CIDR in Calico config
 kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=interface=eth0
-kubectl set env daemonset/calico-node -n kube-system CALICO_IPV4POOL_CIDR=10.42.246.0/13
+kubectl set env daemonset/calico-node -n kube-system CALICO_IPV4POOL_CIDR=172.24.0.0/13  # pods.cidr for a hyperscale VPC in 10.0.0.0/8
 ```
 
-**Option B: Secondary VPC CIDR Blocks**
+**Option B: VPC CNI Custom Networking (Secondary VPC CIDR)**
+
+WARNING: Do not associate `pods.cidr` with the VPC. The API always places it in a different RFC 1918 block than the VPC (e.g. `172.24.0.0/13` for a hyperscale VPC in `10.0.0.0/8`), and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges. Secondary blocks must also be /16 to /28, so a /13 is rejected on size alone ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, choose a secondary block from `100.64.0.0/10`; this API does not generate it.
+
 ```hcl
 resource "aws_vpc_ipv4_cidr_block_association" "pods" {
   vpc_id     = aws_vpc.main.id
-  cidr_block = "10.42.246.0/13"  # Our API-generated pod CIDR
+  cidr_block = "100.64.0.0/16"  # Your choice from 100.64.0.0/10, NOT pods.cidr
 }
 
 resource "aws_subnet" "pod_subnet" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.42.246.0/16"  # Subset of secondary CIDR
+  cidr_block        = "100.64.0.0/18"  # Subset of the secondary CIDR, one per AZ
   availability_zone = "us-east-1a"
 
-  tags = {
-    "kubernetes.io/role/cni" = "1"
-  }
+  # VPC CNI custom networking selects this subnet through an ENIConfig for us-east-1a,
+  # not through a subnet tag.
+  depends_on = [aws_vpc_ipv4_cidr_block_association.pods]
 }
 ```
 
-**Our API Assumption**: Users will implement Model 2 via custom CNI or secondary CIDR blocks.
+**Our API Assumption**: Users apply `pods.cidr` through an overlay CNI (Option A). With VPC CNI custom networking (Option B), use the API's subnets for nodes and pick a `100.64.0.0/10` block for pods.
 
 ### Network Architecture
 
@@ -515,14 +544,16 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 ### Micro Tier (Development/PoC)
 
 **Configuration**:
-- Primary Subnet: `/25` (128 addresses)
-- Pod CIDR: `/18` (16,384 addresses)
-- Service CIDR: `/16` (65,536 addresses)
+- Public Subnets: 2 × `/26`; Private Subnets: 2 × `/25` (128 addresses each); Control-Plane Subnets: 2 × `/28`, across two AZs
+- Min VPC: `/23` (EKS needs subnets in two AZs)
+- Pod CIDR: `/20` (4,096 addresses)
+- Service CIDR: `/20` (4,096 addresses)
 - Nodes: 1
 - Max Pods: ~110
 
 **EKS Compliance**:
 -  Single-node cluster suitable for PoC/development
+-  Cluster subnets in two AZs, as EKS requires
 -  Pod CIDR vastly over-provisioned (safe)
 -  No scaling concerns
 -  No VPC CNI optimization needed
@@ -535,9 +566,10 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 ### Standard Tier (Development/Testing)
 
 **Configuration**:
-- Primary Subnet: `/24` (256 addresses)
+- Public Subnets: 2 × `/25`; Private Subnets: 2 × `/24` (256 addresses each); Control-Plane Subnets: 2 × `/28`, across two AZs
+- Min VPC: `/22`
 - Pod CIDR: `/16` (65,536 addresses)
-- Service CIDR: `/16` (65,536 addresses)
+- Service CIDR: `/20` (4,096 addresses)
 - Nodes: 1-3
 - Max Pods: ~330-440
 
@@ -560,18 +592,20 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 
 **Configuration**:
 - Primary Subnet: `/23` (512 addresses per subnet)
-- Public Subnets: 2 (1,024 addresses total)
-- Private Subnets: 2 (1,024 addresses total)
-- Pod CIDR: `/16` (65,536 addresses)
-- Service CIDR: `/16` (65,536 addresses)
+- Public Subnets: 2 × `/25` (256 addresses total)
+- Private Subnets: 2 × `/23` (1,024 addresses total)
+- Control-Plane Subnets: 2 × `/28`
+- Min VPC: `/21`
+- Pod CIDR: `/18` (16,384 addresses)
+- Service CIDR: `/20` (4,096 addresses)
 - Nodes: 3-10
 - Max Pods: ~1,100-3,300
 
 **EKS Compliance**:
--  `/23` subnets provide 512 addresses per node
+-  `/23` private subnets provide 512 addresses per subnet
 -  Supports 3-10 node HA clusters
 -  Dual-AZ ready (2 subnets each type)
--  Pod CIDR: ~20 addresses per pod at 110 pods/node (safe)
+-  Pod CIDR: ~5 addresses per pod at 3,300 pods (safe)
 -  Multi-AZ deployment recommended
 
 **VPC CNI Considerations**:
@@ -586,16 +620,18 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 ### Enterprise Tier (Large Production)
 
 **Configuration**:
-- Primary Subnet: `/23` (512 addresses per subnet)
-- Public Subnets: 3 (1,536 addresses total)
-- Private Subnets: 3 (1,536 addresses total)
+- Primary Subnet: `/21` (2,048 addresses per subnet)
+- Public Subnets: 3 × `/24` (768 addresses total)
+- Private Subnets: 3 × `/21` (6,144 addresses total)
+- Control-Plane Subnets: 2 × `/28` (one `/27` in two AZs)
+- Min VPC: `/19`
 - Pod CIDR: `/16` (65,536 addresses)
-- Service CIDR: `/16` (65,536 addresses)
+- Service CIDR: `/20` (4,096 addresses)
 - Nodes: 10-50
 - Max Pods: ~3,300-16,500
 
 **EKS Compliance**:
--  `/23` subnets support up to 512 addresses each
+-  `/21` private subnets support up to 2,048 addresses each
 -  Supports 10-50 node enterprise clusters
 -  Triple-AZ ready (3 subnets each type)
 -  Pod CIDR: ~4 addresses per pod at 110 pods/node (ample space)
@@ -622,17 +658,18 @@ kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
 **Configuration**:
 - Public Subnets: 3 × `/23` (512 addresses each) = 1,536 total addresses
 - Private Subnets: 3 × `/20` (4,096 addresses each) = 12,288 total addresses
-- Min VPC Prefix: `/18` (65,536 addresses)
+- Control-Plane Subnets: 2 × `/28` (16 addresses each), one `/27` in two AZs
+- Min VPC Prefix: `/18` (16,384 addresses)
 - Pod CIDR: `/13` (524,288 addresses total)
-- Service CIDR: `/16` (65,536 addresses)
+- Service CIDR: `/18` (16,384 addresses)
 - Nodes: 50-5,000 (up to 100,000 with AWS support)
 - Max Pods: 55,000-260,000
 
 **EKS Compliance**:
 -  `/20` private subnets support 4,096 addresses each (12,288 total across 3 AZs)
 -  3 subnets across 3 AZs for zone redundancy
--  Pod CIDR `/13` provides 524K addresses (52+ addresses per pod at 110 pods/node)
--  Service CIDR exceeds recommendations by 3x
+-  Pod CIDR `/13` provides 524K addresses, sized to GKE's 200,000 pods-per-cluster limit (about 105 addresses per node at 5,000 nodes, so 5,000 nodes × 110 pods does not fit)
+-  Service CIDR `/18` (16,384 ClusterIPs) is above Kubernetes' tested limit of 10,000 services
 -  Supports EKS maximum documented scale (5,000 nodes) without AWS onboarding
 
 **EKS Scaling Thresholds**:
@@ -657,9 +694,12 @@ Primary VPC: 10.0.0.0/18 (16,384 addresses)
 │  ├─ 10.0.16.0/20  (4,096 addresses, us-east-1a)
 │  ├─ 10.0.32.0/20  (4,096 addresses, us-east-1b)
 │  └─ 10.0.48.0/20  (4,096 addresses, us-east-1c)
-└─ Secondary Ranges:
-   ├─ Pods:    10.100.0.0/13  (524,288 addresses)
-   └─ Services: 10.1.0.0/16   (65,536 addresses)
+├─ Control-Plane Subnets (2, one /27, vpc_config.subnet_ids):
+│  ├─ 10.0.6.0/28   (16 addresses, us-east-1a)
+│  └─ 10.0.6.16/28  (16 addresses, us-east-1b)
+└─ Outside the VPC:
+   ├─ Pods:     172.24.0.0/13   (524,288 addresses; skips 172.17.0.0/16)
+   └─ Services: 192.168.0.0/18  (16,384 addresses)
 ```
 
 **Production Requirements**:
@@ -706,8 +746,8 @@ Node Capacity = 2^(32 - prefix_length) - 4 (reserved IPs)
 | Micro | /25 | 2^7 - 4 | 124 | 1 |
 | Standard | /24 | 2^8 - 4 | 252 | 1-3 |
 | Professional | /23 | 2^9 - 4 | 508 | 3-10 |
-| Enterprise | /23 | 2^9 - 4 | 508 | 10-50 |
-| **Hyperscale** | **/19** | **2^13 - 4** | **8,188** | **50-5000** |
+| Enterprise | /21 | 2^11 - 4 | 2,044 | 10-50 |
+| **Hyperscale** | **/20** | **2^12 - 4** | **4,092 per subnet (3 subnets)** | **50-5000** |
 
 **Verification**: All tiers have sufficient capacity for their node ranges 
 
@@ -749,9 +789,13 @@ Pod_Space_Available = (Pod_CIDR_Addresses / Nodes) / 110_pods_per_node
 Pod CIDR: /13 = 524,288 addresses
 Max Nodes: 5,000
 Addresses per node: 524,288 ÷ 5,000 = ~105 addresses/node
-(Actually 2^24 = 16.7M with /24 per node allocation)
-Actual: 262,144 pods possible with /24 per node
-Result: Safe 
+With a /24 per node (AKS overlay always; GKE at 65-128 max pods):
+  2^(24-13) = 2,048 nodes, 2,048 × 110 = 225,280 pods
+With a /26 per node (GKE at 17-32 max pods only):
+  2^(26-13) = 8,192 nodes
+Result: /13 is sized to GKE's 200,000 pods-per-cluster limit. It covers
+  2,048 nodes at a /24 per node; 5,000 nodes needs GKE max pods per node
+  of 32 or fewer, or a /11 podsCidr (the only option on AKS)
 ```
 
 ### 4. Service CIDR Space Calculation
@@ -761,12 +805,14 @@ Result: Safe
 Service_Capacity = 2^(32 - service_prefix)
 ```
 
-**Applied to All Tiers**:
+**Applied to Our Tiers**:
 ```
-Service CIDR: /16
-Service_Capacity = 2^16 = 65,536 services
-AWS Recommendation: /20 minimum = 4,096 services
-Our Provision: 65,536 / 4,096 = 16x recommended 
+Micro - Enterprise: Service CIDR /20
+  Service_Capacity = 2^12 = 4,096 services (GKE's own default services size)
+Hyperscale: Service CIDR /18
+  Service_Capacity = 2^14 = 16,384 services (above Kubernetes' tested
+  limit of 10,000 services)
+Earlier versions used /16 everywhere, which consumed all of 192.168.0.0/16
 ```
 
 ---
@@ -779,18 +825,56 @@ EKS allows customization of the Kubernetes service IPv4 CIDR block during cluste
 
 ### Terraform Configuration
 
-**Specifying Custom Service CIDR**:
+**Specifying the Plan's Service CIDR and Subnets**:
 ```hcl
+locals {
+  network_plan = jsondecode(file("${path.module}/eks-network.json"))
+}
+
+# Cluster subnets: the plan's two /28 control-plane subnets in two AZs (one /27)
+resource "aws_subnet" "control_plane" {
+  count             = length(local.network_plan.subnets.controlPlane)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = local.network_plan.subnets.controlPlane[count.index].cidr
+  availability_zone = local.network_plan.subnets.controlPlane[count.index].availabilityZone
+}
+
+# Node subnets
+resource "aws_subnet" "private" {
+  count             = length(local.network_plan.subnets.private)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = local.network_plan.subnets.private[count.index].cidr
+  availability_zone = local.network_plan.subnets.private[count.index].availabilityZone
+}
+
 resource "aws_eks_cluster" "example" {
   name     = "example-cluster"
   role_arn = aws_iam_role.example.arn
-  # ... other required configurations ...
+
+  vpc_config {
+    subnet_ids = aws_subnet.control_plane[*].id
+  }
 
   kubernetes_network_config {
-    service_ipv4_cidr = "10.96.0.0/16"  # Custom service CIDR
+    service_ipv4_cidr = local.network_plan.services.cidr  # e.g. 192.168.0.0/20
+  }
+}
+
+resource "aws_eks_node_group" "example" {
+  cluster_name    = aws_eks_cluster.example.name
+  node_group_name = "default"
+  node_role_arn   = aws_iam_role.node.arn
+  subnet_ids      = aws_subnet.private[*].id
+
+  scaling_config {
+    desired_size = 3
+    max_size     = 6
+    min_size     = 3
   }
 }
 ```
+
+Request the plan with `availabilityZones` set to zone names your account has (for example from `data.aws_availability_zones`) so every `availabilityZone` above exists.
 
 ### Default Behavior
 
@@ -798,7 +882,7 @@ If `service_ipv4_cidr` is **not specified**, Kubernetes automatically assigns ad
 - **Default Option 1**: `10.100.0.0/16` (preferred)
 - **Default Option 2**: `172.20.0.0/16` (fallback)
 
-**Our API Default**: `10.2.0.0/16` (different from AWS defaults to avoid conflicts)
+**Our API**: the service CIDR goes in an RFC 1918 block not used by the VPC or pods: `192.168.0.0/20` (`/18` for hyperscale) when the VPC is in `10.0.0.0/8` or `172.16.0.0/12`, otherwise `172.16.0.0/20` (`/18`). Neither overlaps the AWS defaults above. To keep an existing cluster's range, pass it as `servicesCidr`.
 
 ### Requirements and Constraints
 
@@ -823,7 +907,7 @@ Service CIDR **must not overlap** with:
 ```
 VPC CIDR:     10.0.0.0/16
 Service CIDR: 10.0.0.0/20  [FAIL] OVERLAPS - Invalid configuration
-Service CIDR: 10.2.0.0/16  [PASS] No overlap - Valid
+Service CIDR: 192.168.0.0/20  [PASS] No overlap - Valid (what the API returns for this VPC, non-hyperscale)
 ```
 
 #### Subnet Mask Constraints
@@ -833,27 +917,28 @@ Service CIDR prefix length **must be between /24 and /12** (inclusive):
 | Prefix | Status | Addresses | Use Case |
 |--------|--------|-----------|----------|
 | **/11** | [FAIL] Too large | 2,097,152 | Not allowed |
-| **/12** | [PASS] Maximum | 1,048,576 | Massive deployments |
-| **/16** | [PASS] Recommended | 65,536 | Production (our default) |
-| **/20** | [PASS] AWS Minimum | 4,096 | Small clusters |
+| **/12** | [PASS] Maximum | 1,048,576 | Massive deployments (the API's `servicesCidr` accepts `/13` at most, for AKS compatibility) |
+| **/16** | [PASS] Valid | 65,536 | Large service counts |
+| **/18** | [PASS] Valid | 16,384 | Our hyperscale default |
+| **/20** | [PASS] Valid | 4,096 | Our default (micro through enterprise) |
 | **/24** | [PASS] Minimum | 256 | Development/POC |
 | **/25** | [FAIL] Too small | 128 | Not allowed |
 
 ### Our API Implementation
 
-**All Deployment Tiers Use `/16`** (65,536 services):
-- **Micro**: `10.2.0.0/16` - Over-provisioned for single-node POC
-- **Standard**: `10.2.0.0/16` - Appropriate for dev/test
-- **Professional**: `10.2.0.0/16` - Production-ready
-- **Enterprise**: `10.2.0.0/16` - Large-scale production
-- **Hyperscale**: `10.2.0.0/16` - Global-scale deployments
+**Micro through Enterprise use `/20`** (4,096 services); **Hyperscale uses `/18`** (16,384 services). The range is placed at `192.168.0.0` (VPC in `10.0.0.0/8` or `172.16.0.0/12`) or `172.16.0.0` (VPC in `192.168.0.0/16`):
+- **Micro**: `/20`
+- **Standard**: `/20`
+- **Professional**: `/20`
+- **Enterprise**: `/20`
+- **Hyperscale**: `/18`
 
-**Rationale for /16**:
-1. [PASS] Exceeds AWS `/20` minimum recommendation by 16x
-2. [PASS] Provides headroom for service mesh expansion (Istio, Linkerd)
-3. [PASS] Supports multi-tenancy with namespace isolation
-4. [PASS] No risk of service IP exhaustion in production
-5. [PASS] Consistent across all tiers (simpler operations)
+**Rationale**:
+1. [PASS] `/20` is the same size GKE uses by default for services
+2. [PASS] `/18` (16,384) is above Kubernetes' tested limit of 10,000 services
+3. [PASS] Earlier versions used `/16`, which consumed all of `192.168.0.0/16` and left no room for a second cluster's services
+4. [PASS] Within the EKS (`/12` to `/24`) and AKS (smaller than `/12`) limits
+5. [PASS] Pass `servicesCidr` (`/13` to `/24`) to keep an existing cluster's range or pick another size
 
 ### Validation in Infrastructure Code
 
@@ -861,7 +946,7 @@ Service CIDR prefix length **must be between /24 and /12** (inclusive):
 ```hcl
 variable "service_ipv4_cidr" {
   type        = string
-  default     = "10.2.0.0/16"
+  default     = "192.168.0.0/20"  # services.cidr the API returns for a non-hyperscale VPC in 10.0.0.0/8
   description = "Service IPv4 CIDR for EKS cluster (must be /24 to /12, RFC 1918, no overlap with VPC)"
   
   validation {
@@ -880,9 +965,11 @@ variable "service_ipv4_cidr" {
 
 | Provider | Service CIDR Config | Default | Changeable | Our API |
 |----------|-------------------|---------|------------|----------|
-| **EKS** | `service_ipv4_cidr` | 10.100.0.0/16 or 172.20.0.0/16 | [FAIL] Cluster creation only | 10.2.0.0/16 |
-| **GKE** | `services-ipv4-cidr` | 10.0.0.0/20 | [FAIL] Cluster creation only | 10.2.0.0/16 |
-| **AKS** | `serviceCidr` | 10.0.0.0/16 | [FAIL] Cluster creation only | 10.2.0.0/16 |
+| **EKS** | `service_ipv4_cidr` | 10.100.0.0/16 or 172.20.0.0/16 | [FAIL] Cluster creation only | 192.168.0.0/20 or 172.16.0.0/20 |
+| **GKE** | `services-ipv4-cidr` | 10.0.0.0/20 | [FAIL] Cluster creation only | 192.168.0.0/20 or 172.16.0.0/20 |
+| **AKS** | `serviceCidr` | 10.0.0.0/16 | [FAIL] Cluster creation only | 192.168.0.0/20 or 172.16.0.0/20 |
+
+The "Our API" value depends on the VPC: `172.16.0.0/20` only when the VPC is in `192.168.0.0/16`. Hyperscale uses `/18` instead of `/20`.
 
 **Key Takeaway**: All major cloud providers restrict service CIDR changes after cluster creation. Plan carefully during initial deployment.
 
@@ -969,9 +1056,11 @@ All EKS clusters **must** use private RFC 1918 address ranges. Our implementatio
 
 | RFC 1918 Range | Size | Our Usage |
 |---|---|---|
-| **10.0.0.0/8** | 16.7M | Primary VPC (10.0.0.0/16) |
-| **172.16.0.0/12** | 1.0M | Not used in this config |
-| **192.168.0.0/16** | 65.5K | Not used in this config |
+| **10.0.0.0/8** | 16.7M | Primary VPC (e.g., 10.0.0.0/18) |
+| **172.16.0.0/12** | 1.0M | Pod CIDR (172.24.0.0/13 for Hyperscale, clear of 172.17.0.0/16) |
+| **192.168.0.0/16** | 65.5K | Service CIDR (192.168.0.0/18 for Hyperscale, 192.168.0.0/20 otherwise) |
+
+Pods and services always go in the two RFC 1918 blocks the VPC does not use, and never overlap `172.17.0.0/16` (Docker's default bridge; AWS also reserves it for Cloud9 and SageMaker). For a VPC in `172.16.0.0/12` the API uses `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VPC in `192.168.0.0/16` it uses `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range.
 
 ### Allocation Strategy
 
@@ -979,11 +1068,12 @@ All EKS clusters **must** use private RFC 1918 address ranges. Our implementatio
 ```
 VPC: 10.0.0.0/18 (16,384 addresses)
 
-Hyperscale Tier:
-├─ Public Subnets (3):   10.0.0.0/23, 10.0.2.0/23, 10.0.4.0/23
-├─ Private Subnets (3):  10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
-├─ Pod Secondary:        10.100.0.0/13 (524,288 addresses)
-└─ Service Secondary:    10.1.0.0/16 (65,536 addresses)
+Hyperscale Tier (provider "eks"):
+├─ Public Subnets (3):        10.0.0.0/23, 10.0.2.0/23, 10.0.4.0/23
+├─ Private Subnets (3):       10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
+├─ Control-Plane Subnets (2): 10.0.6.0/28, 10.0.6.16/28 (one /27)
+├─ Pods (outside VPC):        172.24.0.0/13 (524,288 addresses)
+└─ Services (outside VPC):    192.168.0.0/18 (16,384 addresses)
 ```
 
 ### AWS Requirements
@@ -1009,21 +1099,25 @@ EKS strongly recommends multi-AZ deployment:
 
 ### Our Tier Configuration
 
-| Tier | Public Subnets | Private Subnets | Typical AZ Distribution |
-|------|---|---|---|
-| Micro | 1 | 1 | Single AZ |
-| Standard | 1 | 1 | Single AZ (option for dev) |
-| Professional | 2 | 2 | 2 AZs (dual-AZ HA) |
-| Enterprise | 3 | 3 | 3 AZs (zone redundancy) |
-| Hyperscale | 3 | 3 | 3 AZs (zone redundancy) |
+EKS plans (`GET /api/k8s/tiers?provider=eks`):
 
-### EKS Recommendations
+| Tier | Public Subnets | Private Subnets | Control-Plane Subnets | Min VPC | AZ Distribution |
+|------|---|---|---|---|---|
+| Micro | 2 | 2 | 2 | /23 | 2 AZs |
+| Standard | 2 | 2 | 2 | /22 | 2 AZs |
+| Professional | 2 | 2 | 2 | /21 | 2 AZs (dual-AZ HA) |
+| Enterprise | 3 | 3 | 2 | /19 | 3 AZs (zone redundancy); control plane in 2 |
+| Hyperscale | 3 | 3 | 2 | /18 | 3 AZs (zone redundancy); control plane in 2 |
 
-- **Development**: Single AZ acceptable
+In private network mode the public column is 0 and the same counts apply to internal load-balancer subnets (`loadBalancerSubnets`); every other column is unchanged.
+
+### EKS Requirements and Recommendations
+
+- **All tiers**: EKS cluster subnets must be in at least two different AZs, so every EKS tier, including development tiers, gets every subnet type in two AZs. The control plane is always exactly two `/28`s (one `/27`): AWS advises naming only two subnets to control where the control-plane network interfaces land
 - **Production**: Minimum 2 AZs (Professional tier or higher)
 - **Enterprise**: 3+ AZs for zone failure tolerance (Enterprise/Hyperscale)
 
-**Our Alignment**:  Matches AWS recommendations exactly
+**Our Alignment**:  Meets the two-AZ requirement in every tier
 
 ---
 
@@ -1049,7 +1143,7 @@ EKS strongly recommends multi-AZ deployment:
 - [x] Control plane scaling considerations noted
 - [x] Cluster services scaling guidelines provided
 - [x] Production monitoring recommendations included
-- [x] Over-provisioning for safety (service CIDR 16x recommended)
+- [x] Service CIDR sized to need (`/20`; `/18` for hyperscale, above the 10,000-service tested limit)
 - [x] IP exhaustion prevention strategies documented
 
 ### Implementation Requirements (Must Do)
@@ -1204,12 +1298,12 @@ For automated deployments:
 
 ### Test Coverage
 
-**Unit Tests**: All 214 tests passing 
+**Unit Tests**: All 310 unit tests passing (7 files; `npm run test -- --run` runs all 528)
 - Subnet calculation verification
 - CIDR allocation correctness
 - Formula validation
 
-**Integration Tests**: Design system validated 
+**Integration Tests**: All 218 integration tests passing (8 files)
 - Multi-AZ configurations
 - RFC 1918 compliance
 - Tier scaling characteristics
@@ -1228,16 +1322,16 @@ For automated deployments:
 
 The EKS implementation is optimized for realistic deployments:
 - Hyperscale tier with 3 × `/20` private subnets supports 5,000-node EKS clusters
-- Pod CIDR `/13` exceeds requirements
-- Service CIDR `/16` provides ample space
+- Pod CIDR `/13` (524,288 addresses) is sized to GKE's 200,000 pods-per-cluster limit; at 5,000 nodes plan for about 105 pod IPs per node or fewer, or pass a larger `podsCidr`
+- Service CIDR `/20` (`/18` for hyperscale)
 - All tier configurations validated with differentiated public/private subnet sizes
 
-**Current Tier Configuration Summary:**
-- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC
-- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC
-- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC
-- **Enterprise**: 3 × /24 public, 3 × /21 private, /18 min VPC
-- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods
+**Current EKS Tier Configuration Summary** (`GET /api/k8s/tiers?provider=eks`; every tier has exactly two `/28` control-plane subnets in two AZs, forming one `/27`; with `&networkMode=private` the public counts become internal load-balancer subnets):
+- **Micro**: 2 × /26 public, 2 × /25 private, 2 × /28 control plane, /23 min VPC, /20 pods, /20 services
+- **Standard**: 2 × /25 public, 2 × /24 private, 2 × /28 control plane, /22 min VPC, /16 pods, /20 services
+- **Professional**: 2 × /25 public, 2 × /23 private, 2 × /28 control plane, /21 min VPC, /18 pods, /20 services
+- **Enterprise**: 3 × /24 public, 3 × /21 private, 2 × /28 control plane, /19 min VPC, /16 pods, /20 services
+- **Hyperscale**: 3 × /23 public, 3 × /20 private, 2 × /28 control plane, /18 min VPC, /13 pods, /18 services
 
 ---
 
@@ -1251,8 +1345,8 @@ The EKS implementation is optimized for realistic deployments:
    - Updated for differentiated subnet sizes (public/private)
    - Hyperscale: 3 AZs with /23 public, /20 private
 
-2. **.github/copilot-instructions.md** (SYNCED)
-   - "EKS Compliance & IP Calculation Formulas" section
+2. **[kubernetes-network-reference.md](kubernetes-network-reference.md#eks-compliance--ip-formulas)** (SYNCED; moved from `.github/copilot-instructions.md`, which is now a short index of `.github/instructions/`)
+   - "EKS Compliance & IP Formulas" section
    - Documents EKS-specific algorithms
    - Includes Nitro instance requirements
 
@@ -1276,7 +1370,7 @@ These optional configurations can improve scalability and observability for larg
 
 **Scaling Recommendations**:
 1. **Hyperscale Tier (5000 nodes)**:
-   - Deploy **1 NAT Gateway per AZ** (8 total for 8 public subnets)
+   - Deploy **1 NAT Gateway per AZ** (3 total for 3 public subnets)
    - Each NAT Gateway supports ~1000 pods with high outbound traffic
    - Use VPC Flow Logs to monitor SNAT port exhaustion
 

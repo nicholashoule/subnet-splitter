@@ -11,8 +11,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { registerRoutes } from "../../server/routes";
+import { version as APP_VERSION } from "../../package.json";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe("API Endpoints Integration", () => {
   let server: TestServer;
@@ -40,7 +46,7 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("status", "healthy");
       expect(data).toHaveProperty("timestamp");
       expect(data).toHaveProperty("uptime");
-      expect(data).toHaveProperty("version", "1.0.0");
+      expect(data).toHaveProperty("version", APP_VERSION);
       expect(typeof data.uptime).toBe("number");
       expect(data.uptime).toBeGreaterThanOrEqual(0);
     });
@@ -84,7 +90,7 @@ describe("API Endpoints Integration", () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data).toHaveProperty("version", "1.0.0");
+      expect(data).toHaveProperty("version", APP_VERSION);
       expect(data).toHaveProperty("endpoints");
       expect(data.endpoints).toHaveProperty("primary");
       expect(data.endpoints).toHaveProperty("aliases");
@@ -124,7 +130,7 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("openapi", "3.0.0");
       expect(data).toHaveProperty("info");
       expect(data.info).toHaveProperty("title", "CIDR Subnet Calculator API");
-      expect(data.info).toHaveProperty("version", "1.0.0");
+      expect(data.info).toHaveProperty("version", APP_VERSION);
       expect(data).toHaveProperty("paths");
       expect(data).toHaveProperty("components");
     });
@@ -213,71 +219,104 @@ describe("API Endpoints Integration", () => {
       expect(html).toContain("SwaggerUIBundle");
     });
 
-    it("should include cache control headers on /api/docs/ui to prevent 304 issues", async () => {
+    it("should revalidate the docs page on every load", async () => {
       const response = await fetch(`${baseUrl}/api/docs/ui`);
 
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-cache, no-store, must-revalidate");
-      expect(response.headers.get("pragma")).toBe("no-cache");
-      expect(response.headers.get("expires")).toBe("0");
     });
 
-    it("should include theme toggle functionality in Swagger UI", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should share the theme with the web app and toggle without a reload", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      expect(html).toContain("theme-toggle");
-      // Should use shared 'theme' key (synchronized with webapp)
-      expect(html).toContain("localStorage.getItem('theme')");
-      expect(html).toContain("localStorage.setItem('theme'");
-      expect(html).toContain("html.className");
-      // Should have SVG icons instead of emoji
-      expect(html).toContain("class=\"sun-icon\"");
-      expect(html).toContain("class=\"moon-icon\"");
-      expect(html).toContain("updateThemeIcon");
-      // Should listen for storage events from other tabs/windows
+      // Same storage key as the web app, default light, kept in sync across tabs
+      expect(html).toContain("localStorage.getItem('theme') === 'dark'");
+      expect(html).toContain("localStorage.setItem('theme', next)");
       expect(html).toContain("window.addEventListener('storage'");
-      expect(html).toContain("e.key === 'theme'");
+      // Accessible toggle with SVG icons whose visibility follows the theme class
+      expect(html).toMatch(/<button id="theme-toggle" type="button" aria-label="[^"]+">/);
+      expect(html).toContain('class="sun-icon"');
+      expect(html).toContain('class="moon-icon"');
+      expect(html).toContain("html.dark #theme-toggle .sun-icon { display: block; }");
+      // Re-mounts Swagger UI with the matching highlight theme instead of reloading
+      expect(html).toContain("theme === 'dark' ? 'tomorrow-night' : 'idea'");
+      expect(html).not.toContain("location.reload()");
     });
 
-    it("should default to light mode in Swagger UI", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should not repaint Swagger UI from script", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      // Theme is set via JavaScript at runtime, not in static HTML
-      // Check that the JS sets theme from localStorage with 'light' as default
-      expect(html).toContain("const savedTheme = localStorage.getItem('theme') || 'light'");
-      expect(html).toContain("document.documentElement.className = savedTheme");
+      // Styling is pure CSS; the old MutationObserver/inline-style repaint hack is gone
+      expect(html).not.toContain("MutationObserver");
+      expect(html).not.toContain("style.setProperty");
+      expect(html).not.toContain("removeAllRanges");
     });
 
-    it("should use webapp color palette in Swagger UI dark mode", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should use the web app's color tokens in both themes", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
+      const appCss = fs.readFileSync(path.resolve(__dirname, "../../client/src/index.css"), "utf8");
 
-      // Verify dark mode colors match webapp
-      expect(html).toContain("hsl(222, 47%, 8%)"); // Dark background
-      expect(html).toContain("hsl(210, 20%, 98%)"); // Dark foreground
-      expect(html).toContain("hsl(222, 47%, 11%)"); // Dark card
-      expect(html).toContain("hsl(217, 33%, 17%)"); // Dark border
-      expect(html).toContain("hsl(217, 91%, 60%)"); // Dark primary
+      // "210 20% 98%" in the app becomes "hsl(210, 20%, 98%)" on the docs page
+      const tokens = (block: string) => Object.fromEntries(
+        [...block.matchAll(/--(background|foreground|card|border|muted-foreground|primary|primary-foreground|destructive):\s*(\d+) (\d+%) (\d+%);/g)]
+          .map(([, name, h, s, l]) => [name, `hsl(${h}, ${s}, ${l})`])
+      );
+      const light = tokens(appCss.slice(appCss.indexOf(":root"), appCss.indexOf(".dark {")));
+      const dark = tokens(appCss.slice(appCss.indexOf(".dark {")));
+      expect(Object.keys(light)).toHaveLength(8);
+      expect(Object.keys(dark)).toHaveLength(8);
+
+      const docsRoot = html.slice(html.indexOf(":root {"), html.indexOf("html.dark {"));
+      const docsDark = html.slice(html.indexOf("html.dark {"), html.indexOf("}", html.indexOf("html.dark {")));
+      for (const [name, value] of Object.entries(light)) expect(docsRoot).toContain(`--${name}: ${value};`);
+      for (const [name, value] of Object.entries(dark)) expect(docsDark).toContain(`--${name}: ${value};`);
     });
 
-    it("should use webapp color palette in Swagger UI light mode", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should give HTTP method badges readable white text", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      // Verify light mode colors match webapp
-      expect(html).toContain("hsl(214, 24%, 95%)"); // Light background
-      expect(html).toContain("hsl(222, 47%, 11%)"); // Light foreground
+      // Badge colors are fixed per method (not per theme) and dark enough for white text
+      expect(html).toContain("--method-get: #2563eb;");
+      expect(html).toContain("--method-post: #047857;");
+      expect(html).toMatch(/\.opblock-summary-method \{\s*background: var\(--method\); color: #fff;/);
     });
 
-    it("should load Swagger UI from CDN with proper CSP", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should load pinned Swagger UI assets with Subresource Integrity", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css");
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js");
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js");
+      // Assets are pinned to an exact version (no floating "@5" tag)...
+      expect(html).toMatch(/swagger-ui-dist@\d+\.\d+\.\d+\/swagger-ui\.css/);
+      expect(html).toMatch(/swagger-ui-dist@\d+\.\d+\.\d+\/swagger-ui-bundle\.js/);
+      // ...the 268 KB standalone preset is not loaded (BaseLayout needs no topbar)...
+      expect(html).not.toContain("swagger-ui-standalone-preset");
+      expect(html).toContain("layout: 'BaseLayout'");
+
+      // ...and every CDN asset carries Subresource Integrity
+      const cdnTags = html.match(/<(?:script|link)[^>]*cdn\.jsdelivr\.net[^>]*>/g) ?? [];
+      expect(cdnTags).toHaveLength(2);
+      for (const tag of cdnTags) {
+        expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/=]+"/);
+        expect(tag).toContain('crossorigin="anonymous"');
+      }
+    });
+
+    it("should link the app favicon (no /favicon.ico 404)", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
+      expect(html).toContain('<link rel="icon" type="image/png" href="/favicon.png">');
+    });
+
+    it("should return readable validation errors", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "eks", region: "US East 1" })
+      });
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toContain("deploymentSize: Required");
+      expect(data.error).toContain("region: Region must be lowercase");
     });
 
     it("should include header and footer matching webapp design", async () => {
@@ -287,8 +326,8 @@ describe("API Endpoints Integration", () => {
       // Verify header structure
       expect(html).toContain("<header>");
       expect(html).toContain("github-nicholashoule.png");
-      expect(html).toContain("CIDR Subnet Calculator API");
-      expect(html).toContain("REST API for subnet calculations and Kubernetes network planning");
+      expect(html).toContain("<h1>API Documentation</h1>");
+      expect(html).toContain("Interactive reference for the CIDR Subnet Calculator REST API");
 
       // Verify footer structure
       expect(html).toContain("<footer>");
@@ -299,8 +338,8 @@ describe("API Endpoints Integration", () => {
       // Verify header/footer styling
       expect(html).toContain("header {");
       expect(html).toContain("footer {");
-      expect(html).toContain("border-bottom");
-      expect(html).toContain("border-top");
+      expect(html).toContain("border-bottom: 1px solid var(--border);");
+      expect(html).toContain("border-top: 1px solid var(--border);");
     });
   });
 
@@ -396,6 +435,60 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("professional");
       expect(data).toHaveProperty("enterprise");
       expect(data).toHaveProperty("hyperscale");
+    });
+  });
+
+  describe("Provider-Specific Tiers and Generated Examples", () => {
+    it("should return provider-specific tier layouts", async () => {
+      const generic = await (await fetch(`${baseUrl}/api/k8s/tiers`)).json();
+      const eks = await (await fetch(`${baseUrl}/api/k8s/tiers?provider=eks`)).json();
+
+      expect(generic.micro.publicSubnets).toBe(1);
+      expect(generic.micro.controlPlaneSubnets).toBe(1);
+      // EKS needs two AZs, which costs a larger minimum VPC
+      expect(eks.micro.publicSubnets).toBe(2);
+      expect(eks.micro.privateSubnets).toBe(2);
+      expect(eks.micro.controlPlaneSubnets).toBe(2);
+      expect(eks.micro.minVpcPrefix).toBe(23);
+    });
+
+    it("should return private-mode tier layouts", async () => {
+      const gke = await (await fetch(`${baseUrl}/api/k8s/tiers?provider=gke&networkMode=private`)).json();
+      expect(gke.enterprise.networkMode).toBe("private");
+      expect(gke.enterprise.publicSubnets).toBe(0);
+      expect(gke.enterprise.loadBalancerSubnets).toBe(1);
+      expect(gke.enterprise.controlPlaneSubnets).toBe(1);
+
+      const bad = await fetch(`${baseUrl}/api/k8s/tiers?networkMode=isolated`);
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toContain("networkMode");
+    });
+
+    it("should reject an unknown provider for tiers", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/tiers?provider=openstack`);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toContain("provider");
+    });
+
+    it("should serve OpenAPI examples that match real API output", async () => {
+      const spec = await (await fetch(`${baseUrl}/api/docs`)).json();
+      const plan = spec.paths["/k8s/plan"].post;
+      const requests = plan.requestBody.content["application/json"].examples;
+      const responses = plan.responses["200"].content["application/json"].examples;
+
+      for (const [name, example] of Object.entries<{ value: Record<string, unknown> }>(requests)) {
+        const live = await (await fetch(`${baseUrl}/api/k8s/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(example.value)
+        })).json();
+        const documented = responses[name].value;
+        // Identical apart from the generation timestamp
+        expect({ ...live, metadata: { ...live.metadata, generatedAt: "" } })
+          .toEqual({ ...documented, metadata: { ...documented.metadata, generatedAt: "" } });
+      }
     });
   });
 

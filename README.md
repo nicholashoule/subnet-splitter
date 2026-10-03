@@ -1,6 +1,6 @@
 # CIDR Subnet Calculator
 
-A modern web application for calculating subnet details, splitting CIDR ranges recursively, and planning network configurations.
+A subnet calculator web app and a Kubernetes network-planning API. The API generates non-overlapping VPC, node, control-plane, pod, and service CIDRs for EKS, GKE, AKS, and self-hosted clusters, as JSON or YAML, for use in Terraform and other infrastructure tools.
 
 [![CI](https://github.com/nicholashoule/subnet-splitter/actions/workflows/ci.yml/badge.svg)](https://github.com/nicholashoule/subnet-splitter/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/nicholashoule/subnet-splitter)](LICENSE)
@@ -20,10 +20,12 @@ A modern web application for calculating subnet details, splitting CIDR ranges r
 - **Responsive Design**: Works on desktop and mobile devices
 
 ### Backend API (Production-Ready)
-- **Kubernetes Network Planning**: Generate optimized network plans for EKS, GKE, AKS, and generic Kubernetes
-- **Multi-Cloud Support**: Battle-tested configurations for all major cloud providers (see [compliance audits](docs/compliance/))
-- **Deployment Tiers**: Pre-configured subnet allocations (Micro → Hyperscale)
-- **Provider Flexibility**: Same API works with AWS, Google Cloud, Azure, and self-hosted Kubernetes
+- **Kubernetes Network Planning**: Generate network plans for EKS, GKE, AKS, and generic Kubernetes
+- **Separated Address Spaces**: Nodes, control plane, pods, and services each get their own range, checked never to overlap
+- **Provider-Aware Layouts**: EKS subnets span two AZs; GKE and AKS subnets are regional; one control-plane network per cluster
+- **Public or Private Networks**: `networkMode: "private"` drops public subnets for internal load-balancer subnets and NAT egress
+- **Multi-Cluster Friendly**: Supply your own pod and service ranges (`podsCidr`, `servicesCidr`) and zone names (`availabilityZones`)
+- **Deployment Tiers**: Pre-configured subnet allocations (Micro → Hyperscale), see [compliance audits](docs/compliance/)
 - **Compliance Documentation**: Full compliance audits for [EKS](docs/compliance/EKS_COMPLIANCE_AUDIT.md), [GKE](docs/compliance/GKE_COMPLIANCE_AUDIT.md), and [AKS](docs/compliance/AKS_COMPLIANCE_AUDIT.md)
 
 ## Network Information Provided
@@ -41,17 +43,21 @@ This application follows a **security by design** approach with multiple layers 
 
 ### Security Features
 - **No database**: No user data to protect or risk exposing
-- **Stateless API**: All operations are deterministic (same input = same output)
-- **Client-side calculations**: All subnet logic runs in the browser
+- **Stateless API**: Plans are computed from the request alone; with an explicit `vpcCidr` the same input gives the same plan (only `metadata.generatedAt` differs)
+- **Client-side calculator**: The web calculator runs entirely in the browser
 - **Helmet middleware**: Adds security headers for XSS, clickjacking, and MIME sniffing protection
 - **Content Security Policy (CSP)**: 
-  - Strict policy in production: `script-src 'self'` only
+  - Strict policy in production: `script-src 'self'` only, no third-party script origins
+  - Swagger UI (`/api/docs/ui`) alone may load its pinned, Subresource Integrity-checked assets from cdn.jsdelivr.net
   - Relaxed policy in development: allows Vite HMR and React Fast Refresh
   - Prevents inline script injection attacks
-- **Rate limiting**: Production SPA routes protected with rate limiting (30 requests per 15 minutes)
+- **Rate limiting**: API routes limited to 100 requests per minute per IP (health checks exempt); SPA fallback routes limited to 30 requests per 15 minutes
 - **Static isolation**: Only compiled assets from `dist/public` are served in production
-- **Request validation**: All API requests validated with Zod schemas
+- **Request validation**: All API requests validated with Zod schemas; request bodies capped at 16 KB
+- **Safe errors**: 5xx responses never include internal error details
 - **No vulnerabilities**: `npm audit` reports 0 vulnerabilities
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 ### Security Best Practices
 - Environment-aware configuration for dev vs production
@@ -63,52 +69,62 @@ This application follows a **security by design** approach with multiple layers 
 
 ### Frontend
 - **React 18** with TypeScript
-- **Tailwind CSS** for styling
+- **Tailwind CSS v4** for styling, through its Vite plugin (Rust engine: Oxide + Lightning CSS; no PostCSS pipeline)
 - **shadcn/ui** component library (Radix UI primitives)
-- **React Hook Form** with Zod validation
 - **Vite** for building and development
 
 ### Backend
 - **Express.js 5** with TypeScript
 - **Node.js** runtime
+- **Zod** for API request validation
 - **Helmet** for security headers
 - **express-rate-limit** for DoS protection
-- In-memory storage (no database required for core functionality)
+- Stateless: no database or storage layer
 
 ## Project Structure
 
 ```
-├── client/                 # React frontend
+├── client/                 # React frontend (Vite, Tailwind CSS v4)
+│   ├── index.html
 │   └── src/
 │       ├── components/ui/  # shadcn/ui components
 │       ├── hooks/          # Custom React hooks
-│       ├── lib/            # Utilities (subnet-utils, kubernetes-network-generator)
-│       └── pages/          # Route components
+│       ├── lib/            # subnet-utils (calculator math), kubernetes-network-generator (API planner)
+│       ├── pages/          # Calculator and 404 pages
+│       └── index.css       # Design tokens and Tailwind theme (@theme inline)
 ├── server/                 # Express backend
-│   ├── index.ts            # Entry point with Helmet + security configuration
-│   ├── routes.ts           # API route definitions (Kubernetes Network Planning)
+│   ├── index.ts            # Entry point: Helmet, CSP, rate limiting, HOST/PORT binding
+│   ├── routes.ts           # API routes (health, plan, tiers, OpenAPI)
+│   ├── openapi.ts          # OpenAPI document (examples generated by the API itself)
+│   ├── swagger-ui.ts       # API docs page (/api/docs/ui)
+│   ├── csp-config.ts       # Content Security Policy directives
+│   ├── logger.ts           # Structured JSON logging
 │   ├── vite.ts             # Vite dev server setup with SPA fallback
-│   └── static.ts           # Static file serving with rate limiting
-├── tests/                  # Comprehensive unit and integration test suite
-│   ├── unit/               # Unit tests (subnet-utils.test.ts, kubernetes-network-generator.test.ts, emoji-detection.test.ts)
-│   ├── integration/        # Integration tests (styles, API, config, security)
+│   └── static.ts           # Production static file serving with rate limiting
+├── shared/                 # Shared code
+│   ├── schema.ts           # Subnet types and limits (dependency-free, safe for the client bundle)
+│   └── kubernetes-schema.ts # Kubernetes API Zod schemas and tier configuration
+├── tests/                  # Unit and integration test suite (Vitest)
+│   ├── unit/               # Calculator math, plan generator, network separation, compliance, config, styles, emoji
+│   ├── integration/        # API endpoints, calculator, rate limiting, CSP, static serving, Swagger UI
 │   ├── manual/             # Manual testing scripts (2 PowerShell, 2 TypeScript)
-│   │   ├── test-api-endpoints.ps1  # Comprehensive API validation
-│   │   ├── test-api.ps1            # RFC 1918 enforcement testing
-│   │   ├── test-network-comparison.ts  # Network comparison utility
-│   │   └── test-network-validation.ts  # Network validation utility
+│   ├── helpers/            # Shared test utilities
 │   └── README.md           # Testing documentation
 ├── scripts/                # Build and utility tools
-│   ├── build.ts            # Production build orchestration
+│   ├── build.ts            # Production build (client with Vite, server bundle with esbuild)
+│   ├── smoke-test.ts       # Starts the production build and checks it over HTTP
 │   └── fix-emoji.ts        # Emoji detection and auto-fix CLI tool
+├── .github/
+│   ├── workflows/          # CI (ci.yml) and instruction-file validation
+│   ├── instructions/       # Development guidelines (backend, frontend, testing, general)
+│   └── swagger-ui-theming.md # How the API docs page is styled and upgraded
 ├── docs/                   # Reference documentation
 │   ├── api.md              # Kubernetes Network Planning API reference
 │   ├── test-suite-analysis.md # Test suite health analysis
+│   ├── test-improvement-analysis.md # Test improvement notes
 │   ├── git-conventions.md  # Git commit message conventions
 │   ├── test-templates.md   # Test patterns and examples
 │   ├── ui-examples.md      # UI code and design system
-│   ├── archive/            # Historical documentation
-│   │   └── agent-reasoning.md # Development history and decisions
 │   └── compliance/         # Compliance and platform-specific documentation
 │       ├── kubernetes-network-reference.md # K8s network formulas
 │       ├── security-reference.md # CSP and security configuration
@@ -116,9 +132,9 @@ This application follows a **security by design** approach with multiple layers 
 │       ├── AKS_COMPLIANCE_AUDIT.md # Azure Kubernetes Service
 │       ├── EKS_COMPLIANCE_AUDIT.md # AWS Elastic Kubernetes Service
 │       └── GKE_COMPLIANCE_AUDIT.md # Google Kubernetes Engine
-├── shared/                 # Shared code
-│   ├── schema.ts           # TypeScript types and Zod schemas
-│   └── kubernetes-schema.ts # Kubernetes API schemas
+├── vite.config.ts          # Vite config (React + Tailwind plugins, aliases)
+├── CHANGELOG.md            # Release notes (Keep a Changelog)
+├── SECURITY.md             # Vulnerability reporting and security policy
 └── package.json
 ```
 
@@ -135,13 +151,13 @@ This application follows a **security by design** approach with multiple layers 
 
 **Clone the repository:**
 ```bash
-git clone https://github.com/nicholashoule/subnet-cidr-splitter.git
-cd subnet-cidr-splitter
+git clone https://github.com/nicholashoule/subnet-splitter.git
+cd subnet-splitter
 ```
 
-**Install dependencies:**
+**Install dependencies** (exact versions from `package-lock.json`):
 ```bash
-npm install
+npm ci
 ```
 
 #### Security Audit (Required)
@@ -169,7 +185,7 @@ npm audit fix --force
 npm run dev
 ```
 
-The application will be available at `http://localhost:5000` or `http://127.0.0.1:5000`.
+The development server listens on `127.0.0.1:5000` (loopback only). Changes to the React app and CSS reload live; restart `npm run dev` after changing server code (`server/`, `shared/`, or `client/src/lib/kubernetes-network-generator.ts`).
 
 **Access the application:**
 - Web UI: Open `http://127.0.0.1:5000` in your browser
@@ -179,31 +195,41 @@ The application will be available at `http://localhost:5000` or `http://127.0.0.
 
 #### Windows-Specific Setup
 
-On Windows, use `npm.cmd` instead of `npm`:
+If PowerShell's execution policy blocks `npm` (the `npm.ps1` shim), call `npm.cmd` instead:
 
 ```bash
-npm.cmd install
+npm.cmd ci
 npm.cmd run dev
 ```
-
-The development server automatically handles Windows network binding compatibility (falls back from `0.0.0.0` to `127.0.0.1` if needed).
 
 **Note:** Line endings are normalized to LF via `.gitattributes`, so Git may show CRLF warnings on Windows. This is normal and safe.
 
 ### Production Build
 
 ```bash
-npm run build
-npm start
+npm run build    # client to dist/public/, server bundle to dist/index.cjs
+npm start        # node dist/index.cjs
+npm run smoke    # optional: start the build on port 5099 and check it over HTTP
 ```
 
-The production build creates optimized assets in the `dist/` directory.
+The production build creates optimized assets in `dist/public/` and a self-contained server bundle at `dist/index.cjs` (all server dependencies are bundled, so `node_modules` is not needed at runtime; `NODE_ENV=production` is baked in at build time). To deploy, copy `dist/` to a host with Node.js 24 or 26 and run `node dist/index.cjs`.
+
+`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), and the API docs page, then stops it. It also writes the served OpenAPI document to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
+
+**Runtime configuration (environment variables):**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORT` | `5000` | Port for both the API and the web UI |
+| `HOST` | `0.0.0.0` in production, `127.0.0.1` in development | Interface to bind. Production binds all interfaces so the server is reachable in a container |
+| `TRUST_PROXY` | `false` | Set to the number of trusted proxy hops (e.g. `1`) or a comma-separated list of proxy IPs/CIDRs when running behind a load balancer, so per-IP rate limiting sees real client IPs. Only trust proxies you control |
+
+Health checks for load balancers and Kubernetes probes: `GET /health`, `/health/ready`, `/health/live` (also under `/api/v1/health`). They are never rate limited.
 
 ### Type Checking
 
 ```bash
 npm run check
-npm.cmd run check
 ```
 
 Verify TypeScript compilation without emitting files.
@@ -211,25 +237,21 @@ Verify TypeScript compilation without emitting files.
 ### Testing
 
 ```bash
-# Run all tests
-npm run test
+# Run all tests once
+npm test -- --run
 
-# Run tests with interactive UI
-npm run test:ui
-
-# Run tests in watch mode (default)
-npm run test
-npm.cmd run test -- --run
+# Watch mode (re-runs on change)
+npm test
 
 # Run specific test file
-npm run test -- tests/unit/subnet-utils.test.ts
-npm run test -- tests/unit/ui-styles.test.ts
+npm test -- --run tests/unit/subnet-utils.test.ts
+npm test -- --run tests/unit/network-separation.test.ts
 
 # Run API tests specifically (JSON/YAML validation)
-npm run test -- tests/integration/kubernetes-network-api.test.ts --run
+npm test -- --run tests/integration/kubernetes-network-api.test.ts
 
 # Run only JSON/YAML format tests
-npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+npm test -- --run tests/integration/kubernetes-network-api.test.ts -t "Output Format"
 
 # Run emoji detection tests
 npm run test:emoji
@@ -253,6 +275,13 @@ npm run dev
 curl -X POST http://127.0.0.1:5000/api/k8s/plan \
   -H "Content-Type: application/json" \
   -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.100.0.0/18"}'
+```
+
+**Test a private network** (no public subnets; internal load-balancer subnets instead):
+```bash
+curl -X POST http://127.0.0.1:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"enterprise","provider":"gke","vpcCidr":"10.20.0.0/16","networkMode":"private"}'
 ```
 
 **Test YAML output** (add `?format=yaml` query parameter):
@@ -291,29 +320,51 @@ The project includes a comprehensive test suite (100% passing) covering:
 **Unit Tests:**
 - **Subnet calculations**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations
 - **Kubernetes network generation**: Network plan generation, deployment tier configurations, RFC 1918 private IP enforcement, subnet allocation algorithms
-- **IP calculation compliance**: IP allocation formulas, deployment tier compliance, network sizing validation
+- **Network separation**: For every tier, provider, and network mode (plus 2,000 random VPCs): nodes, control plane, pods, and services never overlap, every CIDR is canonical, reserved ranges are avoided, EKS spans two AZs, the control plane is one network, private mode has no public subnets, and overrides are validated
+- **IP calculation compliance**: IP allocation formulas, deployment tier compliance, exact minimum VPC sizes per provider
 - **UI styles**: WCAG accessibility (pure math functions), HSL→RGB conversion, luminance calculations
 - **Emoji detection**: Scans all markdown and source files for emoji, validates clean text-based documentation, reports violations with file/line numbers
-- **Configuration**: Tailwind, PostCSS, Vite, TypeScript configuration validation
+- **Configuration**: Tailwind v4 setup (Vite plugin, no legacy config or PostCSS, theme tokens defined for both themes), Vite configuration validation
 
 **Integration Tests:**
-- **API endpoints**: API infrastructure, health checks, OpenAPI spec, Swagger UI
+- **API endpoints**: Health checks, OpenAPI spec (examples checked against live responses), provider and network-mode tiers, validation errors, and the API docs page (palette matches the web app, pinned SRI assets, theme toggle)
 - **Calculator UI**: React component behavior, form validation, subnet operations, CSV export, hide parents feature, depth indicator visual hierarchy
 - **Kubernetes Network Planning API**: JSON/YAML output formats, RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
-- **Rate limiting**: Rate limiter configuration, request throttling, DoS protection
-- **Swagger UI CSP middleware**: Route-specific CSP, development vs production mode, CDN permissions
-- **Swagger UI theming**: Theme toggle, persistence, dark mode CSS loading
+- **Rate limiting**: API limit (100/min, health exempt) and SPA fallback limit, standard rate-limit headers
+- **Static serving**: Compression and cache headers for hashed assets and `index.html`
+- **Swagger UI CSP middleware**: Route-specific CSP; the global CSP allows no third-party scripts
+- **Swagger UI theming**: The docs page served by a running dev server on port 5000 (skips itself when none is running)
 - **CSP violation endpoint**: W3C spec compliance, rate limiting, schema validation
 
 See [tests/README.md](tests/README.md) for comprehensive testing documentation and [docs/test-suite-analysis.md](docs/test-suite-analysis.md) for detailed test suite analysis.
+
+### Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and every pull request, on Node.js 24 and 26:
+
+1. `npm ci` (exact versions from `package-lock.json`)
+2. `npm audit` (fails on any known vulnerability)
+3. `npm run check` (TypeScript)
+4. `npm test -- --run` (all unit and integration tests)
+5. `npm run build`
+6. `npm run smoke` (starts `dist/index.cjs` and checks it over HTTP)
+7. OpenAPI validation of the served document (`@apidevtools/swagger-cli`)
+
+Run the same checks locally before pushing:
+
+```bash
+npm audit && npm run check && npm test -- --run && npm run build && npm run smoke
+```
+
+[`.github/workflows/validate-instructions.yml`](.github/workflows/validate-instructions.yml) checks the files in `.github/instructions/` (front matter, at most 200 lines each) when they change.
 
 ## Windows Compatibility
 
 This project is fully tested on Windows and includes several optimizations for cross-platform support:
 
 - **Line Endings**: Configured via `.gitattributes` to use LF (Unix-style) for all source files
-- **npm Scripts**: Uses `cross-env` package to handle environment variables on Windows cmd
-- **Server Binding**: Automatic fallback from `0.0.0.0` to `127.0.0.1` to `localhost` if needed
+- **npm Scripts**: No inline environment variables, so every script runs unchanged in cmd, PowerShell, and POSIX shells
+- **Server Binding**: Development binds `127.0.0.1`; override with the `HOST` environment variable
 - **.gitignore**: Comprehensive coverage of OS-specific files (Windows, macOS, Linux)
 
 All development tools and commands work identically on Windows, macOS, and Linux.
@@ -356,6 +407,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 {
   "deploymentSize": "micro|standard|professional|enterprise|hyperscale",
   "provider": "eks|gke|aks|kubernetes|k8s",
+  "region": "us-east-1",
   "vpcCidr": "10.100.0.0/18",
   "deploymentName": "my-cluster"
 }
@@ -363,15 +415,52 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 
 - `deploymentSize` (required): Deployment tier for cluster size
 - `provider` (optional): Cloud provider (`eks`, `gke`, `aks`, `kubernetes`, `k8s`). Defaults to `kubernetes`. Note: `k8s` is an alias for `kubernetes`
-- `vpcCidr` (optional): **Private RFC 1918 CIDR only** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). If omitted, generates random RFC 1918 range
-- `deploymentName` (optional): Reference name for deployment tracking
+- `region` (optional): Cloud region used to name zones (e.g. `us-east-1` gives `us-east-1a`; `us-central1` gives `us-central1-a`). Lowercase letters, digits, and hyphens, up to 64 characters. Defaults per provider: `us-east-1` (EKS), `us-central1` (GKE), `eastus` (AKS), `region-1` (generic)
+- `vpcCidr` (optional): **Private RFC 1918 CIDR only** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Host bits are cleared (`10.1.2.3/16` becomes `10.1.0.0/16`). If omitted, a random /18 inside an RFC 1918 block is generated
+- `podsCidr` (optional): Your own pod range instead of the generated one. RFC 1918 or `100.64.0.0/10`, /8 to /24
+- `servicesCidr` (optional): Your own service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24; AKS requires smaller than /12)
+- `networkMode` (optional): `public` (default) or `private`. Private plans have no public subnets; see [Private network mode](#private-network-mode)
+- `availabilityZones` (optional): Zone names to assign round-robin, e.g. `["ap-northeast-1a", "ap-northeast-1c"]`. EKS and generic only (EKS needs two or more); rejected for GKE and AKS, whose subnets are regional
+- `deploymentName` (optional): Reference name for deployment tracking, up to 128 characters
 
-**Accepted Private IP Ranges:**
-- [PASS] Class A: `10.0.0.0/8` (any /16 or larger subnet within this range)
-- [PASS] Class B: `172.16.0.0/12` (172.16.0.0 - 172.31.255.255)
-- [PASS] Class C: `192.168.0.0/16` (any subnet within this range)
+**Accepted Private IP Ranges** (the *entire* range must be inside one block):
+- [PASS] `10.0.0.0/8`: any range within it, e.g. `10.100.0.0/16`
+- [PASS] `172.16.0.0/12`: 172.16.0.0 - 172.31.255.255
+- [PASS] `192.168.0.0/16`: any range within it
 
-**Rejected Public IPs:** All non-RFC 1918 ranges are rejected (e.g., `8.8.8.0/16`, `1.1.1.0/16`, `200.0.0.0/16`)
+**Rejected:** public ranges (e.g. `8.8.8.0/16`, `200.0.0.0/16`), and ranges that start in private space but extend past it (e.g. `10.0.0.0/7`, `172.16.0.0/11`, `192.168.0.0/15`)
+
+**Address space separation** (every tier, every provider). Each plan keeps four kinds of address space apart, and no two ranges overlap:
+
+| Space | Where | Field |
+|-------|-------|-------|
+| Nodes | Private subnets inside the VPC | `subnets.private` |
+| Control plane | One control-plane network inside the VPC | `subnets.controlPlane` |
+| Pods | Outside the VPC, in its own RFC 1918 block | `pods.cidr` |
+| Services | Outside the VPC, in a third RFC 1918 block | `services.cidr` |
+
+Load-balancer subnets (public, or internal in private mode) are also inside the VPC. Subnets are placed first-fit at offsets aligned to their size, so the control-plane network usually fills the gap between the load-balancer and node subnets.
+
+The control plane is one network in every tier: **GKE** one /28 for `master_ipv4_cidr_block`; **AKS** one /28 for API Server VNet Integration; **generic** one /28 for control-plane nodes, so a floating API server address (keepalived, kube-vip) can move between them. **EKS** gets one /27 split into two /28s in two AZs for `vpc_config.subnet_ids`: EKS rejects a single subnet (it requires two AZs), and AWS advises naming only two so you control where its network interfaces land.
+
+**Where pods and services land:** pods take the first free slot in `10.0.0.0/8` (or `172.16.0.0/12` when the VPC is in `10.0.0.0/8`); services take the first free slot in `192.168.0.0/16` (or `172.16.0.0/12` when the VPC is in `192.168.0.0/16`). Neither ever overlaps `172.17.0.0/16`, Docker's default bridge network, which AWS also reserves for some services. A VPC that overlaps it is allowed but returns a `warnings` entry.
+
+**Running several clusters in one network, or regenerating a plan for an existing cluster?** Every plan with a VPC in the same block gets the same generated pod and service ranges. Pass `podsCidr` and `servicesCidr` to keep clusters apart, and pass an existing cluster's service range to keep it: service CIDRs cannot change after cluster creation.
+
+#### Private network mode
+
+Pass `"networkMode": "private"` for a network with no public subnets. Load balancers become internal, and egress goes through a managed NAT or gateway that takes no space in this layout:
+
+| Provider | `subnets.loadBalancer` | Egress |
+|----------|------------------------|--------|
+| GKE | One regional proxy-only subnet (`purpose = REGIONAL_MANAGED_PROXY`) for internal Application Load Balancers and the internal Gateway. Only one can be active per region and network, so clusters there share it | Cloud NAT on a Cloud Router (no subnet needed) |
+| AKS | One regional subnet for internal load balancer frontends (point services at it with the `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` annotation; by default they use the node subnet) | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` |
+| EKS | One per AZ (at least two, as ALBs require), tagged `kubernetes.io/role/internal-elb` | A public NAT gateway needs a public subnet, and a private NAT gateway can't reach the internet, so use a transit gateway to a shared egress VPC, or VPC endpoints with no internet |
+| Generic | One per zone (e.g. MetalLB address pools) | Your network's own NAT |
+
+Load-balancer subnets use the tier's public subnet size (/26 to /23, within GKE's proxy-only minimum of /26). In public mode `subnets.loadBalancer` is empty; in private mode `subnets.public` is.
+
+**Zones:** EKS spreads node, load-balancer, and control-plane subnets across at least two AZs (EKS requires cluster subnets in two AZs). Generated names follow `{region}{letter}`, but which letters exist varies by region and account, so pass `availabilityZones` with the zones your account has (e.g. from `data.aws_availability_zones`). GKE and AKS subnets carry no zone, because their subnets are regional; node pools choose zones.
 
 **Example Request:**
 ```bash
@@ -390,6 +479,8 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 {
   "deploymentSize": "professional",
   "provider": "eks",
+  "networkMode": "public",
+  "region": "us-east-1",
   "deploymentName": "prod-us-east-1",
   "vpc": {
     "cidr": "10.100.0.0/18"
@@ -397,38 +488,57 @@ curl -X POST http://localhost:5000/api/k8s/plan \
   "subnets": {
     "public": [
       {
-        "cidr": "10.0.0.0/24",
+        "cidr": "10.100.0.0/25",
         "name": "public-1",
-        "type": "public"
+        "type": "public",
+        "availabilityZone": "us-east-1a"
       },
       {
-        "cidr": "10.0.1.0/24",
+        "cidr": "10.100.0.128/25",
         "name": "public-2",
-        "type": "public"
+        "type": "public",
+        "availabilityZone": "us-east-1b"
       }
     ],
     "private": [
       {
-        "cidr": "10.0.2.0/23",
+        "cidr": "10.100.2.0/23",
         "name": "private-1",
-        "type": "private"
+        "type": "private",
+        "availabilityZone": "us-east-1a"
       },
       {
-        "cidr": "10.0.4.0/23",
+        "cidr": "10.100.4.0/23",
         "name": "private-2",
-        "type": "private"
+        "type": "private",
+        "availabilityZone": "us-east-1b"
+      }
+    ],
+    "loadBalancer": [],
+    "controlPlane": [
+      {
+        "cidr": "10.100.1.0/28",
+        "name": "control-plane-1",
+        "type": "control-plane",
+        "availabilityZone": "us-east-1a"
+      },
+      {
+        "cidr": "10.100.1.16/28",
+        "name": "control-plane-2",
+        "type": "control-plane",
+        "availabilityZone": "us-east-1b"
       }
     ]
   },
   "pods": {
-    "cidr": "10.1.0.0/16"
+    "cidr": "172.16.0.0/18"
   },
   "services": {
-    "cidr": "10.2.0.0/16"
+    "cidr": "192.168.0.0/20"
   },
   "metadata": {
-    "generatedAt": "2026-02-01T15:30:45.123Z",
-    "version": "1.0"
+    "generatedAt": "2026-10-02T12:00:00.000Z",
+    "version": "2.0"
   }
 }
 ```
@@ -437,7 +547,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 
 **GET `/api/k8s/tiers`**
 
-Retrieve information about all available deployment tiers and their configurations.
+Retrieve every tier's layout as the generator applies it. Add `?provider=eks` (or `gke`, `aks`) for that provider's layout: EKS raises every subnet type to at least two, which needs a larger VPC for micro (/23) and standard (/22). `minVpcPrefix` is computed from the actual layout. The response below is the default (generic) layout.
 
 **Example Request:**
 ```bash
@@ -448,73 +558,106 @@ curl http://localhost:5000/api/k8s/tiers
 ```json
 {
   "micro": {
+    "networkMode": "public",
     "publicSubnets": 1,
+    "loadBalancerSubnets": 0,
     "privateSubnets": 1,
+    "controlPlaneSubnets": 1,
     "publicSubnetSize": 26,
+    "loadBalancerSubnetSize": 26,
     "privateSubnetSize": 25,
+    "controlPlaneSubnetSize": 28,
+    "podsPrefix": 20,
+    "servicesPrefix": 20,
     "minVpcPrefix": 24,
-    "podsPrefix": 18,
-    "servicesPrefix": 16,
     "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
   },
   "standard": {
+    "networkMode": "public",
     "publicSubnets": 1,
+    "loadBalancerSubnets": 0,
     "privateSubnets": 1,
+    "controlPlaneSubnets": 1,
     "publicSubnetSize": 25,
+    "loadBalancerSubnetSize": 25,
     "privateSubnetSize": 24,
-    "minVpcPrefix": 23,
+    "controlPlaneSubnetSize": 28,
     "podsPrefix": 16,
-    "servicesPrefix": 16,
+    "servicesPrefix": 20,
+    "minVpcPrefix": 23,
     "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
   },
   "professional": {
+    "networkMode": "public",
     "publicSubnets": 2,
+    "loadBalancerSubnets": 0,
     "privateSubnets": 2,
+    "controlPlaneSubnets": 1,
     "publicSubnetSize": 25,
+    "loadBalancerSubnetSize": 25,
     "privateSubnetSize": 23,
+    "controlPlaneSubnetSize": 28,
+    "podsPrefix": 18,
+    "servicesPrefix": 20,
     "minVpcPrefix": 21,
-    "podsPrefix": 16,
-    "servicesPrefix": 16,
     "description": "Small Production: 3-10 nodes, dual AZ ready"
   },
   "enterprise": {
+    "networkMode": "public",
     "publicSubnets": 3,
+    "loadBalancerSubnets": 0,
     "privateSubnets": 3,
+    "controlPlaneSubnets": 1,
     "publicSubnetSize": 24,
+    "loadBalancerSubnetSize": 24,
     "privateSubnetSize": 21,
-    "minVpcPrefix": 18,
+    "controlPlaneSubnetSize": 28,
     "podsPrefix": 16,
-    "servicesPrefix": 16,
+    "servicesPrefix": 20,
+    "minVpcPrefix": 19,
     "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
   },
   "hyperscale": {
+    "networkMode": "public",
     "publicSubnets": 3,
+    "loadBalancerSubnets": 0,
     "privateSubnets": 3,
+    "controlPlaneSubnets": 1,
     "publicSubnetSize": 23,
+    "loadBalancerSubnetSize": 23,
     "privateSubnetSize": 20,
-    "minVpcPrefix": 18,
+    "controlPlaneSubnetSize": 28,
     "podsPrefix": 13,
-    "servicesPrefix": 16,
-    "description": "Global Scale: 50-5000 nodes, multi-region ready (EKS/GKE max)"
+    "servicesPrefix": 18,
+    "minVpcPrefix": 18,
+    "description": "Global Scale: 50-5,000 nodes across 3 AZs. The /13 pod range holds 2,048 nodes at a /24 per node (AKS overlay; GKE at 65-128 max pods per node). 5,000 nodes needs GKE max pods per node of 32 or fewer, or a /11 podsCidr"
   }
 }
 ```
 
 #### API Error Responses
 
-**400 Bad Request** - Invalid parameters:
+**400 Bad Request** - Invalid parameters (each problem is listed as `field: message`):
 ```json
 {
-  "error": "Invalid deployment size: unknown",
-  "code": "NETWORK_GENERATION_ERROR"
+  "error": "Invalid request: deploymentSize: Required",
+  "code": "INVALID_REQUEST"
 }
 ```
 
 **400 Bad Request** - Public IP rejected (security enforcement):
 ```json
 {
-  "error": "VPC CIDR \"8.8.8.0/16\" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. Public IPs expose nodes to the internet (critical security risk). Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.",
+  "error": "VPC CIDR \"8.8.8.0/16\" uses public IP space. The entire range must fall within a private RFC 1918 block: 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. Public IPs expose nodes to the internet (critical security risk). Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.",
   "code": "NETWORK_GENERATION_ERROR"
+}
+```
+
+**429 Too Many Requests** - More than 100 API requests in a minute from one IP:
+```json
+{
+  "error": "Too many requests. Please wait a minute and try again.",
+  "code": "RATE_LIMITED"
 }
 ```
 
@@ -528,26 +671,32 @@ curl http://localhost:5000/api/k8s/tiers
 
 #### Deployment Tiers Overview
 
-| Tier | Nodes | Public Subnets | Private Subnets | Public Size | Private Size | Pod CIDR | Service CIDR | Use Case |
-|------|-------|---|---|---|---|---|---|---|
-| **Micro** | 1 | 1 | 1 | /26 (62 IPs) | /25 (126 IPs) | /20 (4K IPs) | /16 (65K IPs) | POC, Development |
-| **Standard** | 1-3 | 1 | 1 | /25 (126 IPs) | /24 (254 IPs) | /16 (65K IPs) | /16 (65K IPs) | Dev/Testing |
-| **Professional** | 3-10 | 2 | 2 | /25 (126 IPs) | /23 (510 IPs) | /18 (16K IPs) | /16 (65K IPs) | Small Production (HA-ready) |
-| **Enterprise** | 10-50 | 3 | 3 | /24 (254 IPs) | /21 (2K IPs) | /16 (65K IPs) | /16 (65K IPs) | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5000 | 3 | 3 | /23 (510 IPs) | /20 (4K IPs) | /13 (524K IPs) | /16 (65K IPs) | Global Scale (EKS/GKE max) |
+Subnet counts are public / node / control plane. Sizes are prefix and address count.
+
+| Tier | Nodes | Subnets (generic, GKE, AKS) | Subnets (EKS) | Public | Node | Control plane | Pods | Services | Min VPC (EKS) | Use Case |
+|------|-------|---|---|---|---|---|---|---|---|---|
+| **Micro** | 1 | 1 / 1 / 1 | 2 / 2 / 2 | /26 (64) | /25 (128) | /28 (16) | /20 (16 nodes) | /20 (4,096) | /24 (/23) | POC, Development |
+| **Standard** | 1-3 | 1 / 1 / 1 | 2 / 2 / 2 | /25 (128) | /24 (256) | /28 (16) | /16 (256 nodes) | /20 (4,096) | /23 (/22) | Dev/Testing |
+| **Professional** | 3-10 | 2 / 2 / 1 | 2 / 2 / 2 | /25 (128) | /23 (512) | /28 (16) | /18 (64 nodes) | /20 (4,096) | /21 (/21) | Small Production (HA-ready) |
+| **Enterprise** | 10-50 | 3 / 3 / 1 | 3 / 3 / 2 | /24 (256) | /21 (2,048) | /28 (16) | /16 (256 nodes) | /20 (4,096) | /19 (/19) | Large Production (Multi-AZ) |
+| **Hyperscale** | 50-5,000 | 3 / 3 / 1 | 3 / 3 / 2 | /23 (512) | /20 (4,096) | /28 (16) | /13 (2,048 nodes) | /18 (16,384) | /18 (/18) | Global Scale |
+
+Counts are for public mode. In private mode the public count moves to load-balancer subnets, except GKE and AKS, which get a single regional load-balancer subnet. Pod node counts assume a /24 per node, which AKS CNI Overlay always assigns and GKE assigns at 65-128 max pods per node. Cloud providers reserve a few addresses in every subnet (AWS and Azure 5, GCP 4).
 
 **Network Sizing Notes:**
-- **Pod CIDR**: Separate IP range for container networking (via CNI plugins like AWS VPC CNI, Calico, or Cilium)
-- **Service CIDR**: Kubernetes ClusterIP range for service discovery (10.2.0.0/16 by default, can be customized)
+- **Pod CIDR**: Separate range for container networking (GKE pod secondary range, AKS CNI Overlay `pod_cidr`, or an EKS overlay CNI such as Calico or Cilium)
+- **Service CIDR**: /20 (4,096 ClusterIPs, the size GKE uses by default), or /18 for hyperscale (16,384, above Kubernetes' tested limit of 10,000 services)
+- **Hyperscale pod capacity**: the /13 pod range holds 2,048 nodes at a /24 per node. Reaching 5,000 nodes needs GKE max pods per node of 32 or fewer (a /26 per node), or a /11 `podsCidr` (AKS overlay always takes a /24 per node, so on AKS only a larger range helps)
 - **Public Subnets**: For load balancers, NAT gateways, and bastion hosts
 - **Private Subnets**: For Kubernetes worker nodes (EC2 instances or node pools)
-- All networks use RFC 1918 private addressing (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- **Control-plane Subnets**: one /28 (EKS: one /27 as two /28s). /28 is GKE's required master range size, AKS's minimum API server subnet, and above EKS's minimum of 6 addresses
+- All networks use RFC 1918 private addressing (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); a caller-supplied `podsCidr` may also use 100.64.0.0/10
 
 #### Supported Providers
 
-- **EKS** - AWS Elastic Kubernetes Service with VPC CNI
-- **GKE** - Google Kubernetes Engine with Alias IP ranges
-- **AKS** - Azure Kubernetes Service with Azure CNI Overlay
+- **EKS** - AWS Elastic Kubernetes Service. Subnets across at least two AZs; `pods.cidr` is for an overlay CNI (Calico, Cilium). It cannot be added to the VPC as a secondary CIDR for VPC CNI custom networking, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's
+- **GKE** - Google Kubernetes Engine (VPC-native). Node subnet with pod and service secondary ranges; regional subnets, no zones
+- **AKS** - Azure Kubernetes Service with Azure CNI Overlay (`network_plugin_mode = "overlay"`). Regional subnets, no zones
 - **Kubernetes** / **k8s** - Generic self-hosted or alternative cloud providers
 
 ## Supported Network Classes
@@ -600,16 +749,14 @@ The calculator includes pre-configured examples for the three RFC 1918 private a
 Comprehensive documentation is available to help developers understand and contribute to this project:
 
 ### For Contributors & AI Agents
-- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** - Complete development guidelines including:
-  - Project architecture and structure
-  - Security protocols and audit requirements
-  - Code style and naming conventions
-  - Testing strategy and coverage requirements
-  - API planning and implementation details
-
-- **[docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md)** - Development history and decision log (archived)
-  - **Note**: This file captures major architectural decisions and complex problem-solving sessions
-  - Historical reference for understanding the "why" behind non-obvious design choices
+- **[.github/instructions/](.github/instructions/)** - Development guidelines, indexed from [.github/copilot-instructions.md](.github/copilot-instructions.md):
+  - [general](.github/instructions/general.instructions.md): architecture, security protocols, conventions
+  - [backend](.github/instructions/backend.instructions.md): server, API, CSP, rate limiting
+  - [frontend](.github/instructions/frontend.instructions.md): React, Tailwind CSS v4, design tokens
+  - [testing](.github/instructions/testing.instructions.md): test strategy and coverage
+- **[.github/swagger-ui-theming.md](.github/swagger-ui-theming.md)** - How the API docs page is styled, and how to upgrade Swagger UI
+- **[docs/git-conventions.md](docs/git-conventions.md)** - Commit message conventions
+- **[CHANGELOG.md](CHANGELOG.md)** - Release notes; **[SECURITY.md](SECURITY.md)** - Vulnerability reporting and security policy
 
 ### Testing & Quality
 - **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
@@ -632,20 +779,16 @@ We welcome contributions! Please follow these guidelines:
 
 ### Before You Start
 
-1. **Read the development guidelines**: Review [.github/copilot-instructions.md](.github/copilot-instructions.md) for:
+1. **Read the development guidelines**: Review [.github/instructions/](.github/instructions/) for:
    - Project architecture and structure
    - Code style and naming conventions
    - Robustness and hardening principles
    - Security audit requirements (mandatory)
    - API planning documentation
 
-2. **Review development history**: Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) to understand:
-   - Major architectural decisions and rationale
-   - Complex problem-solving approaches
-   - Historical context for non-obvious design choices
-   - **Note**: Only major concepts are documented here to keep the file lean and focused
+2. **Review recent changes**: [CHANGELOG.md](CHANGELOG.md) explains what changed and why, including the network allocation rules.
 
-3. **Understand commit conventions**: Follow [Conventional Commits](https://www.conventionalcommits.org/) as documented in [.github/copilot-instructions.md](.github/copilot-instructions.md#git-commit-message-conventions):
+3. **Understand commit conventions**: Follow [Conventional Commits](https://www.conventionalcommits.org/) as documented in [docs/git-conventions.md](docs/git-conventions.md):
    - Use `feat:` for new features
    - Use `fix:` for bug fixes
    - Use `docs:` for documentation
@@ -658,8 +801,8 @@ We welcome contributions! Please follow these guidelines:
 2. **Create a feature branch**: `git checkout -b feat/your-feature-name`
 3. **Make your changes**: Ensure code follows project conventions
 4. **Test thoroughly**: 
+   - Run the [CI checks](#continuous-integration) locally
    - Test on Windows, macOS, or Linux
-   - Run `npm run check` for TypeScript validation
    - Test both light and dark modes
 5. **Commit with clear messages**: Use conventional commit format
 6. **Submit changes**: Create a pull request with description
@@ -676,17 +819,14 @@ We welcome contributions! Please follow these guidelines:
 ### Testing Your Changes
 
 ```bash
-# Type check
-npm run check
+# Everything CI runs
+npm audit && npm run check && npm test -- --run && npm run build && npm run smoke
 
-# Build for production
-npm run build
-
-# Run development server
+# Then try it in a browser
 npm run dev
 ```
 
-Visit `http://localhost:5000` and test:
+Visit `http://127.0.0.1:5000` (and `/api/docs/ui`) and test:
 - Subnet calculations with various CIDR notations
 - Recursive splitting and deletion
 - CSV export functionality
@@ -698,17 +838,16 @@ Visit `http://localhost:5000` and test:
 
 Before making changes, understand:
 - **Client**: `client/src/` - React components, utilities, styles
-- **Server**: `server/` - Express.js backend (currently static serving only)
+- **Server**: `server/` - Express.js backend: the Kubernetes planning API, OpenAPI docs, and static serving
 - **Shared**: `shared/` - TypeScript types and Zod schemas
-- **Documentation**: `.github/` - Developer guidelines and reasoning
+- **Documentation**: `.github/instructions/` (developer guidelines) and `docs/` (API and compliance references)
 
 ### Questions or Issues?
 
 - Review the [Project Documentation](#project-documentation) section above for comprehensive guides
-- Check [docs/archive/agent-reasoning.md](docs/archive/agent-reasoning.md) for historical context on major decisions
 - Search existing issues for similar problems
 - When opening new issues, provide clear context and steps to reproduce
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

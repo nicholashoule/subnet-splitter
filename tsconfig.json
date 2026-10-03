@@ -26,6 +26,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {

@@ -24,6 +24,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
 import { serveStatic } from "../../server/static";
+import { createApiRateLimiter } from "../../server/routes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -329,5 +330,40 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
       const getResponse = await request(app).get("/should-be-limited");
       expect(getResponse.status).toBe(429);
     });
+  });
+});
+describe("Rate Limiting - API (100 requests per minute)", () => {
+  let app: Express;
+
+  beforeEach(() => {
+    // Mirror server/index.ts: limiter mounted on /api ahead of the routes
+    app = express();
+    app.use("/api", createApiRateLimiter());
+    app.get("/api/k8s/tiers", (_req, res) => { res.json({ ok: true }); });
+    app.get("/api/v1/health", (_req, res) => { res.json({ status: "healthy" }); });
+  });
+
+  it("should allow 100 API requests then return 429 with a JSON error", async () => {
+    for (let i = 0; i < 100; i++) {
+      const response = await request(app).get("/api/k8s/tiers");
+      expect(response.status).toBe(200);
+    }
+
+    const limited = await request(app).get("/api/k8s/tiers");
+    expect(limited.status).toBe(429);
+    expect(limited.body).toEqual({
+      error: expect.stringContaining("Too many requests"),
+      code: "RATE_LIMITED",
+    });
+    expect(limited.headers).toHaveProperty("ratelimit-limit");
+  });
+
+  it("should never rate limit health probes", async () => {
+    for (let i = 0; i < 101; i++) {
+      await request(app).get("/api/k8s/tiers");
+    }
+
+    const health = await request(app).get("/api/v1/health");
+    expect(health.status).toBe(200);
   });
 });

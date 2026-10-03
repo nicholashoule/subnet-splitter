@@ -58,7 +58,7 @@ describe("Swagger UI Theming", () => {
       const html = await response.text();
       
       expect(html).toContain("localStorage.getItem('theme')");
-      expect(html).toContain("document.documentElement.className = savedTheme");
+      expect(html).toContain("document.documentElement.className = theme");
       
       const scriptIndex = html.indexOf("localStorage.getItem('theme')");
       const cssIndex = html.indexOf('swagger-ui.css');
@@ -86,8 +86,9 @@ describe("Swagger UI Theming", () => {
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("background-color: hsl(214, 24%, 95%)");
-      expect(html).toContain("color: hsl(222, 47%, 11%)");
+      // Same tokens as the web app (client/src/index.css)
+      expect(html).toContain("--background: hsl(210, 20%, 98%);");
+      expect(html).toContain("--foreground: hsl(222, 47%, 11%);");
       expect(html).toContain(".swagger-ui .microlight");
     });
 
@@ -97,10 +98,10 @@ describe("Swagger UI Theming", () => {
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("html.dark body");
-      expect(html).toContain("background-color: hsl(222, 47%, 8%)");
-      expect(html).toContain("color: hsl(210, 20%, 98%)");
-      expect(html).toContain("html.dark .swagger-ui");
+      // Dark mode only redefines the tokens
+      expect(html).toContain("html.dark {");
+      expect(html).toContain("--background: hsl(222, 47%, 8%);");
+      expect(html).toContain("--foreground: hsl(210, 20%, 98%);");
     });
 
     it("should style version badges with theme colors", async () => {
@@ -111,8 +112,7 @@ describe("Swagger UI Theming", () => {
       
       expect(html).toContain(".swagger-ui .info .title small");
       expect(html).toContain(".version-stamp");
-      expect(html).toContain("background-color: hsl(221, 83%, 53%)");
-      expect(html).toContain("html.dark .swagger-ui .info .title small");
+      expect(html).toContain("background: var(--primary); color: var(--primary-foreground);");
     });
   });
 
@@ -123,9 +123,7 @@ describe("Swagger UI Theming", () => {
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("syntaxHighlightConfig");
-      expect(html).toContain("currentTheme === 'dark'");
-      expect(html).toContain("theme: 'tomorrow-night'");
+      expect(html).toContain("theme === 'dark' ? 'tomorrow-night' : 'idea'");
     });
 
     it("should have theme toggle with persistence", async () => {
@@ -134,9 +132,11 @@ describe("Swagger UI Theming", () => {
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("themeToggle.addEventListener('click'");
-      expect(html).toContain("localStorage.setItem('theme', newTheme)");
-      expect(html).toContain("location.reload()");
+      expect(html).toContain("getElementById('theme-toggle').addEventListener('click'");
+      expect(html).toContain("localStorage.setItem('theme', next)");
+      // Re-mounts Swagger UI in place rather than reloading the page
+      expect(html).toContain("render(next)");
+      expect(html).not.toContain("location.reload()");
     });
 
     it("should sync theme changes across tabs", async () => {
@@ -147,19 +147,17 @@ describe("Swagger UI Theming", () => {
       
       expect(html).toContain("window.addEventListener('storage'");
       expect(html).toContain("e.key === 'theme'");
-      expect(html).toContain("location.reload()");
+      expect(html).toContain("render(savedTheme())");
     });
 
-    it("should enforce styles with onComplete callback", async () => {
+    it("should style with CSS only (no repaint script)", async () => {
       if (skipIfNoServer()) return;
       
       const response = await fetch(SWAGGER_UI_URL);
       const html = await response.text();
       
-      expect(html).toContain("onComplete: function()");
-      expect(html).toContain("applyLightStyles");
-      expect(html).toContain("IntersectionObserver");
-      expect(html).toContain("entry.isIntersecting");
+      expect(html).not.toContain("MutationObserver");
+      expect(html).not.toContain("style.setProperty");
     });
   });
 
@@ -172,7 +170,7 @@ describe("Swagger UI Theming", () => {
       
       expect(html).toContain("SwaggerUIBundle({");
       expect(html).toContain("url: '/api/docs'");
-      expect(html).toContain("dom_id: '#swagger-ui'");
+      expect(html).toContain("domNode: mount");
       expect(html).toContain("deepLinking: true");
       expect(html).toContain("SwaggerUIBundle.presets.apis");
     });
@@ -185,7 +183,7 @@ describe("Swagger UI Theming", () => {
       
       expect(html).toContain("<footer>");
       expect(html).toContain("</footer>");
-      expect(html).toContain("border-top: 1px solid");
+      expect(html).toContain("border-top: 1px solid var(--border);");
     });
   });
 });

@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import {
   generateKubernetesNetworkPlan,
+  getTierConfig,
   KubernetesNetworkGenerationError,
 } from "@/lib/kubernetes-network-generator";
 import { DEPLOYMENT_TIER_CONFIGS } from "@shared/kubernetes-schema";
@@ -63,60 +64,89 @@ function calculateTotalAddresses(prefix: number): number {
 describe("IP Calculation Compliance Validation", () => {
   describe("Tier Configuration Verification", () => {
     describe("Documented Tier Configurations Match Implementation", () => {
+      // getTierConfig() is the layout the generator applies (generic provider here);
+      // minVpcPrefix is computed from that layout, control-plane /28s included.
       it("should have micro tier with correct configuration", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["micro"];
+        const config = getTierConfig("micro");
         expect(config.publicSubnets).toBe(1);
         expect(config.privateSubnets).toBe(1);
+        expect(config.controlPlaneSubnets).toBe(1);
         expect(config.publicSubnetSize).toBe(26); // /26 = 64 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(25); // /25 = 128 addresses (for nodes)
-        expect(config.podsPrefix).toBe(20); // /20 = 4,096 IPs for 1-2 nodes
-        expect(config.servicesPrefix).toBe(16); // /16 for services
+        expect(config.controlPlaneSubnetSize).toBe(28); // /28 = 16 addresses
+        expect(config.podsPrefix).toBe(20); // /20 = 4,096 IPs (16 nodes at a /24 each)
+        expect(config.servicesPrefix).toBe(20); // /20 = 4,096 ClusterIPs
         expect(config.minVpcPrefix).toBe(24); // /24 minimum VPC
       });
 
       it("should have standard tier with correct configuration", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["standard"];
+        const config = getTierConfig("standard");
         expect(config.publicSubnets).toBe(1);
         expect(config.privateSubnets).toBe(1);
+        expect(config.controlPlaneSubnets).toBe(1);
         expect(config.publicSubnetSize).toBe(25); // /25 = 128 addresses
         expect(config.privateSubnetSize).toBe(24); // /24 = 256 addresses
         expect(config.podsPrefix).toBe(16); // /16 for pods
-        expect(config.servicesPrefix).toBe(16); // /16 for services
+        expect(config.servicesPrefix).toBe(20);
         expect(config.minVpcPrefix).toBe(23); // /23 minimum VPC
       });
 
       it("should have professional tier with correct configuration", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["professional"];
+        const config = getTierConfig("professional");
         expect(config.publicSubnets).toBe(2);
         expect(config.privateSubnets).toBe(2);
+        expect(config.controlPlaneSubnets).toBe(1); // one control-plane network
         expect(config.publicSubnetSize).toBe(25); // /25 = 128 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(23); // /23 = 512 addresses (for nodes)
-        expect(config.podsPrefix).toBe(18); // /18 = 16,384 IPs for 10 nodes
-        expect(config.servicesPrefix).toBe(16);
+        expect(config.podsPrefix).toBe(18); // /18 = 16,384 IPs (64 nodes at a /24 each)
+        expect(config.servicesPrefix).toBe(20);
         expect(config.minVpcPrefix).toBe(21); // /21 minimum VPC
       });
 
       it("should have enterprise tier with correct configuration", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["enterprise"];
+        const config = getTierConfig("enterprise");
         expect(config.publicSubnets).toBe(3);
         expect(config.privateSubnets).toBe(3);
+        expect(config.controlPlaneSubnets).toBe(1); // one control-plane network
         expect(config.publicSubnetSize).toBe(24); // /24 = 256 addresses
         expect(config.privateSubnetSize).toBe(21); // /21 = 2,048 addresses
         expect(config.podsPrefix).toBe(16);
-        expect(config.servicesPrefix).toBe(16);
-        expect(config.minVpcPrefix).toBe(18); // /18 minimum VPC
+        expect(config.servicesPrefix).toBe(20);
+        // 3 x /21 node subnets aligned after the public /24s end at 8,192 addresses: a /19
+        expect(config.minVpcPrefix).toBe(19);
       });
 
       it("should have hyperscale tier with correct configuration", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
+        const config = getTierConfig("hyperscale");
         // Realistic hyperscale: 3 AZs (most cloud regions have 3-6 AZs)
         expect(config.publicSubnets).toBe(3);
         expect(config.privateSubnets).toBe(3);
+        expect(config.controlPlaneSubnets).toBe(1); // one control-plane network
         expect(config.publicSubnetSize).toBe(23); // /23 = 512 addresses (for NAT, LB)
         expect(config.privateSubnetSize).toBe(20); // /20 = 4,096 addresses (for nodes)
-        expect(config.podsPrefix).toBe(13); // /13 = 524,288 IPs (for 5000 nodes × 110 pods = 550K max)
-        expect(config.servicesPrefix).toBe(16); // /16 for 65K+ services
-        expect(config.minVpcPrefix).toBe(18); // /18 minimum VPC (realistic for /18 VPC like user example)
+        expect(config.podsPrefix).toBe(13); // /13 = 2,048 nodes at a /24 each
+        expect(config.servicesPrefix).toBe(18); // /18 = 16,384 ClusterIPs (> 10,000 tested limit)
+        expect(config.minVpcPrefix).toBe(18); // /18 minimum VPC
+      });
+
+      it("should give EKS at least two subnets of every type in every tier", () => {
+        for (const size of ["micro", "standard", "professional", "enterprise", "hyperscale"] as const) {
+          const config = getTierConfig(size, "eks");
+          expect(config.publicSubnets).toBeGreaterThanOrEqual(2);
+          expect(config.privateSubnets).toBeGreaterThanOrEqual(2);
+          expect(config.controlPlaneSubnets).toBe(2); // EKS minimum: one /27 across two AZs
+        }
+        // Two AZs cost a larger VPC for the single-AZ tiers
+        expect(getTierConfig("micro", "eks").minVpcPrefix).toBe(23);
+        expect(getTierConfig("standard", "eks").minVpcPrefix).toBe(22);
+      });
+
+      it("should give GKE and AKS a single regional control-plane range", () => {
+        for (const provider of ["gke", "aks"] as const) {
+          for (const size of ["micro", "standard", "professional", "enterprise", "hyperscale"] as const) {
+            expect(getTierConfig(size, provider).controlPlaneSubnets).toBe(1);
+          }
+        }
       });
     });
   });
@@ -240,8 +270,10 @@ describe("IP Calculation Compliance Validation", () => {
   describe("Service CIDR Validation", () => {
     /**
      * From all compliance audits:
-     * - AWS/GKE/AKS minimum: /20 (4,096 services)
-     * - Our implementation: /16 (65,536 services) for all tiers
+     * - AWS/GKE/AKS minimum: /20 (4,096 services); GKE's own default is a /20
+     * - Our implementation: /20 for every tier except hyperscale, which gets /18
+     *   (16,384 > Kubernetes' tested limit of 10,000 services per cluster)
+     * - Allowed overrides: /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12)
      */
     describe("Service CIDR Sizing", () => {
       it("should provide at least /20 equivalent capacity for all tiers", () => {
@@ -253,12 +285,14 @@ describe("IP Calculation Compliance Validation", () => {
         });
       });
 
-      it("should provide /16 service CIDR for all tiers (over-provisioned)", () => {
+      it("should right-size service CIDRs: /20, or /18 for hyperscale", () => {
         Object.entries(DEPLOYMENT_TIER_CONFIGS).forEach(([tier, config]) => {
-          expect(config.servicesPrefix).toBe(16);
-          const serviceCapacity = calculateTotalAddresses(config.servicesPrefix);
-          expect(serviceCapacity).toBe(65536);
+          expect(config.servicesPrefix).toBe(tier === "hyperscale" ? 18 : 20);
+          // Within every provider's limits
+          expect(config.servicesPrefix).toBeGreaterThanOrEqual(13);
+          expect(config.servicesPrefix).toBeLessThanOrEqual(24);
         });
+        expect(calculateTotalAddresses(DEPLOYMENT_TIER_CONFIGS.hyperscale.servicesPrefix)).toBeGreaterThan(10000);
       });
     });
   });
@@ -276,7 +310,7 @@ describe("IP Calculation Compliance Validation", () => {
         const podsPerNode = 110;
         const requiredPodIPs = maxNodes * podsPerNode; // 550,000
 
-        // /13 = 524,288 addresses (supports GKE/EKS/AKS 5000-node max)
+        // /13 = 524,288 addresses: 2,048 nodes at a /24 each (AKS overlay, GKE at 65-128 max pods)
         expect(podAddresses).toBe(524288);
         expect(podAddresses).toBeGreaterThanOrEqual(requiredPodIPs * 0.95); // 95% coverage (CNI overhead)
       });
@@ -456,13 +490,19 @@ describe("IP Calculation Compliance Validation", () => {
         expect(totalAddressesNeeded).toBeLessThanOrEqual(vpcSize18);
       });
 
-      it("should document minimum VPC prefix for each tier", () => {
-        // Each tier now has minVpcPrefix documented
-        expect(DEPLOYMENT_TIER_CONFIGS["micro"].minVpcPrefix).toBeLessThanOrEqual(24);
-        expect(DEPLOYMENT_TIER_CONFIGS["standard"].minVpcPrefix).toBeLessThanOrEqual(23);
-        expect(DEPLOYMENT_TIER_CONFIGS["professional"].minVpcPrefix).toBeLessThanOrEqual(21);
-        expect(DEPLOYMENT_TIER_CONFIGS["enterprise"].minVpcPrefix).toBeLessThanOrEqual(18);
-        expect(DEPLOYMENT_TIER_CONFIGS["hyperscale"].minVpcPrefix).toBeLessThanOrEqual(18);
+      it("should report a minimum VPC prefix that is exact for every tier and provider", async () => {
+        // The reported minimum must fit, and one prefix smaller (half the space) must not
+        for (const provider of ["eks", "gke", "aks", "kubernetes"] as const) {
+          for (const size of ["micro", "standard", "professional", "enterprise", "hyperscale"] as const) {
+            const { minVpcPrefix } = getTierConfig(size, provider);
+            await expect(generateKubernetesNetworkPlan({
+              deploymentSize: size, provider, vpcCidr: `10.0.0.0/${minVpcPrefix}`,
+            })).resolves.toBeDefined();
+            await expect(generateKubernetesNetworkPlan({
+              deploymentSize: size, provider, vpcCidr: `10.0.0.0/${minVpcPrefix + 1}`,
+            })).rejects.toThrow(/too small/);
+          }
+        }
       });
     });
   });
@@ -526,16 +566,16 @@ describe("IP Calculation Compliance Validation", () => {
      * - Google manages alias IP allocation
      */
     describe("GKE Zone Assignment", () => {
-      it("should use GKE-style zone naming", async () => {
+      it("should not assign zones to GKE subnets (GCP subnets are regional)", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "enterprise",
           provider: "gke",
           vpcCidr: "10.0.0.0/16",
         });
 
-        // GKE zones use format: {region}-{letter} (e.g., us-central1-a)
-        plan.subnets.public.forEach((subnet) => {
-          expect(subnet.availabilityZone).toMatch(/^us-central1-[a-h]$/);
+        // Zones belong to node pools (node_locations), not subnets
+        [...plan.subnets.public, ...plan.subnets.private, ...plan.subnets.controlPlane].forEach((subnet) => {
+          expect(subnet).not.toHaveProperty("availabilityZone");
         });
       });
     });
@@ -545,9 +585,9 @@ describe("IP Calculation Compliance Validation", () => {
         const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
         const maxNodes = calculateGKENodeCapacity(podPrefix);
 
-        // /13 pod CIDR supports 2048 nodes at 110 pods/node (sufficient for 50-5000 nodes)
+        // /13 pod CIDR holds 2,048 nodes at 110 pods/node (a /24 each)
         expect(maxNodes).toBe(2048);
-        // Hyperscale tier (50-5000 nodes): /13 supports GKE Standard max cluster size
+        // 5,000 nodes needs max pods per node of 32 or fewer (a /26 each), or a /11 podsCidr
       });
 
       it("should support 8,192 nodes with /13 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
@@ -572,16 +612,16 @@ describe("IP Calculation Compliance Validation", () => {
      * - Max 1,000 nodes per node pool (need 5 pools for 5,000 nodes)
      */
     describe("AKS Zone Assignment", () => {
-      it("should use numerical zone naming for AKS", async () => {
+      it("should not assign zones to AKS subnets (Azure subnets are regional)", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "enterprise",
           provider: "aks",
           vpcCidr: "10.0.0.0/16",
         });
 
-        // AKS zones use format: {region}-{number} (e.g., eastus-1)
-        plan.subnets.public.forEach((subnet) => {
-          expect(subnet.availabilityZone).toMatch(/^eastus-[1-3]$/);
+        // Zones (1, 2, 3) belong to node pools, not subnets
+        [...plan.subnets.public, ...plan.subnets.private, ...plan.subnets.controlPlane].forEach((subnet) => {
+          expect(subnet).not.toHaveProperty("availabilityZone");
         });
       });
     });
@@ -591,7 +631,7 @@ describe("IP Calculation Compliance Validation", () => {
         const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
         const podAddresses = calculateTotalAddresses(config.podsPrefix);
 
-        // /13 = 524,288 addresses (supports GKE/EKS/AKS 5000-node max)
+        // /13 = 524,288 addresses: 2,048 nodes at a /24 each (AKS overlay, GKE at 65-128 max pods)
         expect(podAddresses).toBe(524288);
         // Hyperscale tier (50-5000 nodes at 110 pods): requires ~550,000 IPs
         expect(podAddresses).toBeGreaterThanOrEqual(500000);
@@ -722,7 +762,7 @@ describe("IP Calculation Compliance Validation", () => {
         const podPrefix = parseInt(plan.pods.cidr.split("/")[1], 10);
         const podCapacity = Math.pow(2, 32 - podPrefix);
 
-        // /13 = 524,288 pod IPs (supports GKE/EKS/AKS 5000-node max)
+        // /13 = 524,288 pod IPs: 2,048 nodes at a /24 each (AKS overlay, GKE at 65-128 max pods)
         expect(podCapacity).toBe(524288);
       });
 
@@ -735,8 +775,8 @@ describe("IP Calculation Compliance Validation", () => {
         const servicePrefix = parseInt(plan.services.cidr.split("/")[1], 10);
         const serviceCapacity = Math.pow(2, 32 - servicePrefix);
 
-        // /16 = 65,536 service IPs
-        expect(serviceCapacity).toBe(65536);
+        // /18 = 16,384 service IPs (above Kubernetes' tested limit of 10,000 services)
+        expect(serviceCapacity).toBe(16384);
       });
     });
   });

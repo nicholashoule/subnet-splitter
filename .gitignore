@@ -69,13 +69,21 @@ $RECYCLE.BIN/
 # Nano
 .nano_history
 
+# AI
+*.claude
+*.openai
+*.chatgpt
+*.bard
+*.copilot
+*.genie
+*.perplexity
+
 # ============================================================================
 # Node.js / npm / yarn / pnpm
 # ============================================================================
 
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 

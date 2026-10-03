@@ -7,9 +7,11 @@
  * Core functions:
  * - calculateSubnet: Parse CIDR and compute subnet details
  * - splitSubnet: Split a subnet into two smaller subnets
+ * - parseCidr: Strictly parse CIDR notation into a network number and prefix
+ * - validateCidrInput: Form validation for the calculator input
  * - ipToNumber / numberToIp: IP address conversion
  * - prefixToMask / maskToPrefix: Prefix/mask conversion
- * 
+ *
  * Validation:
  * - Memory limits to prevent tree explosion
  * - Strict CIDR format validation
@@ -27,22 +29,63 @@ export class SubnetCalculationError extends Error {
   }
 }
 
+const DIGITS = /^\d+$/;
+
 export function ipToNumber(ip: string): number {
   const octets = ip.split('.');
   if (octets.length !== 4) {
     throw new SubnetCalculationError(`Invalid IP format: ${ip}`);
   }
-  
+
   let result = 0;
   for (const octet of octets) {
-    const num = parseInt(octet, 10);
-    if (isNaN(num) || num < 0 || num > 255) {
+    // Reject anything parseInt would silently truncate (e.g. "1abc", " 1", "")
+    const num = DIGITS.test(octet) && octet.length <= 3 ? Number(octet) : NaN;
+    if (isNaN(num) || num > 255) {
       throw new SubnetCalculationError(`Invalid IP octet: ${octet}`);
     }
     result = ((result << 8) + num) >>> 0;
   }
-  
+
   return result;
+}
+
+/**
+ * Strictly parse CIDR notation. Host bits are masked off, so
+ * "10.1.2.3/16" yields the 10.1.0.0 network.
+ */
+export function parseCidr(cidr: string): { network: number; prefix: number } {
+  const parts = cidr.split('/');
+  if (parts.length !== 2) {
+    throw new SubnetCalculationError(`Invalid CIDR format: ${cidr}`);
+  }
+  const [ipStr, prefixStr] = parts;
+  if (!DIGITS.test(prefixStr)) {
+    throw new SubnetCalculationError(`Invalid prefix: ${prefixStr}`);
+  }
+  const prefix = Number(prefixStr);
+  const mask = prefixToMask(prefix);
+  return { network: (ipToNumber(ipStr) & mask) >>> 0, prefix };
+}
+
+/**
+ * Validate calculator input. Returns an error message, or null when valid.
+ * Unlike calculateSubnet, this requires the address to already be the
+ * network address so users don't silently get a different range.
+ */
+export function validateCidrInput(value: string): string | null {
+  const cidr = value.trim();
+  if (!cidr) return "CIDR notation is required";
+  let parsed: { network: number; prefix: number };
+  try {
+    parsed = parseCidr(cidr);
+  } catch {
+    return "Invalid CIDR format. Use format: 192.168.1.0/24";
+  }
+  if (ipToNumber(cidr.split('/')[0]) !== parsed.network) {
+    return "IP address must be the network address for the given prefix (e.g., 192.168.1.0/24, not 192.168.1.5/24)";
+  }
+  return null;
 }
 
 export function numberToIp(num: number): string {
@@ -73,47 +116,37 @@ export function maskToPrefix(mask: number): number {
   return prefix;
 }
 
+// Monotonic ids are unique within the page and, unlike crypto.randomUUID(),
+// also work on plain-HTTP origins (randomUUID requires a secure context).
+let nextSubnetId = 0;
+
 export function calculateSubnet(cidr: string, id?: string): SubnetInfo {
   try {
-    const parts = cidr.split('/');
-    if (parts.length !== 2) {
-      throw new SubnetCalculationError(`Invalid CIDR format: ${cidr}`);
-    }
-    
-    const [ipStr, prefixStr] = parts;
-    const prefix = parseInt(prefixStr, 10);
-    
-    if (isNaN(prefix)) {
-      throw new SubnetCalculationError(`Invalid prefix: ${prefixStr}`);
-    }
-    
-    const ip = ipToNumber(ipStr);
+    const { network: networkAddress, prefix } = parseCidr(cidr);
     const mask = prefixToMask(prefix);
-  
-  const networkAddress = (ip & mask) >>> 0;
-  const broadcastAddress = (networkAddress | (~mask >>> 0)) >>> 0;
-  
-  const totalHosts = Math.pow(2, 32 - prefix);
-  const usableHosts = prefix <= 30 ? totalHosts - 2 : (prefix === 31 ? 2 : 1);
-  
-  let firstHost: string;
-  let lastHost: string;
-  
-  if (prefix === 32) {
-    firstHost = numberToIp(networkAddress);
-    lastHost = numberToIp(networkAddress);
-  } else if (prefix === 31) {
-    firstHost = numberToIp(networkAddress);
-    lastHost = numberToIp(broadcastAddress);
-  } else {
-    firstHost = numberToIp(networkAddress + 1);
-    lastHost = numberToIp(broadcastAddress - 1);
-  }
-  
+    const broadcastAddress = (networkAddress | (~mask >>> 0)) >>> 0;
+
+    const totalHosts = Math.pow(2, 32 - prefix);
+    const usableHosts = prefix <= 30 ? totalHosts - 2 : (prefix === 31 ? 2 : 1);
+
+    let firstHost: string;
+    let lastHost: string;
+
+    if (prefix === 32) {
+      firstHost = numberToIp(networkAddress);
+      lastHost = numberToIp(networkAddress);
+    } else if (prefix === 31) {
+      firstHost = numberToIp(networkAddress);
+      lastHost = numberToIp(broadcastAddress);
+    } else {
+      firstHost = numberToIp(networkAddress + 1);
+      lastHost = numberToIp(broadcastAddress - 1);
+    }
+
     const wildcardMask = (~mask >>> 0);
-    
+
     return {
-      id: id || crypto.randomUUID(),
+      id: id || `subnet-${++nextSubnetId}`,
       cidr: `${numberToIp(networkAddress)}/${prefix}`,
       networkAddress: numberToIp(networkAddress),
       broadcastAddress: numberToIp(broadcastAddress),
@@ -233,7 +266,7 @@ export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean):
  * @returns Tailwind CSS className string
  */
 export function getDepthIndicatorClasses(depth: number, prefix: number): string {
-  const baseClasses = "w-1.5 h-7 rounded-full shadow-sm border";
+  const baseClasses = "w-1.5 h-7 rounded-full shadow-xs border";
   
   if (depth === 0) {
     return `${baseClasses} border-transparent bg-transparent`;

@@ -1,6 +1,8 @@
 # Cloud Provider IPv4 Allocation Cross-Reference
 
-> **Note**: Tier configurations updated February 8, 2026. See [API.md](../API.md) for current subnet sizes and VPC requirements.
+> **Note**: Tier configurations updated February 8, 2026. See [api.md](../api.md) for current subnet sizes and VPC requirements.
+>
+> **Updated**: October 2, 2026 (plan format 2.0). Services are `/20` (`/18` for hyperscale), every plan adds a control-plane network inside the VPC (one `/28`; for EKS one `/27` split into two `/28`s in two AZs), and generated pod and service ranges avoid `172.17.0.0/16`. `"networkMode": "private"` replaces public subnets with internal load-balancer subnets. See [api.md](../api.md#address-space-separation).
 
 **Date**: February 8, 2026  
 **Purpose**: Comprehensive comparison of how IPv4 addresses are consumed across EKS, GKE, and AKS
@@ -60,7 +62,7 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
   - **Max Pods/Node**: 110 default, 250 with prefix delegation
 
 **Service IPs**:
-- **Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+- **Source**: Separate virtual IP range (our API provides a `/20` Service CIDR, `/18` for hyperscale)
 - **Method**: ClusterIP allocation managed by kube-proxy
 - **Routing**: Internal routing only (not routable outside cluster)
 - **Does NOT overlap**: Service CIDR is completely separate from VPC CIDR
@@ -110,7 +112,7 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
 Total IPs Needed = (Max Pods per Node × Max Nodes) + Buffer
 ```
 
-**Standard Practice**: Use CG-NAT ranges (100.64.0.0/10 or 198.19.0.0/16) to avoid conflicts with corporate RFC 1918 networks (10.x, 172.16.x, 192.168.x).
+**Standard Practice**: Use non-RFC 1918 ranges such as 100.64.0.0/10 (RFC 6598 shared address space, "CG-NAT") or 198.19.0.0/16 (part of the RFC 2544 benchmarking block 198.18.0.0/15) to avoid conflicts with corporate RFC 1918 networks (10.x, 172.16.x, 192.168.x).
 
 **Minimums**: You typically need at least a /28 per subnet (16 IPs), but this is too small for practical Pod subnets.
 
@@ -120,7 +122,7 @@ Total IPs Needed = (Max Pods per Node × Max Nodes) + Buffer
 
 | CIDR | Total IPs | Suitability |
 |------|-----------|-------------|
-| **/13** | 524,288 | **OVERKILL** (Unless running hyper-scale 50k+ nodes). Wastes IP space. |
+| **/13** | 524,288 | **OVERKILL** (Unless running hyper-scale clusters near the 200,000-pod limit). Wastes IP space. |
 | **/16** | 65,536 | **IDEAL** (Standard for large enterprise clusters). Supports 500+ nodes at 110 pods/node. |
 | **/18** | 16,384 | **GOOD** (Sufficient for mid-sized clusters). Supports ~140 nodes at 110 pods/node. |
 | **/20** | 4,096 | **TIGHT** (Okay for small, fixed-size clusters). Supports ~35 nodes at 110 pods/node. |
@@ -153,19 +155,20 @@ Max Nodes: 5,000
 Max Pods per Node: 110
 Total Pods: 5,000 × 110 = 550,000 pods
 With 20% Buffer: 550,000 × 1.2 = 660,000 IPs needed
-Recommended CIDR: /13 (524,288 IPs) - minimum
-                  /12 (1,048,576 IPs) - safer
+Recommended CIDR: /12 (1,048,576 IPs) - smallest block that holds 660,000
+Note: /13 (524,288 IPs) is smaller than 550,000, so it cannot hold
+      5,000 nodes × 110 pods even before the buffer
 ```
 
 ### Our API Tier Configurations (Updated February 8, 2026)
 
 | Tier | Max Nodes | Pod CIDR | Total IPs | Rationale |
 |------|-----------|----------|-----------|------------|
-| **Micro** | 1 | /20 | 4,096 | Small dev/test (35 nodes capacity at 110 pods/node) |
+| **Micro** | 1 | /20 | 4,096 | Small dev/test (16 nodes capacity at a /24 per node) |
 | **Standard** | 1-3 | /16 | 65,536 | Development/testing with generous headroom |
 | **Professional** | 3-10 | /18 | 16,384 | Small production (140 nodes capacity) |
 | **Enterprise** | 10-50 | /16 | 65,536 | **IDEAL** - Large production, supports 500+ nodes |
-| **Hyperscale** | 50-5000 | /13 | 524,288 | Global scale with high density (5000 nodes x 110 pods) |
+| **Hyperscale** | 50-5000 | /13 | 524,288 | Global scale, sized to GKE's 200,000 pods-per-cluster limit. At a /24 per node (AKS overlay always; GKE at 65-128 max pods) /13 covers 2,048 nodes. 5,000 nodes needs GKE max pods per node of 32 or fewer (/26 per node), or a /11 `podsCidr` (the only option on AKS) |
 
 ### Alternative: CG-NAT Ranges for Pod Networks
 
@@ -173,9 +176,11 @@ Recommended CIDR: /13 (524,288 IPs) - minimum
 
 **Solution**: Use **CG-NAT (Carrier-Grade NAT)** ranges for Pod networks:
 
-**CG-NAT Ranges** (RFC 6598):
-- **100.64.0.0/10**: 4,194,304 IPs (perfect for massive clusters)
-- **198.19.0.0/16**: 65,536 IPs (sufficient for most enterprise)
+**Non-RFC 1918 Ranges**:
+- **100.64.0.0/10** (RFC 6598 shared address space, "CG-NAT"): 4,194,304 IPs (perfect for massive clusters)
+- **198.19.0.0/16** (RFC 2544 benchmarking space, not CG-NAT): 65,536 IPs (sufficient for most enterprise)
+
+**In this API**: pass a `100.64.0.0/10` range as `podsCidr` (`/8` to `/24`) to use it for pods. `servicesCidr` must stay RFC 1918, since EKS requires an RFC 1918 service range.
 
 **Benefits**:
 - No conflicts with corporate RFC 1918 networks
@@ -203,7 +208,7 @@ spec:
 2. **Use /18 for mid-sized clusters** (16,384 IPs) - good balance
 3. **Use /20 for small dev/test** (4,096 IPs) - minimum practical size
 4. **Avoid /13 unless 5,000+ nodes** (524,288 IPs) - massive waste otherwise
-5. **Consider CG-NAT ranges** (100.64.0.0/10, 198.19.0.0/16) to avoid RFC 1918 conflicts
+5. **Consider non-RFC 1918 ranges** (100.64.0.0/10 CG-NAT, 198.19.0.0/16 benchmarking space) to avoid RFC 1918 conflicts
 6. **Plan for 20-50% buffer** beyond current needs for growth
 7. **Use per-AZ /18 subnets** when distributing /16 across 3 availability zones
 - Enable via: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
@@ -227,7 +232,7 @@ spec:
 
 **Pod IPs**:
 - **Source**: Alias IP ranges (automatic secondary ranges)
-- **Method**: Each Node gets a `/24` alias IP range (256 addresses) from Pod CIDR
+- **Method**: Each Node gets an alias IP range from the Pod CIDR sized by max pods per node: 8 pods `/28`, 9-16 `/27`, 17-32 `/26`, 33-64 `/25`, 65-128 `/24` (256 addresses), 129-256 `/23`
 - **Google-Managed**: Alias ranges automatically allocated by GKE
 - **Does NOT consume Node subnet**: Pod IPs come from separate secondary range
 - **Max Pods/Node**: 110 default (Standard), 32 default (Autopilot)
@@ -254,7 +259,7 @@ Example (Hyperscale, 110 pods/node):
 ```
 
 **Service IPs**:
-- **Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+- **Source**: Separate virtual IP range (our API provides a `/20` Service CIDR, `/18` for hyperscale)
 - **Method**: ClusterIP allocation managed by kube-proxy
 - **Does NOT overlap**: Service CIDR is separate from VPC CIDR and Pod CIDR
 
@@ -290,7 +295,7 @@ Example (Hyperscale, 110 pods/node):
 
 **Pod IPs**:
 - **Source**: Overlay CIDR (completely separate from VNet)
-- **Method**: Each Pod gets an IP from overlay network (no VNet consumption)
+- **Method**: Each Node gets a fixed `/24` from the overlay CIDR, whatever its max pods; each Pod gets an IP from its node's `/24` (no VNet consumption)
 - **Azure-Managed**: Overlay network automatically configured by AKS
 - **Does NOT consume VNet**: Pod IPs never touch VNet address space
 - **Max Pods/Node**: 250 pods max
@@ -309,7 +314,7 @@ With Azure CNI Overlay:
 ```
 
 **Service IPs**:
-- **Source**: Separate virtual IP range (our API provides `/16` Service CIDR)
+- **Source**: Separate virtual IP range (our API provides a `/20` Service CIDR, `/18` for hyperscale)
 - **Method**: ClusterIP allocation managed by kube-proxy
 - **Does NOT overlap**: Service CIDR is separate from VNet and Overlay CIDR
 
@@ -340,14 +345,16 @@ With Azure CNI Overlay:
 
 | Provider | Node IPs Required | Pod IPs Required | Service IPs | LoadBalancer IPs | Total VPC/VNet Impact |
 |----------|------------------|------------------|-------------|------------------|---------------------|
-| **EKS** | 5,000 (VPC) | 550,000 (VPC secondary) | 65,536 (separate) | External | **555,000 VPC IPs needed** |
-| **GKE** | 5,000 (VPC) | 225,280 (alias range) | 65,536 (separate) | External | **5,000 VPC IPs needed** |
-| **AKS** | 5,000 (VNet) | 200,000 (overlay) | 65,536 (separate) | External | **5,000 VNet IPs needed** |
+| **EKS** | 5,000 (VPC) | 550,000 (VPC secondary) | 16,384 (separate, /18) | External | **555,000 VPC IPs needed** |
+| **GKE** | 5,000 (VPC) | 225,280 (alias range) | 16,384 (separate, /18) | External | **5,000 VPC IPs needed** |
+| **AKS** | 5,000 (VNet) | 200,000 (overlay) | 16,384 (separate, /18) | External | **5,000 VNet IPs needed** |
 
 **Key Insight**: 
 - **EKS**: Needs 555K VPC IPs (Nodes + Pods compete)
 - **GKE**: Needs 5K VPC IPs (alias ranges separate)
 - **AKS**: Needs 5K VNet IPs (overlay completely separate)
+
+**Pod range note**: The GKE row's 225,280 pods is the most our hyperscale `/13` pod range holds at 110 max pods per node: GKE (65-128 max pods) and AKS overlay (always) reserve a `/24` per node, so `/13` covers 2,048 nodes. Running 5,000 nodes on `/13` requires GKE max pods per node <= 32 (`/26` per node). On AKS, lowering max pods does not shrink the `/24`, so pass a `/11` `podsCidr` instead.
 
 ---
 
@@ -362,8 +369,9 @@ With Azure CNI Overlay:
 - **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
 - **Why**: Private subnets for Nodes, public for ingress; `/20` provides ample Node + Pod headroom
 - **Distribution**: 3 subnets across 3 AZs
-- **Pod CIDR**: `/13` (524K IPs) - separate configuration for VPC CNI
+- **Pod CIDR**: `/13` (524K IPs) - separate configuration for VPC CNI. This is less than the 550,000 pods of 5,000 nodes × 110, so plan fewer pods per node at full scale
 - **IP Prefix Delegation**: REQUIRED for high-density (>100 pods/node)
+- **Control plane**: 2 × `/28` cluster subnets in two AZs, forming one `/27`, for `vpc_config.subnet_ids` (exactly two in every EKS tier)
 
 ### GKE Recommendations
 
@@ -373,7 +381,8 @@ With Azure CNI Overlay:
 - **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
 - **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
 - **Why**: Google manages alias ranges automatically; smaller subnets are practical
-- **Pod CIDR**: `/13` (524K IPs via alias ranges)
+- **Pod CIDR**: `/13` (524K IPs via alias ranges). At 65-128 max pods GKE reserves a `/24` per node, so this covers 2,048 nodes; 5,000 nodes requires max pods per node <= 32 (`/26` per node) or a `/11` `podsCidr`
+- **Control plane**: one `/28` range for `master_ipv4_cidr_block`; subnets are regional (no zone)
 - **No fragmentation**: Google handles allocation
 
 ### AKS Recommendations
@@ -384,7 +393,8 @@ With Azure CNI Overlay:
 - **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
 - **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
 - **Why**: Pods use overlay network (no VNet pressure); smaller subnets practical
-- **Overlay CIDR**: `/13` (524K IPs) - separate overlay network
+- **Overlay CIDR**: `/13` (524K IPs) - separate overlay network. CNI Overlay gives every node a fixed `/24` whatever its max pods, so this covers 2,048 nodes; 5,000 nodes requires a larger pod CIDR, such as a `/11` `podsCidr`
+- **Control plane**: one `/28` API Server VNet Integration subnet; subnets are regional (no zone)
 - **Max Pods**: 200,000 cluster limit (AKS constraint)
 
 ---
@@ -561,7 +571,7 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 | Component | EKS | GKE | AKS |
 |-----------|-----|-----|-----|
 | **Nodes** | 5,000 IPs | 5,000 IPs | 5,000 IPs |
-| **Pods** | [PASS] Shared with Nodes<br>(VPC CIDR competition) | [FAIL] Alias ranges<br>(separate, auto-managed) | [FAIL] Overlay CIDR<br>(separate, 10.244.0.0/16) |
+| **Pods** | [PASS] Shared with Nodes<br>(VPC CIDR competition) | [FAIL] Alias ranges<br>(separate, auto-managed) | [FAIL] Overlay CIDR<br>(separate, the plan's `pods.cidr`) |
 | **Internal Load Balancers** | 30 IPs (10 LBs × 3 AZs) | 10 IPs | 10 IPs |
 | **Application Gateways** | N/A | N/A | 512 IPs (2 × /24 subnets) |
 | **NAT Gateways** | [FAIL] Elastic IPs<br>(external resource) | [FAIL] External IPs<br>(external resource) | [FAIL] Public IPs<br>(external resource) |
