@@ -373,11 +373,11 @@ export default function Calculator() {
       if (!result) return;
       setRootSubnet(result.root);
 
-      // The split button is gone (and with Hide Parents the whole row); continue on the first child
+      // The split button is gone (and with Hide Parents the whole row); continue on the first
+      // child's checkbox. Not its Split button: focusing that would pop up its tooltip, and a
+      // held Enter would keep splitting.
       const [first] = result.children;
-      pendingFocus.current = first.canSplit
-        ? `[data-testid="button-split-${first.id}"]`
-        : `[data-testid="checkbox-select-${first.id}"]`;
+      pendingFocus.current = `[data-testid="checkbox-select-${first.id}"]`;
       showStatus(`Successfully split subnet into two equal /${first.prefix} networks`);
     } catch (error) {
       const message = error instanceof SubnetCalculationError
@@ -397,8 +397,9 @@ export default function Calculator() {
     if (!result) return;
     setRootSubnet(result.root);
 
-    // The parent row gets its split button back (and reappears with Hide Parents); focus it
-    pendingFocus.current = `[data-testid="button-split-${result.parent.id}"]`;
+    // The parent row is whole again (and reappears with Hide Parents); focus its checkbox,
+    // which has no tooltip to pop up
+    pendingFocus.current = `[data-testid="checkbox-select-${result.parent.id}"]`;
     showStatus("Subnet split removed - parent restored");
   }, [showStatus]);
 
@@ -456,7 +457,8 @@ export default function Calculator() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `subnet-export-${new Date().toISOString().split('T')[0]}.csv`);
+    // The user's local date (toISOString is UTC: a day ahead in the evening west of UTC)
+    link.setAttribute("download", `subnet-export-${new Date().toLocaleDateString("en-CA")}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -484,7 +486,7 @@ export default function Calculator() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="flex justify-end items-center gap-1 px-6 py-2 border-b border-border bg-muted/20">
+      <nav aria-label="Site" className="flex justify-end items-center gap-1 px-6 py-2 border-b border-border bg-muted/20">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -528,7 +530,7 @@ export default function Calculator() {
             {isDark ? "Switch to light mode" : "Switch to dark mode"}
           </TooltipContent>
         </Tooltip>
-      </div>
+      </nav>
       <div className="container mx-auto px-6 pb-8 max-w-[1600px]">
         <header className="border-b border-border bg-muted/20 -mx-6 px-6 py-4 mb-6 text-center">
           <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="inline-block">
@@ -543,6 +545,7 @@ export default function Calculator() {
           </p>
         </header>
 
+        <main>
         <Card className="mb-8">
           <CardHeader>
             <CardTitle id="cidr-heading">Enter CIDR Range</CardTitle>
@@ -676,8 +679,9 @@ export default function Calculator() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto elegant-scrollbar">
-                  <Table className="text-xs" aria-labelledby="subnet-table-title">
+                {/* The Table's own wrapper is what scrolls, so the scrollbar style goes there */}
+                <div>
+                  <Table className="text-xs" containerClassName="elegant-scrollbar" aria-labelledby="subnet-table-title">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10 text-xs py-2 px-2">
@@ -731,6 +735,7 @@ export default function Calculator() {
             </CardContent>
           </Card>
         )}
+        </main>
       </div>
       
       <footer className="border-t border-border bg-muted/30 px-6 py-8 text-center text-sm text-muted-foreground space-y-3">

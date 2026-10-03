@@ -197,11 +197,12 @@ describe("IP Calculation Compliance Validation", () => {
      * MP = MN * Q (max pods)
      */
     describe("GKE Node Capacity from Pod CIDR (110 pods per node: a /24 each)", () => {
-      it("derives a /24 per node at 65-128 max pods, and a /26 at 32", () => {
+      it("derives a /24 per node at 65-128 max pods, a /26 at 32, and a /22 at Standard's 512", () => {
         expect(gkeNodeRangeBits(110)).toBe(8);
         expect(gkeNodeRangeBits(65)).toBe(8);
         expect(gkeNodeRangeBits(128)).toBe(8);
         expect(gkeNodeRangeBits(32)).toBe(6);
+        expect(gkeNodeRangeBits(512)).toBe(10); // Standard clusters allow up to 512 pods per node
       });
 
       it("holds 2,048 nodes in the hyperscale /13 pod range", () => {
@@ -229,13 +230,17 @@ describe("IP Calculation Compliance Validation", () => {
       });
     });
 
-    describe("GKE Autopilot (32 pods per node: a /26 each)", () => {
-      it("holds 8,192 nodes and 262,144 pods in the hyperscale /13 pod range", () => {
-        const nodes = gkeMaxNodes(getTierConfig("hyperscale", "gke").podsPrefix, 32);
-        expect(nodes).toBe(8192);
-        expect(nodes * 32).toBe(262144);
-        // So Autopilot reaches 5,000 nodes in the default /13; Standard at 110 pods does not
-        expect(nodes).toBeGreaterThanOrEqual(5000);
+    describe("GKE Autopilot (GKE chooses 8 to 256 max pods per node)", () => {
+      // Google: Autopilot clusters "choose the maximum Pods per node from a range between
+      // 8 and 256" by expected Pod density; the caller cannot set it (flexible-pod-cidr)
+      it("holds 1,024 to 32,768 nodes in the hyperscale /13, depending on the density GKE picks", () => {
+        const podsPrefix = getTierConfig("hyperscale", "gke").podsPrefix;
+        expect(gkeNodeRangeBits(8)).toBe(4); // a /28 per node
+        expect(gkeNodeRangeBits(256)).toBe(9); // a /23 per node
+        expect(gkeMaxNodes(podsPrefix, 8)).toBe(32768);
+        expect(gkeMaxNodes(podsPrefix, 256)).toBe(1024);
+        // So 5,000 Autopilot nodes are not guaranteed in the default /13
+        expect(gkeMaxNodes(podsPrefix, 256)).toBeLessThan(5000);
       });
     });
   });

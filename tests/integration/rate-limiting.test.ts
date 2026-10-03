@@ -398,7 +398,7 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
 
   it("should still count every spelling of /api if path normalization were skipped", async () => {
     // Defense in depth: the limiter is mounted on API_PATH (any letter case), not "/api",
-    // so an app without normalizeApiPath still limits /API/... (which would 404)
+    // so an app without normalizePathCase still limits /API/... (which would 404)
     const bare = express();
     bare.set("case sensitive routing", true);
     bare.use(API_PATH, createApiRateLimiter());
@@ -419,6 +419,22 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
       expect((await request(app).head("/api/v1/health")).status).toBe(200);
       // ...but the 100 lookalikes used up the quota
       expect((await request(app).get("/api/k8s/tiers")).status).toBe(429);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("should never parse a GET or HEAD body: a junk-bodied health probe is not an unthrottled 400", async () => {
+    // Probes are exempt from the limit, so a parsed (and rejected) body would let a
+    // client write unlimited "Request rejected" log lines
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    try {
+      app.use(errorHandler);
+      for (let i = 0; i < 150; i++) {
+        const probe = await request(app).get("/api/v1/health").set("Content-Type", "application/json").send("{bad");
+        expect(probe.status).toBe(200);
+      }
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       vi.restoreAllMocks();
     }
@@ -486,9 +502,12 @@ describe("Request logging of rejected requests", () => {
 
     const paths = logged.mock.calls.map(([, path]) => path);
     expect(paths).toEqual(["/api/k8s/tiers", "/api/v1/healthz"]);
+    // The client's own spelling is kept, only where it differs
+    expect(logged.mock.calls[0][4]).toMatchObject({ requestedPath: "/API/k8s/tiers" });
+    expect(logged.mock.calls[1][4]).not.toHaveProperty("requestedPath");
   });
 
-  it("should keep request bodies out of the rejection log (body-parser's type, not its message)", async () => {
+  it("should keep request bodies out of the rejection log and the response (never the parser's message)", async () => {
     const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     const app = createApp({ isDevelopment: false });
     app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
@@ -496,11 +515,20 @@ describe("Request logging of rejected requests", () => {
     const post = () => request(app).post("/api/k8s/plan").set("Content-Type", "application/json");
 
     // V8's syntax error quotes the body around the bad token: ..."mentName":secret-tok"...
-    expect((await post().send('{"deploymentName":secret-token-abc}')).status).toBe(400);
+    const malformed = await post().send('{"deploymentName":secret-token-abc}');
+    expect(malformed.status).toBe(400);
     expect(warn).toHaveBeenLastCalledWith("Request rejected", expect.objectContaining({ status: 400, type: "entity.parse.failed" }));
-    expect((await post().send(JSON.stringify({ pad: "a".repeat(17 * 1024) }))).status).toBe(413);
+    const oversized = await post().send(JSON.stringify({ pad: "a".repeat(17 * 1024) }));
+    expect(oversized.status).toBe(413);
     expect(warn).toHaveBeenLastCalledWith("Request rejected", expect.objectContaining({ status: 413, type: "entity.too.large" }));
     expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+
+    // ...nor in the responses: fixed text per error type, never the parser's message
+    expect(malformed.body).toEqual({ error: "Request body is not valid JSON", code: "INVALID_REQUEST" });
+    expect(oversized.body).toEqual({ error: "Request body is larger than 16 KB", code: "INVALID_REQUEST" });
+    const latin1 = await post().set("Content-Type", "application/json; charset=latin1").send("{}");
+    expect(latin1.status).toBe(415);
+    expect(latin1.body).toEqual({ error: "Unsupported charset in Content-Type; send UTF-8 JSON", code: "INVALID_REQUEST" });
   });
 
   it("should log only the validated plan inputs when plan generation fails (500)", async () => {

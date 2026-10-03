@@ -134,6 +134,29 @@ describe("Configuration Validation", () => {
       expect(read("scripts/install-hooks.mjs")).toContain('"core.hooksPath", ".githooks"');
     });
 
+    it.skipIf(tryRun("git", ["--version"]) === null)("sets core.hooksPath in a fresh checkout and leaves an existing one alone", () => {
+      const repo = fs.mkdtempSync(path.join(os.tmpdir(), "install-hooks-"));
+      // Isolated from the developer's global and system git config
+      const emptyConfig = path.join(repo, "empty.gitconfig");
+      fs.writeFileSync(emptyConfig, "");
+      const env = { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: "1" };
+      const install = () => execFileSync(process.execPath, [path.join(projectRoot, "scripts", "install-hooks.mjs")], { cwd: repo, env }).toString();
+      const hooksPath = () => execFileSync("git", ["config", "--get", "core.hooksPath"], { cwd: repo, env }).toString().trim();
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: repo, env, stdio: "ignore" });
+        fs.mkdirSync(path.join(repo, ".githooks"));
+        install();
+        expect(hooksPath()).toBe(".githooks");
+
+        // A hooks path someone already chose (global gitleaks, husky) is not overwritten
+        execFileSync("git", ["config", "core.hooksPath", "custom-hooks"], { cwd: repo, env });
+        expect(install()).toContain('core.hooksPath is already "custom-hooks"');
+        expect(hooksPath()).toBe("custom-hooks");
+      } finally {
+        fs.rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
     it("keeps the hook runnable by sh on every OS: shebang, LF endings", () => {
       const hook = read(".githooks/pre-commit");
       expect(hook.startsWith("#!/bin/sh\n")).toBe(true);

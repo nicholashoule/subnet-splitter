@@ -84,7 +84,7 @@ curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
   }' > network-plan.yaml
 ```
 
-The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
+Every string in the YAML is double-quoted, so it reads back as the same string with any YAML reader: unquoted, YAML 1.1 readers such as PyYAML load `no`, `yes`, `on` and `off` (possible `region` or `deploymentName` values) as booleans, and YAML 1.2 readers load `0o17` as a number. Terraform's `yamldecode` reads YAML 1.2. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
 
 **Use Cases:**
 - Import into Terraform/Pulumi configurations
@@ -133,7 +133,7 @@ For `{"deploymentSize":"micro","vpcCidr":"172.17.0.0/24"}`:
 **When to use the overrides:**
 
 - `podsCidr` and `servicesCidr`: run several clusters in one network without collisions (GKE secondary ranges in one network must not collide), keep an existing cluster's service CIDR (it cannot change after cluster creation), or give hyperscale a `/11` pod range for 5,000 nodes at a `/24` per node. If you pass only one, the other is generated clear of it.
-- `availabilityZones`: EKS AZ letters vary by region and account (`ap-northeast-1` offers `a`, `c`, and `d` to new accounts), so the generated `{region}{letter}` names are only a starting point. Pass the zones your account has, for example the names from `data.aws_availability_zones`. EKS and generic Kubernetes only.
+- `availabilityZones`: EKS AZ letters vary by region and account (`ap-northeast-1` offers `a`, `c`, and `d` to new accounts), so the generated `{region}{letter}` names are only a starting point. Pass the zones your account has, for example the names from `data.aws_availability_zones`. EKS refuses cluster subnets in AZ IDs `use1-az3`, `usw1-az2` and `cac1-az3`, so leave those out (`exclude_zone_ids` on the data source). EKS and generic Kubernetes only.
 
 Second GKE cluster in the same network:
 
@@ -159,7 +159,7 @@ Set `"networkMode": "private"` for a cluster with no internet-facing subnets. Th
 | Provider | Load-balancer subnets | Egress (no subnet allocated) | Notes |
 |----------|-----------------------|------------------------------|-------|
 | GKE | Exactly 1, regional (no zone) | Cloud NAT, configured per region on a Cloud Router; it serves GKE nodes without external IPs | Meant as the region's proxy-only subnet (`purpose` `REGIONAL_MANAGED_PROXY`), which powers regional internal and external Application Load Balancers and regional internal and external proxy Network Load Balancers. Cross-region internal Application Load Balancers and cross-region internal proxy Network Load Balancers need a separate `GLOBAL_MANAGED_PROXY` subnet, which the plan does not include ([Google: proxy-only subnets](https://cloud.google.com/load-balancing/docs/proxy-only-subnets)). Only one `REGIONAL_MANAGED_PROXY` subnet can be active per region per VPC network, so clusters in the same region and network share it, and it can't be used for anything else (no VMs). Minimum `/26`; Google recommends starting with `/23`. Internal passthrough Network Load Balancers take IPs from the node subnet unless you choose another subnet |
-| AKS | Exactly 1, regional (no zone) | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` | For internal load balancer frontends: by default they take node-subnet IPs, so annotate services with `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` |
+| AKS | Exactly 1, regional (no zone) | `outbound_type` `userAssignedNATGateway` (a NAT gateway you create and attach to the node subnet) or `userDefinedRouting`; the managed NAT types work only on AKS-managed VNets, not on the VNet the plan describes | For internal load balancer frontends: by default they take node-subnet IPs, so annotate services with `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` |
 | EKS | One per AZ, at least 2 | A public NAT gateway must sit in a public subnet, and a private NAT gateway reaches only other VPCs or on-premises networks, not the internet. Reach the internet through a transit gateway to a shared egress VPC, or run without internet access using VPC endpoints | Tag them `kubernetes.io/role/internal-elb`: the AWS Load Balancer Controller uses that tag to find subnets for internal load balancers. ALBs need subnets in at least two AZs, and the controller skips subnets with fewer than 8 free IPs |
 | Kubernetes | One per zone (the tier's public subnet count) | Outside the plan | Internal load balancers or ingress |
 
@@ -791,8 +791,8 @@ Every tier also gets a control-plane network inside the VPC: one `/28` for gener
 ### Tier Validation Status
 
 [PASS] **All configurations tested and validated** against:
-- EKS maximum node limits (5,000 standard, 100,000+ with AWS support)
-- GKE maximum node limits (5,000 Autopilot, 200,000 pod limit)
+- EKS cluster size: 5,000 nodes, Kubernetes' tested limit (EKS sets no per-cluster node quota; managed node groups are 30 per cluster and 450 nodes each by default: [AWS: EKS quotas](https://docs.aws.amazon.com/general/latest/gr/eks.html#limits_eks))
+- GKE maximum node limits (65,000 Standard, 5,000 Autopilot; 200,000 pods)
 - AKS maximum node limits (5,000 nodes, 200,000 pods with CNI Overlay)
 - Real-world pod density requirements
 - Multi-AZ availability requirements
@@ -830,7 +830,7 @@ Every tier also gets a control-plane network inside the VPC: one `/28` for gener
 | Provider | Status | Node Limit | Pod Limit | Use Case |
 |----------|--------|-----------|----------|----------|
 | **EKS** |  Supported | 5,000 (standard), 100,000+ (with support) | 250/node (prefix delegation) | AWS cloud |
-| **GKE** |  Supported | 5,000 (Autopilot) | 200,000 cluster limit | Google Cloud |
+| **GKE** |  Supported | 65,000 (Standard), 5,000 (Autopilot) | 200,000 cluster limit | Google Cloud |
 | **AKS** |  Supported | 5,000 | 200,000 (CNI Overlay) | Azure cloud |
 | **Kubernetes** |  Supported | Unlimited | Unlimited | Self-hosted, on-premises, alternative clouds |
 
@@ -852,7 +852,7 @@ Each cloud provider uses different naming conventions for regions and availabili
 - AZs append a letter directly to the region (no hyphen)
 - Examples: `us-east-1a`, `us-east-1b`, `us-west-2c`, `eu-west-1a`
 - EKS cluster subnets must be in at least two AZs, so every EKS plan puts every subnet type (public or internal load-balancer, private, control plane) in at least two AZs, in every tier. The control plane is always exactly two `/28`s in two AZs
-- Which letters exist varies by region and account (`ap-northeast-1` offers `a`, `c`, and `d` to new accounts), so the generated `a`, `b`, `c` names are a starting point. Pass `availabilityZones` (for example the names from `data.aws_availability_zones`) to get exact names, assigned round-robin:
+- Which letters exist varies by region and account (`ap-northeast-1` offers `a`, `c`, and `d` to new accounts), so the generated `a`, `b`, `c` names are a starting point. Pass `availabilityZones` (for example the names from `data.aws_availability_zones`) to get exact names, assigned round-robin. EKS refuses cluster subnets in AZ IDs `use1-az3`, `usw1-az2` and `cac1-az3`, so leave those out (`exclude_zone_ids` on the data source):
 
 ```bash
 curl -X POST http://localhost:5000/api/k8s/plan \
@@ -1088,7 +1088,7 @@ All three plans use `pods.cidr` `172.16.0.0/16` and `services.cidr` `192.168.0.0
 
 **GKE (Google Cloud)**
 - Alias IP ranges (automatic management)
-- GKE Autopilot support (5,000 node limit)
+- GKE Autopilot support (5,000 node limit; GKE chooses 8 to 256 pods per node)
 - Regional subnets (no zone per subnet)
 - One `/28` control-plane range for `master_ipv4_cidr_block` or a private endpoint subnetwork
 - Private mode: one proxy-only subnet for the region, egress through Cloud NAT
@@ -1101,7 +1101,7 @@ All three plans use `pods.cidr` `172.16.0.0/16` and `services.cidr` `192.168.0.0
 - Private mode: one internal load-balancer subnet, egress through a NAT gateway or user-defined routing
 
 **Kubernetes (Generic)**
-- Works with any CNI plugin (Calico, Flannel, Weave, etc.)
+- Works with any CNI plugin (Calico, Cilium, Flannel, etc.)
 - On-premises deployments
 - Self-hosted clusters
 - Alternative cloud providers
@@ -1270,7 +1270,9 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 |--------|---------|---------|
 | 200 | Success | Plan generated successfully |
 | 400 | Bad Request | Invalid `deploymentSize`, malformed, public, or too-small VPC CIDR, invalid `podsCidr`/`servicesCidr`/`availabilityZones`/`networkMode`, unknown tiers `provider` or `networkMode`, malformed JSON |
+| 404 | Not Found | No API route for the path and method, e.g. `GET /api/k8s/plan` (always JSON) |
 | 413 | Payload Too Large | Request body larger than 16 KB |
+| 415 | Unsupported Media Type | Body in a charset other than UTF-8, or with an unsupported `Content-Encoding` |
 | 429 | Too Many Requests | More than 100 `/api` requests per minute from one IP |
 | 500 | Server Error | Unexpected error during generation |
 
@@ -1287,7 +1289,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 
 | Code | Status | Cause | Example |
 |------|--------|-------|---------|
-| `INVALID_REQUEST` | 400 / 413 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, or body is over 16 KB | `{ "error": "Invalid request: deploymentSize: Required", "code": "INVALID_REQUEST" }` |
+| `INVALID_REQUEST` | 400 / 413 / 415 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, body is over 16 KB, or body uses an unsupported charset or encoding. Only the first 5 validation issues are listed, then "and N more" | `{ "error": "Invalid request: deploymentSize: Required", "code": "INVALID_REQUEST" }` |
 | `NETWORK_GENERATION_ERROR` | 400 | VPC CIDR is malformed, not entirely private RFC 1918 space, too small for the tier, larger than `/16`, or overlapping `172.30.0.0/16` or `172.31.0.0/16` for AKS; `podsCidr`/`servicesCidr` malformed, outside the allowed blocks or sizes, or overlapping the VPC, each other, `172.17.0.0/16`, or (AKS) `172.30.0.0/16` or `172.31.0.0/16`; `availabilityZones` sent for GKE/AKS or with one zone for EKS | `{ "error": "Invalid VPC CIDR \"999.999.999.999/16\": Invalid IP octet: 999", "code": "NETWORK_GENERATION_ERROR" }` |
 | `NOT_FOUND` | 404 | No API route matches the path and method (for example `GET /api/k8s/plan`, which only accepts POST). API paths work in any letter case (`/API/K8s/Tiers` is served like `/api/k8s/tiers`; query values keep their case). Unknown `/api` paths never fall back to the web app | `{ "error": "Not found", "code": "NOT_FOUND" }` |
 | `RATE_LIMITED` | 429 | More than 100 `/api` requests per minute from one IP | `{ "error": "Too many requests. Please wait a minute and try again.", "code": "RATE_LIMITED" }` |
@@ -1384,7 +1386,7 @@ Response (400):
 
 **Malformed JSON:**
 
-A body that is not valid JSON returns 400 with code `INVALID_REQUEST` and the JSON parser's message in `error`.
+A body that is not valid JSON returns 400 with code `INVALID_REQUEST` and `"error": "Request body is not valid JSON"`. The parser's own message is never returned, since it can quote part of the body; a body over 16 KB gets 413 with `"Request body is larger than 16 KB"`.
 
 ### Rate Limiting
 
@@ -1526,8 +1528,13 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Request the plan with "availabilityZones" set to names from
-# data.aws_availability_zones, so every availabilityZone below exists in your account.
+# Request the plan with "availabilityZones" set to names from this data source, so
+# every availabilityZone below exists in your account. EKS refuses cluster subnets in
+# these AZ IDs (https://docs.aws.amazon.com/eks/latest/userguide/network-reqs.html).
+data "aws_availability_zones" "eks" {
+  state            = "available"
+  exclude_zone_ids = ["use1-az3", "usw1-az2", "cac1-az3"]
+}
 
 # Worker nodes (node groups)
 resource "aws_subnet" "private" {
@@ -1546,13 +1553,28 @@ resource "aws_subnet" "control_plane" {
   availability_zone = local.network_plan.subnets.controlPlane[count.index].availabilityZone
 }
 
-# Option A: Use Custom CNI Plugin (Calico)
-resource "null_resource" "install_calico" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-      kubectl set env daemonset/calico-node -n kube-system CALICO_IPV4POOL_CIDR=${local.network_plan.pods.cidr}
-    EOT
+# Option A: an overlay CNI (Calico) with pods.cidr as its IP pool. AWS supports only the
+# VPC CNI on EC2 nodes (Calico is supported by Tigera), and alternate CNIs don't run on
+# Fargate or EKS Auto Mode (https://docs.aws.amazon.com/eks/latest/userguide/alternate-cni-plugins.html).
+# Follow Calico's EKS guide: delete the VPC CNI (kubectl delete daemonset -n kube-system
+# aws-node) and install the Tigera operator, then create this Installation, so pods get
+# pods.cidr from the start. Calico's default pool, 192.168.0.0/16, would overlap the
+# plan's services range. kubernetes_manifest needs the operator's CRDs at plan time, so
+# install the operator first (or apply the same Installation as YAML with kubectl). Guide:
+# https://docs.tigera.io/calico/latest/getting-started/kubernetes/managed-public-cloud/eks
+resource "kubernetes_manifest" "calico_installation" {
+  manifest = {
+    apiVersion = "operator.tigera.io/v1"
+    kind       = "Installation"
+    metadata   = { name = "default" }
+    spec = {
+      kubernetesProvider = "EKS"
+      cni                = { type = "Calico" }
+      calicoNetwork = {
+        bgp     = "Disabled"
+        ipPools = [{ cidr = local.network_plan.pods.cidr, encapsulation = "VXLAN" }]
+      }
+    }
   }
   depends_on = [aws_eks_cluster.main]
 }
@@ -1570,7 +1592,7 @@ resource "aws_subnet" "pod_subnets" {
   count             = 3
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet("100.64.0.0/16", 2, count.index) # 3 x /18
-  availability_zone = data.aws_availability_zones.available.names[count.index]
+  availability_zone = data.aws_availability_zones.eks.names[count.index]
 
   # VPC CNI custom networking selects these subnets through one ENIConfig per AZ,
   # not through a subnet tag.
@@ -1883,7 +1905,7 @@ resource "azurerm_kubernetes_cluster" "main" {
 ### Kubernetes (Generic/Self-Hosted)
 
 **Recommended Settings:**
-- Use your preferred CNI plugin (Calico, Flannel, Weave, etc.)
+- Use your preferred CNI plugin (Calico, Cilium, Flannel, etc.)
 - Pod CIDR must not overlap with VPC CIDR
 - Service CIDR must not overlap with pod or VPC CIDRs
 - Run control-plane nodes in the single `subnets.controlPlane` subnet (one `/28`, so a floating API server address from keepalived or kube-vip can move between them) and workers in `subnets.private`

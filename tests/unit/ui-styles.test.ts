@@ -13,9 +13,10 @@
  * as soon as it is made.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import { THEME_STORAGE_KEY, getSavedTheme } from "../../client/src/lib/theme";
 
 type Rgb = [number, number, number];
 type Hsl = [number, number, number];
@@ -363,9 +364,22 @@ describe("Theme Before First Paint", () => {
   it("applies dark only when the saved theme is dark, like lib/theme.ts", () => {
     const keys: string[] = [];
     expect(run((key) => (keys.push(key), "dark"))).toEqual(new Set(["dark"]));
-    expect(keys).toEqual(["theme"]);
+    expect(keys).toEqual([THEME_STORAGE_KEY]);
     expect(run(() => "light")).toEqual(new Set());
     expect(run(() => null)).toEqual(new Set());
+  });
+
+  it("agrees with lib/theme.ts for every stored value, so the first paint matches the app", () => {
+    const failing = () => { throw new Error("SecurityError"); };
+    for (const getItem of [() => "dark", () => "light", () => null, () => "DARK", () => "", failing]) {
+      vi.stubGlobal("localStorage", { getItem });
+      try {
+        const appTheme = getSavedTheme();
+        expect(run(getItem).has("dark"), String(getItem)).toBe(appTheme === "dark");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
   });
 
   it("keeps the light default when storage is unavailable", () => {
@@ -376,6 +390,26 @@ describe("Theme Before First Paint", () => {
 // No React renders in these tests, so the page's wiring is checked in its source: each
 // assertion fails if the corresponding regression (found by mutation testing) returns
 describe("Calculator Wiring", () => {
+  it("moves focus after a split or remove to a row checkbox, never a Split button", () => {
+    // A Split button is a tooltip trigger: focusing it pops the tooltip up, and a held
+    // Enter on it would keep splitting
+    for (const name of ["handleSplit", "handleDelete"]) {
+      const start = calculator.indexOf(`  const ${name} = useCallback(`);
+      expect(start, name).toBeGreaterThan(-1);
+      const body = calculator.slice(start, calculator.indexOf("\n  }, [", start));
+      expect(body, name).toMatch(/pendingFocus\.current = `\[data-testid="checkbox-select-/);
+      expect(body, name).not.toContain("button-split-");
+    }
+  });
+
+  it("gives each page a main landmark, and the 404 page its own title", () => {
+    expect(calculator).toContain("<main>");
+    expect(calculator).toContain('<nav aria-label="Site"');
+    const notFound = read("client/src/pages/not-found.tsx");
+    expect(notFound).toContain("<main ");
+    expect(notFound).toContain('document.title = "Page not found | CIDR Subnet Calculator"');
+  });
+
   it("memoizes table rows and keeps the split callback stable", () => {
     expect(calculator).toContain("const SubnetRow = memo(function SubnetRow(");
     // The callback reads the tree through a ref; depending on rootSubnet would re-render every row
@@ -413,8 +447,17 @@ describe("Responsive Behavior", () => {
     expect(calculator).toContain("max-w-[1600px]");
   });
 
-  it("styles the subnet table scrollbar with elegant-scrollbar", () => {
+  it("styles the scrollbar of the element that scrolls: the Table's own wrapper", () => {
     expect(css).toContain(".elegant-scrollbar {");
-    expect(calculator).toContain("elegant-scrollbar");
+    // Table renders the overflow-auto wrapper and puts containerClassName on it...
+    expect(read("client/src/components/ui/table.tsx")).toContain('<div className={cn("relative w-full overflow-auto", containerClassName)}>');
+    // ...and the calculator passes the style there, not to an outer div that never overflows
+    expect(calculator).toContain('containerClassName="elegant-scrollbar"');
+    expect(calculator).not.toMatch(/className="[^"]*elegant-scrollbar/);
+  });
+
+  it("names the CSV export by the user's local date, not UTC", () => {
+    expect(calculator).toContain('subnet-export-${new Date().toLocaleDateString("en-CA")}.csv');
+    expect(calculator).not.toContain("toISOString().split");
   });
 });

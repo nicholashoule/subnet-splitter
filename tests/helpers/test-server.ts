@@ -4,8 +4,8 @@
  * Shared utilities for integration tests that need HTTP server lifecycle.
  *
  * createTestServer() builds a lighter stack than production's createApp()
- * (server/app.ts): it keeps case-sensitive routing, API paths in any letter case
- * (normalizeApiPath), the 16 KB JSON body limit and errorHandler (registered after
+ * (server/app.ts): it keeps case-sensitive routing, API and health paths in any letter
+ * case (normalizePathCase), the 16 KB JSON body limit and errorHandler (registered after
  * setup), but adds no security headers, logging or rate limiting. Tests that need
  * those pass them as middleware, or build on createApp().
  * 
@@ -31,7 +31,7 @@
 
 import express, { type Express, type RequestHandler } from "express";
 import { errorHandler } from "../../server/app";
-import { normalizeApiPath } from "../../server/api-path";
+import { normalizePathCase } from "../../server/api-path";
 import { createServer, type Server as HttpServer } from "http";
 import type { OptionsJson } from "body-parser";
 
@@ -69,7 +69,7 @@ export async function createTestServer(config: TestServerConfig = {}): Promise<T
   // As in production, before the first app.use() creates the router
   app.set("case sensitive routing", true);
   // As in production: /API/k8s/tiers is served like /api/k8s/tiers
-  app.use(normalizeApiPath);
+  app.use(normalizePathCase);
 
   // JSON bodies, capped at 16 KB like the API (custom options merged over that)
   app.use(express.json({ limit: "16kb", ...config.jsonOptions }));

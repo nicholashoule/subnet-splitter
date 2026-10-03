@@ -55,11 +55,20 @@ export function createApiRateLimiter(): RequestHandler {
   });
 }
 
-/** Turn Zod issues into a short, readable message (e.g. "deploymentSize: Required") */
+/** Most validation issues a response lists; the rest are counted */
+const MAX_REPORTED_ISSUES = 5;
+
+/**
+ * Turn Zod issues into a short, readable message (e.g. "deploymentSize: Required").
+ * Capped: an array of thousands of bad elements in a 16 KB body would otherwise make
+ * an error response hundreds of KB long.
+ */
 function formatZodError(error: ZodError): string {
-  return error.issues
-    .map(issue => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-    .join("; ");
+  const messages = error.issues
+    .slice(0, MAX_REPORTED_ISSUES)
+    .map(issue => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message));
+  const more = error.issues.length - MAX_REPORTED_ISSUES;
+  return messages.join("; ") + (more > 0 ? `; and ${more} more` : "");
 }
 
 /**
@@ -84,18 +93,22 @@ function formatOf(req: Request): string | undefined {
 }
 
 /**
+ * YAML with every string value double-quoted, so each reads back as the same string in
+ * any YAML version: YAML 1.1 readers (PyYAML) load an unquoted "no" or "on" as a
+ * boolean, and YAML 1.2 readers load "0o17" as a number. Keys stay plain.
+ */
+function toYaml(data: unknown): string {
+  return YAML.stringify(data, { defaultStringType: "QUOTE_DOUBLE", defaultKeyType: "PLAIN" });
+}
+
+/**
  * Format response as JSON or YAML based on the format parameter
  */
 function formatResponse(data: unknown, format?: string): { contentType: string; body: string } {
   const outputFormat = (format || "json").toLowerCase();
   
   if (outputFormat === "yaml" || outputFormat === "yml") {
-    return {
-      contentType: "application/yaml",
-      // YAML 1.1 quotes strings such as "yes", "no", "on" and "off", which YAML 1.1
-      // readers (Terraform yamldecode, PyYAML) would otherwise load as booleans
-      body: YAML.stringify(data, { version: "1.1" })
-    };
+    return { contentType: "application/yaml", body: toYaml(data) };
   }
   
   // Default to JSON
@@ -170,10 +183,13 @@ export async function registerRoutes(
     });
   });
 
-  // OpenAPI specification endpoint
+  // OpenAPI specification endpoint. The document never changes while the server runs,
+  // so it is serialized once (YAML takes milliseconds per request otherwise).
+  const openApiJson = formatResponse(openApiSpec, "json");
+  const openApiYaml = formatResponse(openApiSpec, "yaml");
   get("/api/docs", (req, res) => {
-    const format = formatOf(req);
-    const { contentType, body } = formatResponse(openApiSpec, format);
+    const format = (formatOf(req) ?? "json").toLowerCase();
+    const { contentType, body } = format === "yaml" || format === "yml" ? openApiYaml : openApiJson;
     res.type(contentType).send(body);
   });
 

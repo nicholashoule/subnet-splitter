@@ -370,13 +370,15 @@ describe("Kubernetes Network Planning API Integration", () => {
     });
 
     describe("Public IP Rejection (Security Anti-Pattern)", () => {
+      // Each VPC is a /16, which fits every tier's layout, so only the private-range
+      // check can reject it; the message proves which check did
       it("should reject public Class A IP ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "standard",
             vpcCidr: "8.8.8.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject public Class B IP ranges", async () => {
@@ -385,34 +387,34 @@ describe("Kubernetes Network Planning API Integration", () => {
             deploymentSize: "professional",
             vpcCidr: "172.100.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject public Class C IP ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "enterprise",
-            vpcCidr: "203.0.113.0/24"
+            vpcCidr: "203.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject multicast Class D ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "standard",
-            vpcCidr: "224.0.0.0/4"
+            vpcCidr: "224.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject reserved Class E ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "professional",
-            vpcCidr: "240.0.0.0/4"
+            vpcCidr: "240.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should include security guidance in error message for public IP", async () => {

@@ -91,14 +91,21 @@
   --input: 214 20% 57%;
   --ring: 221 83% 53%;
 
-  /* Automatically computed borders (intensity set by --opaque-button-border-intensity).
-     The first declaration is the fallback for browsers without relative color syntax. */
+  /* Borders matching their surface. Browsers with relative color syntax shift them by
+     --opaque-button-border-intensity (the @supports block below); a custom property
+     accepts any value, so a second declaration here would always win, even where the
+     browser can't compute it. */
   --primary-border: hsl(var(--primary));
-  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --secondary-border: hsl(var(--secondary));
-  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --destructive-border: hsl(var(--destructive));
-  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+@supports (color: hsl(from red h s l)) {
+  :root {
+    --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+    --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+    --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  }
 }
 
 .dark {

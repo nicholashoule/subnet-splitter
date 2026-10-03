@@ -218,7 +218,7 @@ npm run smoke    # optional: start the build on port 5099 and check it over HTTP
 
 The production build creates optimized assets in `dist/public/` and a self-contained server bundle at `dist/index.cjs` (all server dependencies are bundled, so `node_modules` is not needed at runtime; `NODE_ENV=production` is baked in at build time). To deploy, copy `dist/` to a host with Node.js 24 or 26 and run `node dist/index.cjs`.
 
-`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), JSON 404s for unknown API paths, and the API docs page, whose pinned Swagger UI files it downloads from the CDN to check their integrity hashes (so it needs network access), then stops it. It also checks that a bad `PORT` or `TRUST_PROXY` stops startup with a clear error. It also checks that the served OpenAPI document matches `server/openapi.ts` and writes it to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
+`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), JSON 404s for unknown API paths, and the API docs page, whose pinned Swagger UI files it downloads from the CDN to check their integrity hashes (so it needs network access), then stops it. It also checks that a bad `PORT` or `TRUST_PROXY` stops startup with a clear error. It also checks that the served OpenAPI document matches `server/openapi.ts` and writes it to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port, and `SMOKE_SKIP_CDN=1` to skip the CDN download when offline (the run says it skipped; CI ignores the variable).
 
 **Runtime configuration (environment variables):**
 
@@ -418,7 +418,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 
 - `deploymentSize` (required): Deployment tier for cluster size
 - `provider` (optional): Cloud provider (`eks`, `gke`, `aks`, `kubernetes`, `k8s`). Defaults to `kubernetes`. Note: `k8s` is an alias for `kubernetes`
-- `region` (optional): Cloud region used to name zones (e.g. `us-east-1` gives `us-east-1a`; `us-central1` gives `us-central1-a`). Lowercase letters, digits, and hyphens, up to 64 characters. Defaults per provider: `us-east-1` (EKS), `us-central1` (GKE), `eastus` (AKS), `region-1` (generic)
+- `region` (optional): Cloud region, used to name EKS zones (e.g. `us-east-1` gives `us-east-1a`); GKE and AKS subnets are regional and carry no zone, and generic Kubernetes zones are `zone-1`, `zone-2`, and so on. Lowercase letters, digits, and hyphens, up to 64 characters. Defaults per provider: `us-east-1` (EKS), `us-central1` (GKE), `eastus` (AKS), `region-1` (generic)
 - `vpcCidr` (optional): **Private RFC 1918 CIDR only**, inside 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16, and /16 or smaller for every provider. Host bits are cleared (`10.1.2.3/16` becomes `10.1.0.0/16`). If omitted, a random /18 inside an RFC 1918 block is generated. AKS: must not overlap `172.30.0.0/16` or `172.31.0.0/16`
 - `podsCidr` (optional): Your own pod range instead of the generated one. RFC 1918 or `100.64.0.0/10`, /8 to /24
 - `servicesCidr` (optional): Your own service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24; AKS requires smaller than /12); GKE /16 to /24
@@ -459,13 +459,13 @@ Pass `"networkMode": "private"` for a network with no public subnets. Load balan
 | Provider | `subnets.loadBalancer` | Egress |
 |----------|------------------------|--------|
 | GKE | One regional proxy-only subnet (`purpose = REGIONAL_MANAGED_PROXY`) for internal Application Load Balancers and the internal Gateway. Only one can be active per region and network, so clusters there share it | Cloud NAT on a Cloud Router (no subnet needed) |
-| AKS | One regional subnet for internal load balancer frontends (point services at it with the `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` annotation; by default they use the node subnet) | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` |
+| AKS | One regional subnet for internal load balancer frontends (point services at it with the `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` annotation; by default they use the node subnet) | `outbound_type` `userAssignedNATGateway` (a NAT gateway you create and attach to the node subnet) or `userDefinedRouting`; the managed NAT types work only on AKS-managed VNets, not on the VNet the plan describes |
 | EKS | One per AZ (at least two, as ALBs require), tagged `kubernetes.io/role/internal-elb` | A public NAT gateway needs a public subnet, and a private NAT gateway can't reach the internet, so use a transit gateway to a shared egress VPC, or VPC endpoints with no internet |
 | Generic | One per zone (e.g. MetalLB address pools) | Your network's own NAT |
 
 Load-balancer subnets use the tier's public subnet size (/26 to /23, within GKE's proxy-only minimum of /26). In public mode `subnets.loadBalancer` is empty; in private mode `subnets.public` is.
 
-**Zones:** EKS spreads node, load-balancer, and control-plane subnets across at least two AZs (EKS requires cluster subnets in two AZs). Generated names follow `{region}{letter}`, but which letters exist varies by region and account, so pass `availabilityZones` with the zones your account has (e.g. from `data.aws_availability_zones`). GKE and AKS subnets carry no zone, because their subnets are regional; node pools choose zones.
+**Zones:** EKS spreads node, load-balancer, and control-plane subnets across at least two AZs (EKS requires cluster subnets in two AZs). Generated names follow `{region}{letter}`, but which letters exist varies by region and account, so pass `availabilityZones` with the zones your account has (e.g. from `data.aws_availability_zones`). EKS refuses cluster subnets in AZ IDs `use1-az3`, `usw1-az2` and `cac1-az3`, so leave those out (`exclude_zone_ids` on the data source). GKE and AKS subnets carry no zone, because their subnets are regional; node pools choose zones.
 
 **Example Request:**
 ```bash
@@ -702,7 +702,7 @@ Counts are for public mode. In private mode the public count moves to load-balan
 - **Hyperscale pod capacity**: the /13 pod range holds 2,048 nodes at a /24 per node. Reaching 5,000 nodes needs GKE max pods per node of 32 or fewer (a /26 per node), or a /11 `podsCidr` (AKS overlay always takes a /24 per node, so on AKS only a larger range helps)
 - **Public Subnets**: For load balancers, NAT gateways, and bastion hosts
 - **Private Subnets**: For Kubernetes worker nodes (EC2 instances or node pools)
-- **Control-plane Subnets**: one /28 (EKS: one /27 as two /28s). /28 is GKE's required master range size, AKS's minimum API server subnet, and above EKS's minimum of 6 addresses
+- **Control-plane Subnets**: one /28 (EKS: one /27 as two /28s). /28 is GKE's required master range size and AKS's minimum API server subnet; for EKS each /28 has 11 usable addresses, above the required 6 but below AWS's recommended 16
 - All networks use RFC 1918 private addressing (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); pods may also use 100.64.0.0/10, from a caller-supplied `podsCidr` or as the generated fallback when no RFC 1918 block has room
 
 #### Supported Providers

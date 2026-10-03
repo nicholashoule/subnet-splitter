@@ -2,7 +2,7 @@
  * shared/kubernetes-schema.ts
  *
  * Schema definitions for Kubernetes network planning API
- * Supports battle-tested configurations for EKS, GKE, AKS, and generic Kubernetes
+ * Supports EKS, GKE, AKS, and generic Kubernetes
  *
  * Every plan separates four kinds of address space, and no two ranges overlap:
  * - Nodes: private subnets inside the VPC
@@ -190,7 +190,7 @@ export const KubernetesNetworkPlanRequestSchema = z.object({
     .max(6)
     .refine((zones) => new Set(zones).size === zones.length, "availabilityZones must not repeat a zone")
     .optional()
-    .describe("Optional zone names to assign round-robin (EKS and generic Kubernetes). Use the zones your account actually has, e.g. from data.aws_availability_zones"),
+    .describe("Optional zone names to assign round-robin (EKS and generic Kubernetes). Use the zones your account actually has, e.g. from data.aws_availability_zones; EKS refuses cluster subnets in AZ IDs use1-az3, usw1-az2 and cac1-az3"),
   networkMode: NetworkModeEnum.optional().default("public")
     .describe("public (default): public subnets for internet-facing LBs and NAT. private: no public subnets; internal load-balancer subnets, egress via Cloud NAT, NAT gateway, or transit gateway"),
   deploymentName: z.string().max(128).optional().describe("Optional deployment name for reference")

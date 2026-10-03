@@ -16,7 +16,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { createServer } from "http";
+import { once } from "events";
+import { createServer, request as httpRequest } from "http";
+import type { AddressInfo } from "net";
 import { fileURLToPath } from "url";
 import request from "supertest";
 import type { Express } from "express";
@@ -24,6 +26,8 @@ import { registerRoutes } from "../../server/routes";
 import { createApp, errorHandler } from "../../server/app";
 import { serveStatic } from "../../server/static";
 import { SWAGGER_UI_VERSION } from "../../server/swagger-ui";
+import { splitRequestTarget } from "../../server/api-path";
+import YAML from "yaml";
 import { THEME_STORAGE_KEY } from "../../client/src/lib/theme";
 import { version as APP_VERSION } from "../../package.json";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
@@ -154,8 +158,10 @@ describe("API Endpoints Integration", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/yaml");
-      expect(text).toContain("openapi: 3.0.0");
-      expect(text).toContain("title: CIDR Subnet Calculator API");
+      expect(text).toContain('openapi: "3.0.0"');
+      expect(text).toContain('title: "CIDR Subnet Calculator API"');
+      // Serialized once at startup: every request gets the same document
+      expect(await (await fetch(`${baseUrl}/api/docs?format=YAML`)).text()).toBe(text);
       expect(text).toContain("paths:");
       expect(text).toContain("components:");
     });
@@ -760,24 +766,47 @@ describe("API Endpoints Integration", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/yaml");
-      expect(text).toContain("deploymentSize: standard");
-      expect(text).toContain("provider: kubernetes");
+      expect(text).toContain('deploymentSize: "standard"');
+      expect(text).toContain('provider: "kubernetes"');
       expect(text).toContain("vpc:");
       expect(text).toContain("subnets:");
     });
 
-    it("should quote YAML strings that YAML 1.1 readers would load as booleans", async () => {
-      // Terraform's yamldecode and PyYAML read unquoted yes/no/on/off as true/false
+    it("should quote every YAML string, so YAML 1.1 and 1.2 readers load the same values", async () => {
+      // Unquoted, a YAML 1.1 reader (PyYAML) loads no/yes/on/off as booleans, and a YAML
+      // 1.2 reader loads 0o17 as the number 15
       const response = await fetch(`${baseUrl}/api/k8s/plan?format=yaml`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deploymentSize: "micro", provider: "gke", region: "no", deploymentName: "yes" })
+        body: JSON.stringify({ deploymentSize: "micro", provider: "gke", region: "0o17", deploymentName: "yes" })
       });
       const text = await response.text();
 
       expect(response.status).toBe(200);
-      expect(text).toContain('region: "no"');
+      expect(text).toContain('region: "0o17"');
       expect(text).toContain('deploymentName: "yes"');
+      for (const version of ["1.1", "1.2"] as const) {
+        const plan = YAML.parse(text, { version });
+        expect(plan.region, version).toBe("0o17");
+        expect(plan.deploymentName, version).toBe("yes");
+        expect(plan.vpc.cidr, version).toMatch(/^\d+\.\d+\.\d+\.\d+\/\d+$/);
+      }
+    });
+
+    it("should cap the issues a validation error lists", async () => {
+      // A 16 KB body can hold thousands of bad array elements; listing each would make
+      // the error response hundreds of KB
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deploymentSize: "micro", availabilityZones: Array(3000).fill(1) })
+      });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toMatch(/; and \d+ more$/);
+      expect(data.error.length).toBeLessThan(500);
     });
   });
 });
@@ -814,6 +843,46 @@ describe("Unknown API paths in the production app", () => {
     expect(plan.body.subnets).toBeDefined();
   });
 
+  it("should answer the health checks in any letter case, never with the web app", async () => {
+    for (const url of ["/HEALTH", "/Health/Ready", "/health/LIVE", "/API/V1/HEALTH"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(response.headers["content-type"], url).toContain("application/json");
+    }
+  });
+
+  it("should serve an absolute-form request target (as proxies send it) like its path", async () => {
+    // Node accepts "GET http://host/path HTTP/1.1"; supertest cannot send it, so use http
+    const server = createServer(app).listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const { port } = server.address() as AddressInfo;
+      const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = httpRequest({ host: "127.0.0.1", port, path: "http://example.test/API/K8S/TIERS?format=json" }, (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => { body += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(response.status).toBe(200);
+      expect(Object.keys(JSON.parse(response.body))).toContain("hyperscale");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("should split request targets the way Express does", () => {
+    expect(splitRequestTarget("/API/x?Q=1")).toEqual({ origin: "", path: "/API/x", query: "?Q=1" });
+    expect(splitRequestTarget("http://h:80/API/x?y")).toEqual({ origin: "http://h:80", path: "/API/x", query: "?y" });
+    expect(splitRequestTarget("http://h")).toEqual({ origin: "http://h", path: "", query: "" });
+    expect(splitRequestTarget("*")).toEqual({ origin: "", path: "*", query: "" });
+    // A URL in the query is not a scheme and host
+    expect(splitRequestTarget("/a?next=http://c/D")).toEqual({ origin: "", path: "/a", query: "?next=http://c/D" });
+  });
+
   it("should lowercase only the path: query values keep their case", async () => {
     // ?format=yaml works however the path is spelled...
     const yaml = await request(app).get("/API/k8s/tiers?format=yaml");
@@ -846,7 +915,7 @@ describe("Unknown API paths in the production app", () => {
     const invalid = await request(app).get("/api/k8s/tiers?format=yaml&provider=openstack");
     expect(invalid.status).toBe(400);
     expect(invalid.headers["content-type"]).toContain("application/yaml");
-    expect(invalid.text).toContain("code: INVALID_REQUEST");
+    expect(invalid.text).toContain('code: "INVALID_REQUEST"');
 
     // A malformed body (express.json, then errorHandler) and an unknown path are always JSON
     const malformed = await request(app).post("/api/k8s/plan?format=yaml").set("Content-Type", "application/json").send("{bad");

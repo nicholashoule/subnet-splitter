@@ -86,7 +86,17 @@ const payloadTooLargeResponse = {
   content: {
     "application/json": {
       schema: { $ref: "#/components/schemas/Error" },
-      example: { error: "request entity too large", code: "INVALID_REQUEST" },
+      example: { error: "Request body is larger than 16 KB", code: "INVALID_REQUEST" },
+    },
+  },
+};
+
+const unsupportedMediaTypeResponse = {
+  description: "Request body in a charset other than UTF-8, or with an unsupported Content-Encoding (always JSON)",
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/Error" },
+      example: { error: "Unsupported charset in Content-Type; send UTF-8 JSON", code: "INVALID_REQUEST" },
     },
   },
 };
@@ -96,7 +106,7 @@ export const openApiSpec = {
   info: {
     title: "CIDR Subnet Calculator API",
     version: APP_VERSION,
-    description: "REST API for subnet calculations and Kubernetes network planning. Generate optimized network configurations for EKS, GKE, AKS, and self-hosted Kubernetes clusters with battle-tested subnet allocations."
+    description: "REST API for subnet calculations and Kubernetes network planning. Generate optimized network configurations for EKS, GKE, AKS, and self-hosted Kubernetes clusters: separate node, control-plane, pod and service ranges that never overlap."
   },
   servers: [
     {
@@ -249,7 +259,7 @@ export const openApiSpec = {
                     uniqueItems: true,
                     items: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 64 },
                     example: ["ap-northeast-1a", "ap-northeast-1c"],
-                    description: "Optional zone names, assigned round-robin (EKS and generic Kubernetes; EKS needs at least two). Rejected for GKE and AKS, whose subnets are regional. Generated EKS names follow {region}{letter}, but available letters vary by region and account, so pass the zones your account has (e.g. from data.aws_availability_zones)."
+                    description: "Optional zone names, assigned round-robin (EKS and generic Kubernetes; EKS needs at least two). Rejected for GKE and AKS, whose subnets are regional. Generated EKS names follow {region}{letter}, but available letters vary by region and account, so pass the zones your account has (e.g. from data.aws_availability_zones). EKS refuses cluster subnets in AZ IDs use1-az3, usw1-az2 and cac1-az3; exclude them."
                   },
                   networkMode: {
                     type: "string",
@@ -303,6 +313,7 @@ export const openApiSpec = {
             content: errorContent
           },
           "413": payloadTooLargeResponse,
+          "415": unsupportedMediaTypeResponse,
           "429": rateLimitedResponse,
           "500": {
             description: "Internal server error",

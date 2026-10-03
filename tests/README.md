@@ -147,8 +147,9 @@ Integration tests verify system-wide features and API behavior.
 - Swagger UI presentation: pinned assets with well-formed `sha384` SRI (the smoke test checks the digests against the CDN files), and the pinned version named consistently in the docs
 - Endpoint aliases return the same full plan (only the generation timestamp may differ)
 - Error handling consistency: unknown `/api` paths and methods get a JSON 404 (not the web app), a repeated `?format=` falls back to JSON, unknown fields are ignored and not echoed
-- API paths in any letter case are served in the production app (`/API/K8S/PLAN`); query values keep their case (`?provider=EKS` is still a 400)
-- Response formats: JSON and YAML for tiers and plans; YAML quotes strings such as `yes` and `no` that YAML 1.1 readers would load as booleans
+- API and health paths in any letter case are served in the production app (`/API/K8S/PLAN`, `/HEALTH`), including absolute-form request targets (`GET http://host/API/...`); query values keep their case (`?provider=EKS` is still a 400)
+- Response formats: JSON and YAML for tiers and plans; every YAML string is double-quoted, so YAML 1.1 and 1.2 readers load the same values (`yes`, `0o17`); the OpenAPI YAML is serialized once
+- Validation errors list at most 5 issues, then "and N more"
 - Provider-specific and private-mode tier layouts (`?provider=`, `?networkMode=private`; an unknown `networkMode` returns 400)
 
 **kubernetes-network-api.test.ts** (calls `generateKubernetesNetworkPlan` and `getDeploymentTierInfo` directly; no HTTP server):
@@ -168,7 +169,7 @@ Integration tests verify system-wide features and API behavior.
 - The API limiter runs before the JSON parser, so malformed and oversized bodies count toward the limit
 - API paths in any letter case are served, share one quota, and are logged under the lowercase path; a miscased health probe is still exempt; the limiter mount alone (`API_PATH`) still covers every spelling
 - Rate-limited (429) and malformed-body (400) requests are logged
-- Bodies stay out of the logs: a rejected body is logged with body-parser's error type, not its message; a 500 from the plan generator logs only the validated plan inputs (no unknown fields, no `deploymentName`)
+- Bodies stay out of the logs and responses: a rejected body is logged with body-parser's error type and answered with fixed text, never the parser's message; a miscased path is logged with the client's spelling as `requestedPath`; a 500 from the plan generator logs only the validated plan inputs (no unknown fields, no `deploymentName`)
 - `server/index.ts` builds on `createApp()` and registers `errorHandler` after the routes and static serving
 
 **csp-violation-endpoint.test.ts**:

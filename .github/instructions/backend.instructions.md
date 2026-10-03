@@ -25,7 +25,7 @@ applyTo: "server/**"
 | `server/openapi.ts` | OpenAPI 3.0 specification; request/response examples are generated at startup from the real generator (never hand-write them) |
 | `server/swagger-ui.ts` | API docs page (`/api/docs/ui`): markup, styles, theme script, pinned Swagger UI assets and SRI hashes |
 | `server/logger.ts` | Structured logging system |
-| `server/api-path.ts` | `normalizeApiPath()` (first middleware: lowercases the path, not the query, of any `/api` request, so the API works in any letter case) and `API_PATH`, shared by the rate limiter mount, request logging and the JSON 404 |
+| `server/api-path.ts` | `normalizePathCase()` (first middleware: lowercases the path, not the query, of any `/api` or root `/health` request, so they work in any letter case) and `API_PATH`, shared by the rate limiter mount, request logging and the JSON 404 |
 | `server/health.ts` | `isHealthProbe()`: `GET`/`HEAD` of the exact health paths, exempt from the rate limit and request log |
 | `server/csp-report.ts` | Development CSP violation endpoint (`POST /__csp-violation`) with its own limiter and parser |
 | `shared/schema.ts` | Shared calculator types (`SubnetInfo`) and `SUBNET_CALCULATOR_LIMITS`; no Zod |
@@ -90,9 +90,9 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Use Zod for all request validation in route handlers
 - Shared handler functions (e.g., `handleNetworkPlan`, `handleTiers`) -- no code duplication
 - Error responses: `{ error: string, code: string }` with appropriate HTTP status
-- Never log `req.body` or a body-parser error message (a JSON syntax error quotes part of the body); log validated, allowlisted fields (`planInputsForLog()` in `server/routes.ts`) and `err.type`
+- Never log or return `req.body` or a body-parser error message (a JSON syntax error quotes part of the body); log validated, allowlisted fields (`planInputsForLog()` in `server/routes.ts`) and `err.type`, and answer with fixed text (`CLIENT_ERRORS` in `server/app.ts`)
 - Support JSON (default) and YAML (`?format=yaml`) output formats. Validation and planning errors from the plan and tiers routes follow `?format=`; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404) and rate limiting (429) are always JSON
-- API paths work in any letter case: `normalizeApiPath()` lowercases them before routing, so keep every API route lowercase and free of path parameters. Other routes match case-sensitively. Unknown `/api` paths get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
+- API and health paths work in any letter case: `normalizePathCase()` lowercases them before routing, so keep every API and health route lowercase and free of path parameters. Other routes (static files, client routes) match case-sensitively. Unknown `/api` paths get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
 
 ### Kubernetes Network Planning API
 

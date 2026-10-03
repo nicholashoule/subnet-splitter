@@ -6,7 +6,8 @@
  * validation errors, rate-limit headers, and the API docs. Unit and integration
  * tests import the source; this catches problems that only appear in the bundle.
  * The API docs check downloads the pinned Swagger UI files from the CDN to compare
- * them with their integrity hashes, so it needs network access to cdn.jsdelivr.net.
+ * them with their integrity hashes, so it needs network access to cdn.jsdelivr.net;
+ * offline, SMOKE_SKIP_CDN=1 skips that download and says so (CI ignores it).
  *
  * Also checks that the served OpenAPI document matches server/openapi.ts and writes
  * it to dist/openapi.json for validation.
@@ -25,6 +26,13 @@ const port = Number(process.env.SMOKE_PORT || 5099);
 const base = `http://127.0.0.1:${port}`;
 const { version } = JSON.parse(readFileSync("package.json", "utf-8"));
 
+// A server already answering on the port would take the checks instead of the bundle
+// under test (which would then exit with EADDRINUSE), so refuse to start
+if (await fetch(`${base}/health`).then(() => true, () => false)) {
+  console.error(`Something is already serving ${base}; stop it or set SMOKE_PORT.`);
+  process.exit(1);
+}
+
 const server = spawn(process.execPath, ["dist/index.cjs"], {
   env: { ...process.env, PORT: String(port), HOST: "127.0.0.1" },
   stdio: ["ignore", "ignore", "pipe"],
@@ -33,7 +41,12 @@ let serverErrors = "";
 server.stderr.on("data", (chunk) => { serverErrors += chunk; });
 
 const results: string[] = [];
+const notes: string[] = [];
 let failed = 0;
+
+// Offline runs may skip downloading the CDN files to check their SRI hashes; CI never does
+const skipCdn = process.env.SMOKE_SKIP_CDN === "1" && process.env.CI !== "true";
+if (process.env.SMOKE_SKIP_CDN === "1" && !skipCdn) notes.push("[NOTE] SMOKE_SKIP_CDN is ignored in CI");
 async function check(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -168,7 +181,9 @@ try {
     const res = await fetch(`${base}/api/k8s/plan?format=yaml`, json({ deploymentSize: "enterprise", provider: "gke", vpcCidr: "10.20.0.0/16" }));
     const text = await res.text();
     assert(res.ok && (res.headers.get("content-type") ?? "").includes("yaml"), "not YAML");
-    assert(text.includes("networkMode: public") && text.includes("controlPlane:"), "YAML body incomplete");
+    // Every string value is double-quoted, so YAML 1.1 and 1.2 readers load the same values
+    assert(text.includes('networkMode: "public"') && text.includes("controlPlane:"), "YAML body incomplete");
+    assert(text.includes('cidr: "10.20.0.0/16"'), "YAML strings not quoted");
   });
 
   await check("plan: readable validation errors and RFC 1918 enforcement", async () => {
@@ -231,8 +246,12 @@ try {
       "CDN asset without SRI"
     );
     // A stale or mistyped hash passes the format check above, but the browser refuses
-    // the file and the docs page stays blank. Hash what the CDN actually serves.
-    for (const attrs of cdnElements) {
+    // the file and the docs page stays blank. Hash what the CDN actually serves. Offline,
+    // SMOKE_SKIP_CDN=1 skips the download (reported below); CI ignores it.
+    if (skipCdn) {
+      notes.push("[SKIP] CDN integrity download (SMOKE_SKIP_CDN=1): the SRI hashes were not compared with the files");
+    }
+    for (const attrs of skipCdn ? [] : cdnElements) {
       const url = (attrs.get("src") ?? attrs.get("href"))!;
       let asset: Response;
       try {
@@ -268,6 +287,11 @@ try {
       assert(code === 1 && output.includes(message), `${JSON.stringify(env)}: exit ${code}, ${output.slice(0, 120)}`);
     }
   });
+  // Every check above must have talked to the bundle this run started
+  if (server.exitCode !== null) {
+    failed++;
+    results.push(`[FAIL] the server under test exited (${server.exitCode}) during the checks: ${serverErrors}`);
+  }
 } catch (error) {
   failed++;
   results.push(`[FAIL] startup: ${error instanceof Error ? error.message : String(error)}`);
@@ -276,5 +300,6 @@ try {
 }
 
 console.log(results.join("\n"));
+if (notes.length) console.log(notes.join("\n"));
 console.log(failed ? `\n${failed} smoke check(s) failed` : `\nAll ${results.length} smoke checks passed`);
 process.exit(failed ? 1 : 0);

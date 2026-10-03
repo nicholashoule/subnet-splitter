@@ -72,7 +72,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Rate Limiting** (`express-rate-limit`, per client IP)
 - `/api` routes: 100 requests per minute (API paths are lowercased first, so `/API/...` shares the same quota), counting requests with malformed or oversized bodies (the limiter runs before body parsing); `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
-- Health probes are exempt so they never fail: only a `GET` or `HEAD` of `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (`server/health.ts`). Other methods and lookalike paths such as `/api/v1/healthz` count; the unprefixed `/health*` routes are outside `/api`
+- Health probes are exempt so they never fail: only a `GET` or `HEAD` of `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (`server/health.ts`). API and health paths are lowercased first, so `/API/V1/HEALTH` is the same probe. Other methods and lookalike paths such as `/api/v1/healthz` count; the unprefixed `/health*` routes are outside `/api`
 - SPA fallback for unknown routes: 30 requests per 15 minutes (production)
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default
 
@@ -80,6 +80,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); API paths work in any letter case; unknown `/api` paths get a JSON 404, never the web app
 - Validation and planning errors from the plan and tiers routes follow `?format=` (JSON or YAML); malformed, oversized or wrongly encoded bodies (`400`/`413`/`415`), unknown API paths (`404`) and rate limiting (`429`) are always JSON
 - 5xx responses never include internal error messages or stack traces
+- A rejected body (`400`/`413`/`415`) gets fixed text for its error type ("Request body is not valid JSON"), never the JSON parser's message, which can quote part of the body
 - Validation errors name the offending field without echoing internals
 
 [PASS] **Server Hardening**
@@ -91,7 +92,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Logging**
 - Structured single-line JSON in production
-- API requests are logged with method, path (no query string), status, duration, client IP and user agent; health probes are not logged
+- API requests are logged with method, path (no query string, lowercased), status, duration, client IP and user agent, plus the path as sent when its letter case differed; health probes are not logged
 - API request and response bodies are never logged (the development-only CSP report endpoint logs the violation reports it receives, which is its purpose). When plan generation fails with a 500, the log records an allowlist of the validated fields that determine the plan (`deploymentSize`, `provider`, `region`, the three CIDRs, `availabilityZones`, `networkMode`), enough to reproduce it; unknown fields and the free-text `deploymentName` are left out
 - A rejected body (`400`/`413`/`415`) is logged with body-parser's error type (`entity.parse.failed`, `entity.too.large`, ...), not its message, which can quote part of the body
 

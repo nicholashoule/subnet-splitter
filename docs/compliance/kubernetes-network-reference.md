@@ -26,10 +26,11 @@ On EKS the separate pod range is for an overlay CNI (Calico, Cilium). With the d
 
 ### Pod CIDR Formula
 
-Each node receives an alias IP range sized by its max pods per node (65-128 pods: `/24`; 17-32 pods: `/26`; 8 pods `/28`, 9-16 `/27`, 33-64 `/25`, 129-256 `/23`):
+Each node receives an alias IP range sized by its max pods per node (65-128 pods: `/24`; 17-32 pods: `/26`; 8 pods `/28`, 9-16 `/27`, 33-64 `/25`, 129-256 `/23`, 257-512 `/22`):
 
 ```
-Q = Maximum pods per node (110 Standard, 32 Autopilot)
+Q = Maximum pods per node (Standard: 110 by default, up to 512;
+    Autopilot: 8-256, chosen by GKE)
 DS = Pod subnet prefix (e.g., /13 for hyperscale)
 
 M = 31 - ceil(log2(Q))   (netmask for node's pod range)
@@ -59,14 +60,13 @@ A GKE cluster takes its nodes, pods, and services from one default subnet, so th
 |--------|------------|--------|
 | VPC-native | Yes, secondary ranges | [PASS] |
 | Private address space | VPC and Services in RFC 1918; pods in RFC 1918, or `100.64.0.0/10` (RFC 6598, which GKE supports) when no RFC 1918 block has room | [PASS] |
-| Max cluster | 5,000 nodes | WARNING - one `/20` node subnet holds 4,092 |
+| Max cluster | 65,000 nodes (Standard), 5,000 (Autopilot) ([GKE quotas and limits](https://cloud.google.com/kubernetes-engine/quotas)) | WARNING - one `/20` node subnet holds 4,092 |
 | Pod limits | 200,000 max | [PASS] |
 | Service range | /20 recommended | /20 provided (/18 hyperscale) |
 | Control-plane range | /28 `master_ipv4_cidr_block` | [PASS] 1 x /28 |
-| Zones | Regional subnets | [PASS] No zone per subnet |
-| Multi-AZ | Multiple subnets | [PASS] |
+| Zones | Regional subnets; node pools choose zones | [PASS] No zone per subnet |
 
-Formulas assume 110 pods/node (Standard). Autopilot uses 32 default (over-provisions safely).
+Formulas assume 110 pods per node, the Standard default (configurable up to 512). Autopilot chooses max pods per node itself, from 8 to 256 by expected Pod density, and it cannot be set ([GKE: configure maximum Pods per node](https://cloud.google.com/kubernetes-engine/docs/how-to/flexible-pod-cidr)). A pod range's node capacity on Autopilot therefore varies: the hyperscale `/13` holds 1,024 nodes at 256 pods per node (a `/23` each) up to 32,768 at 8 (a `/28` each), and Autopilot clusters stop at 5,000 nodes.
 
 ## EKS Compliance & IP Formulas
 
@@ -76,28 +76,25 @@ Formulas assume 110 pods/node (Standard). Autopilot uses 32 default (over-provis
 - **Overlay CNI (Calico, Cilium):** pods get IPs from `pods.cidr`, outside the VPC. This is what the plan's pod range is for
 - **AWS VPC CNI (the EKS default):** pods get secondary IPs, or `/28` prefixes with prefix delegation, on the node's network interfaces, taken from the node subnets. `pods.cidr` goes unused, and the node subnets bound pod capacity as well as node capacity (see [EKS Tier Compliance](#eks-tier-compliance))
 - **VPC CNI custom networking:** pods use subnets in a secondary VPC CIDR. A generated `pods.cidr` can't be one (AWS refuses a different RFC 1918 block than the VPC's, and secondary blocks are `/16` to `/28`); pass a `podsCidr` from `100.64.0.0/10` of `/16` or smaller, associate it with the VPC, and create one pod subnet per AZ in it
-- Maximum pods per node: 250 (with prefix delegation)
+- Maximum pods per node: set by the instance type and capped by managed node groups (see [Pods per Node](#pods-per-node-vpc-cni))
 
 ### Pods per Node (VPC CNI)
 
 ```
 With prefix delegation (Nitro):
   Pod_Capacity = ENIs * Prefixes_Per_ENI * 16_IPs_Per_Prefix
-  Max: 250 pods/node
+  Max: 110 (fewer than 30 vCPUs) or 250 (managed node group cap)
 
 Without prefix delegation:
-  Pod_Capacity = Secondary_IPs_Available
-  Max: 50-110 pods/node (instance dependent)
+  Max_Pods = ENIs * (IPv4_Per_ENI - 1) + 2
+  c5.large: 3 * (10 - 1) + 2 = 29 pods/node
 ```
+
+Managed node groups cap `maxPods` at 110 on instances with fewer than 30 vCPUs and 250 on larger ones ([AWS: choosing an Amazon EC2 instance type](https://docs.aws.amazon.com/eks/latest/userguide/choosing-instance-type.html)).
 
 ### EKS Scalability Thresholds
 
-| Scale | Nodes | Pods | Action |
-|-------|-------|------|--------|
-| Small | <300 | <10K | Standard |
-| Medium | 300-1K | 10K-50K | Monitor control plane |
-| Large | 1K-5K | 50K-200K | Contact AWS |
-| Extreme | 5K-100K | 200K+ | AWS onboarding required |
+Kubernetes is tested to 5,000 nodes, 150,000 pods and 110 pods per node ([Kubernetes: considerations for large clusters](https://kubernetes.io/docs/setup/best-practices/cluster-large/)); the hyperscale tier targets that ceiling. With the default VPC CNI the node subnets bound pod capacity first (see [EKS Tier Compliance](#eks-tier-compliance)).
 
 ### EKS Tier Compliance
 
@@ -143,12 +140,7 @@ Node capacity: every node gets a fixed /24, whatever its max pods
 
 ### AKS Scalability Thresholds
 
-| Scale | Nodes | Pods | Action |
-|-------|-------|------|--------|
-| Small | <300 | <10K | Standard tier |
-| Medium | 300-1K | 10K-50K | Monitor |
-| Large | 1K-5K | 50K-200K | Contact Azure |
-| At Limit | 5K | 200K | No upgrade capacity |
+AKS supports up to 1,000 nodes on the Free tier and 5,000 on the Standard and Premium tiers ([Microsoft: AKS pricing tiers](https://learn.microsoft.com/en-us/azure/aks/free-standard-pricing-tiers)). 200,000 pods is a control-plane scale target: past it performance degrades, but the cluster doesn't fail outright ([Microsoft: large AKS clusters](https://learn.microsoft.com/en-us/azure/aks/best-practices-performance-scale-large)).
 
 ### AKS Tier Compliance
 
@@ -185,11 +177,11 @@ Error: HTTP 429, Header: Retry-After
 |--------|-----|-----|-----|
 | Pod model | VPC CNI: ENI secondary IPs from the node subnets; overlay CNI: `pods.cidr` | Alias IP ranges | CNI Overlay |
 | Config | Manual prefix delegation | Auto-managed | Overlay vs direct |
-| Max pods/node | 250 (prefix) | 110 (Standard) | 250 (overlay) |
+| Max pods/node | Up to 250 (managed node groups: 110 under 30 vCPUs, 250 above) | 110 default, up to 512 (Standard); 8-256 chosen by GKE (Autopilot) | 250 (CNI Overlay default and maximum: [Microsoft](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay)) |
 | Fragmentation risk | Yes | No | No |
-| Max nodes | 100K (with support) | 5K (Autopilot) | 5K |
+| Max nodes | No per-cluster node quota; managed node groups: 30 per cluster, 450 nodes each by default, adjustable ([AWS: EKS quotas](https://docs.aws.amazon.com/general/latest/gr/eks.html#limits_eks)). Kubernetes is tested to 5,000 ([Kubernetes: large clusters](https://kubernetes.io/docs/setup/best-practices/cluster-large/)) | 65,000 (Standard), 5,000 (Autopilot) | 5,000 (Standard and Premium tiers; Free: 1,000) |
 
-Our implementation supports all providers with single tier configuration, adjusted per provider (EKS: at least two subnets of each type and exactly two control-plane subnets; GKE and AKS: regional subnets). Pod CIDR `/13` (524,288 addresses) is sized to GKE's 200,000 pods-per-cluster limit. At a `/24` per node (AKS overlay always; GKE at 65-128 max pods) `/13` covers 2,048 nodes; 5,000 nodes needs GKE max pods per node <= 32 (`/26` per node), or a `/11` `podsCidr`, which is the only option on AKS.
+Our implementation supports all providers with single tier configuration, adjusted per provider (EKS: at least two subnets of each type and exactly two control-plane subnets; GKE and AKS: regional subnets). Pod CIDR `/13` (524,288 addresses) is sized to GKE's 200,000 pods-per-cluster limit. At a `/24` per node (AKS overlay always; GKE at 65-128 max pods) `/13` covers 2,048 nodes; 5,000 nodes needs GKE Standard max pods per node <= 32 (`/26` per node), or a `/11` `podsCidr`, which is the only option on AKS.
 
 | Provider | Control-plane subnets | Use |
 |----------|-----------------------|-----|
@@ -204,7 +196,7 @@ Private network mode (`"networkMode": "private"`): no public subnets; internal l
 |----------|-----------------------|------------------------------|
 | EKS | One per AZ (at least 2), tagged `kubernetes.io/role/internal-elb` | Transit gateway to a shared egress VPC, or no internet with VPC endpoints (a public NAT gateway needs a public subnet; a private NAT gateway cannot reach the internet) |
 | GKE | 1 regional, the region's proxy-only subnet (`REGIONAL_MANAGED_PROXY`, one active per region and network, shared by clusters there; cross-region internal load balancers need a separate `GLOBAL_MANAGED_PROXY` subnet, not in the plan) | Cloud NAT on a Cloud Router |
-| AKS | 1 regional, for internal load balancer frontends | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` |
+| AKS | 1 regional, for internal load balancer frontends | `outbound_type` `userAssignedNATGateway` or `userDefinedRouting`; the plan's VNet is your own, and `managedNATGateway` works only on an AKS-managed VNet ([Microsoft: AKS outbound types](https://learn.microsoft.com/en-us/azure/aks/egress-outboundtype)) |
 | Kubernetes | One per zone | Outside the plan |
 
 ## Implementation Files

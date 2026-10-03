@@ -1,9 +1,15 @@
+import { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
 
 export default function NotFound() {
+  // index.html's title names the calculator; this page's title says what it is (WCAG 2.4.2)
+  useEffect(() => {
+    document.title = "Page not found | CIDR Subnet Calculator";
+  }, []);
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background">
+    <main className="min-h-screen w-full flex items-center justify-center bg-background">
       <Card className="w-full max-w-md mx-4">
         <CardContent className="pt-6">
           <div className="flex mb-4 gap-2">
@@ -16,6 +22,6 @@ export default function NotFound() {
           </p>
         </CardContent>
       </Card>
-    </div>
+    </main>
   );
 }

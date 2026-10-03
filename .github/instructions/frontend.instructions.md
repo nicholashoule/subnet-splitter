@@ -40,7 +40,7 @@ applyTo: "client/**"
 
 - **Tailwind utility classes exclusively** -- no inline styles
 - Custom styles only in `index.css` for reusable patterns (e.g., `.elegant-scrollbar`)
-- Support both light and dark modes via Tailwind `dark:` prefix
+- Support both light and dark modes through the theme tokens, which `.dark` redefines (see Color System); a `dark:` variant is rarely needed
 - No hardcoded colors -- all via CSS variables; Tailwind palette classes (`text-green-600`, `bg-gray-50`) fail `tests/unit/ui-styles.test.ts` (only the decorative depth bars in `subnet-utils.ts` are exempt)
 - No horizontal page scrollbar on 1080p+ screens or at 320px wide (WCAG 1.4.10 reflow): rows of buttons use `flex-wrap`; only the subnet table scrolls sideways, inside its own container
 
