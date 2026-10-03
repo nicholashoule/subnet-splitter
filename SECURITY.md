@@ -32,7 +32,7 @@ Please provide:
 | 2.x     | Yes       |
 | < 2.0   | No        |
 
-We provide security updates for the latest major version only. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+We provide security updates for the latest major version only. Changes are listed in each version's [GitHub release](https://github.com/nicholashoule/subnet-splitter/releases).
 
 ## Scope and Threat Model
 

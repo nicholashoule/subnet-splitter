@@ -769,7 +769,7 @@ Comprehensive documentation is available to help developers understand and contr
   - [testing](.github/instructions/testing.instructions.md): test strategy and coverage
 - **[.github/swagger-ui-theming.md](.github/swagger-ui-theming.md)** - How the API docs page is styled, and how to upgrade Swagger UI
 - **[docs/git-conventions.md](docs/git-conventions.md)** - Commit message conventions
-- **[CHANGELOG.md](CHANGELOG.md)** - Release notes; **[SECURITY.md](SECURITY.md)** - Vulnerability reporting and security policy
+- **[CHANGELOG.md](CHANGELOG.md)** - Versions and dates; each version's notes are in its [GitHub release](https://github.com/nicholashoule/subnet-splitter/releases); **[SECURITY.md](SECURITY.md)** - Vulnerability reporting and security policy
 
 ### Testing & Quality
 - **[tests/README.md](tests/README.md)** - Comprehensive testing documentation
@@ -799,7 +799,7 @@ We welcome contributions! Please follow these guidelines:
    - Security audit requirements (mandatory)
    - API planning documentation
 
-2. **Review recent changes**: [CHANGELOG.md](CHANGELOG.md) explains what changed and why, including the network allocation rules.
+2. **Review recent changes**: each [GitHub release](https://github.com/nicholashoule/subnet-splitter/releases) explains what changed and why, including the network allocation rules.
 
 3. **Understand commit conventions**: Follow [Conventional Commits](https://www.conventionalcommits.org/) as documented in [docs/git-conventions.md](docs/git-conventions.md):
    - Use `feat:` for new features
