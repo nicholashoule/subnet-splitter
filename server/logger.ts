@@ -151,9 +151,9 @@ export const logger = new Logger({ source: "server" });
 
 /**
  * Logs each API request when its response finishes (health probes are skipped to
- * keep logs useful). Register it before the JSON body parser and the rate limiter, as
- * createApp() in server/app.ts does, so malformed or oversized bodies (400, 413) and
- * rate-limited requests (429) are logged.
+ * keep logs useful). Register it before the rate limiter and the JSON body parser, as
+ * createApp() in server/app.ts does, so rate-limited requests (429) and malformed or
+ * oversized bodies (400, 413) are logged.
  */
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();

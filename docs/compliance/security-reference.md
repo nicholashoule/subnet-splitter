@@ -112,7 +112,7 @@ Browsers send each violation as an `application/csp-report` body wrapped in a `"
 }
 ```
 
-`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes; reports past the limit are dropped without logging. Every report that reaches the handler, including invalid and rate-limited ones, gets an empty `204 No Content` (browsers ignore the response). A body that is not valid JSON, or is larger than 16 KB, never reaches it: `express.json()` in `server/app.ts` rejects it first with `400` or `413` and the JSON error body.
+`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes; reports past the limit are dropped without logging. Every report that reaches the handler, including invalid and rate-limited ones, gets an empty `204 No Content` (browsers ignore the response). The rate limit runs before the route's JSON parser, so malformed reports count toward it too. A body that is not valid JSON, or is larger than 16 KB, never reaches the handler: the parser rejects it with `400` or `413` and the JSON error body.
 
 ### Helmet v8 Rules
 
@@ -143,7 +143,7 @@ export function createApiRateLimiter(): RequestHandler {
 
 ### Request Body Limit (`server/app.ts`)
 
-`express.json()` is capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`, always in JSON (`errorHandler`), whatever `?format=` asks for. There is no URL-encoded parser: the API takes JSON only.
+`express.json()` runs on `/api` only, after the `/api` rate limiter, so malformed or oversized bodies count toward the limit, and is capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`, always in JSON (`errorHandler`), whatever `?format=` asks for. There is no URL-encoded parser: the API takes JSON only.
 
 ### Production SPA Fallback (`server/static.ts`)
 

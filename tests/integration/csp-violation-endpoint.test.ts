@@ -432,4 +432,31 @@ describe("CSP Violation Endpoint Rate Limit", () => {
       await closeTestServer(server);
     }
   });
+
+  it("should count malformed reports toward the limit (the limiter runs before the JSON parser)", async () => {
+    const server = await startDevServer();
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
+    const send = (body: string) => fetch(`${server.baseUrl}/__csp-violation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/csp-report" },
+      body,
+    });
+
+    try {
+      // Not JSON: the route's parser rejects each one, after the limiter counted it
+      for (let i = 0; i < 100; i++) {
+        expect((await send("{not json")).status).toBe(400);
+      }
+      warn.mockClear();
+
+      // The quota is used up, so a valid report is acknowledged but never logged
+      const valid = await send(JSON.stringify({ "csp-report": { "blocked-uri": "https://x.example/a.js" } }));
+      expect(valid.status).toBe(204);
+      expect(valid.headers.get("ratelimit-remaining")).toBe("0");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      await closeTestServer(server);
+    }
+  });
 });

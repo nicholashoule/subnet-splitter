@@ -71,7 +71,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Development adds only what Vite HMR needs, plus a rate-limited CSP violation report endpoint
 
 [PASS] **Rate Limiting** (`express-rate-limit`, per client IP)
-- `/api` routes: 100 requests per minute; `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
+- `/api` routes: 100 requests per minute, counting requests with malformed or oversized bodies (the limiter runs before body parsing); `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
 - Health checks (`/health*`, `/api/v1/health*`) are exempt so probes never fail
 - SPA fallback for unknown routes: 30 requests per 15 minutes (production)
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default

@@ -375,6 +375,25 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
     const health = await request(app).get("/api/v1/health");
     expect(health.status).toBe(200);
   });
+
+  it("should count malformed and oversized bodies toward the limit (the limiter runs before the JSON parser)", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
+    try {
+      app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
+      app.use(errorHandler);
+      const post = () => request(app).post("/api/k8s/plan").set("Content-Type", "application/json");
+
+      for (let i = 0; i < 50; i++) {
+        expect((await post().send("{bad")).status).toBe(400);
+        expect((await post().send(JSON.stringify({ pad: "a".repeat(17 * 1024) }))).status).toBe(413);
+      }
+
+      // 100 rejected bodies used the whole quota, so even a valid request is now limited
+      expect((await post().send("{}")).status).toBe(429);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
 });
 
 describe("Request logging of rejected requests", () => {
@@ -385,8 +404,8 @@ describe("Request logging of rejected requests", () => {
   it("should log rate-limited (429) and malformed-body (400) requests", async () => {
     const logged = vi.spyOn(logger, "request").mockImplementation(() => {});
     vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
-    // The production app from server/app.ts (request logging, then body parsing, then
-    // the limiter), a route, and the error handler, as server/index.ts assembles them
+    // The production app from server/app.ts (request logging, then the limiter, then
+    // body parsing), a route, and the error handler, as server/index.ts assembles them
     const app = createApp({ isDevelopment: false });
     app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
     app.use(errorHandler);

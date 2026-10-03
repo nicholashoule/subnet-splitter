@@ -2,7 +2,7 @@
  * server/index.ts
  *
  * Main Express server entry point. Builds the app with server/app.ts (security
- * headers, compression, request logging, JSON body parsing, API rate limiting), then:
+ * headers, compression, request logging, API rate limiting, JSON body parsing), then:
  * - Registers the API routes
  * - Serves the built client (production) or the Vite dev server (development)
  * - Adds the JSON error handler

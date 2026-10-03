@@ -5,12 +5,13 @@
  * Browsers send a report here whenever the Content-Security-Policy blocks something,
  * so CSP problems show up in the dev server log before they reach production.
  *
- * Every report that reaches the handler is answered 204 No Content. A body that is
- * not valid JSON, or is larger than 16 KB, is rejected earlier by express.json()
- * (server/app.ts): 400 or 413 with the JSON error body from errorHandler.
+ * The rate limit runs first, then the route's own JSON parser, so malformed and
+ * oversized reports count toward the limit too. Every report that reaches the handler
+ * is answered 204 No Content; a body that is not valid JSON, or is larger than 16 KB,
+ * gets 400 or 413 with the JSON error body from errorHandler (server/app.ts).
  */
 
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { cspViolationReportSchema } from "./csp-config";
 import { logger } from "./logger";
@@ -33,7 +34,11 @@ export function registerCspViolationEndpoint(app: Express): void {
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'localhost-dev',
   });
 
-  app.post('/__csp-violation', cspViolationLimiter, (req: Request, res: Response) => {
+  // Browsers send report-uri reports as application/csp-report
+  const parseReport = express.json({ type: ['application/csp-report', 'application/json'], limit: '16kb' });
+
+  // Limiter before parser: a malformed report still uses up the quota
+  app.post('/__csp-violation', cspViolationLimiter, parseReport, (req: Request, res: Response) => {
     try {
       // Validate the wrapper structure (browsers send { "csp-report": {...} })
       const validationResult = cspViolationReportSchema.safeParse(req.body);

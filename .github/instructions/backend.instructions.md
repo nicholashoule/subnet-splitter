@@ -17,7 +17,7 @@ applyTo: "server/**"
 | File | Purpose |
 |------|---------|
 | `server/index.ts` | Entry point: routes, static serving or Vite, error handler, timeouts, `TRUST_PROXY`, `HOST`/`PORT` binding |
-| `server/app.ts` | `createApp()` (security headers, compression, request logging, JSON body parsing, `/api` rate limit, dev CSP endpoint) and `errorHandler`; integration tests build their servers with these |
+| `server/app.ts` | `createApp()` (security headers, compression, request logging, `/api` rate limit, then `/api` JSON body parsing, so rejected bodies count toward the limit; dev CSP endpoint) and `errorHandler`; integration tests build their servers with these |
 | `server/routes.ts` | API route definitions (shared handler functions) |
 | `server/csp-config.ts` | Centralized CSP directive configuration and `cspViolationReportSchema` |
 | `server/static.ts` | Production static file serving with file-extension guard |
@@ -65,7 +65,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 ## Security: Rate Limiting
 
 - API routes (`/api/*`): 100 req / min per IP via `createApiRateLimiter()` in `server/routes.ts`; `/api/v1/health*` exempt; 429 `{ error, code: "RATE_LIMITED" }`
-- Request bodies capped at 16 KB (`express.json` in `server/app.ts`; JSON only, no URL-encoded parser)
+- Request bodies capped at 16 KB (`express.json` on `/api` in `server/app.ts`, after the rate limiter; JSON only, no URL-encoded parser)
 - Production SPA fallback: 30 req / 15 min (file system ops are expensive)
 - Dev SPA fallback: 100 req / 15 min (more permissive)
 - CSP violation endpoint: 100 reports / 15 min
@@ -114,7 +114,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Use clear error messages with specific error codes
 - Validate all inputs before processing
 - Return appropriate HTTP status codes (400 for validation, 413 for oversized bodies, 429 for rate limits, 500 for internal)
-- CSP violation endpoint answers every report it receives with an empty 204 (browsers ignore the response); a malformed JSON body is rejected with 400 by `express.json` before it
+- CSP violation endpoint answers every report it receives with an empty 204 (browsers ignore the response); its rate limit runs first, then the route's own `express.json`, so a malformed JSON body still counts toward the limit and is rejected with 400 before it
 
 ## Security Pitfalls (Do NOT)
 
