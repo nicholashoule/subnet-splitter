@@ -147,6 +147,7 @@ Integration tests verify system-wide features and API behavior.
 - Swagger UI presentation: pinned assets with well-formed `sha384` SRI (the smoke test checks the digests against the CDN files), and the pinned version named consistently in the docs
 - Endpoint aliases return the same full plan (only the generation timestamp may differ)
 - Error handling consistency: unknown `/api` paths and methods get a JSON 404 (not the web app), a repeated `?format=` falls back to JSON, unknown fields are ignored and not echoed
+- API paths in any letter case are served in the production app (`/API/K8S/PLAN`); query values keep their case (`?provider=EKS` is still a 400)
 - Response formats: JSON and YAML for tiers and plans; YAML quotes strings such as `yes` and `no` that YAML 1.1 readers would load as booleans
 - Provider-specific and private-mode tier layouts (`?provider=`, `?networkMode=private`; an unknown `networkMode` returns 400)
 
@@ -165,7 +166,8 @@ Integration tests verify system-wide features and API behavior.
 - Multiple endpoints protected
 - Health probe exemption: only `GET` and `HEAD` of the real health paths; other methods and lookalike paths count
 - The API limiter runs before the JSON parser, so malformed and oversized bodies count toward the limit
-- Rate-limited (429) and malformed-body (400) requests are logged, and `/api` is logged in any letter case
+- API paths in any letter case are served, share one quota, and are logged under the lowercase path; a miscased health probe is still exempt; the limiter mount alone (`API_PATH`) still covers every spelling
+- Rate-limited (429) and malformed-body (400) requests are logged
 - Bodies stay out of the logs: a rejected body is logged with body-parser's error type, not its message; a 500 from the plan generator logs only the validated plan inputs (no unknown fields, no `deploymentName`)
 - `server/index.ts` builds on `createApp()` and registers `errorHandler` after the routes and static serving
 

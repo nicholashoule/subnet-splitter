@@ -330,6 +330,14 @@ describe("Semantic Structure", () => {
   });
 });
 
+describe("Connections the CSP allows", () => {
+  it("sends no preconnect or dns-prefetch hints: connect-src is 'self' only", () => {
+    // Browsers differ on whether CSP covers these hints; where it does, each would be a
+    // violation (and, in development, a report) on every page load
+    expect(read("client/index.html")).not.toMatch(/rel=["']?(?:preconnect|dns-prefetch)/i);
+  });
+});
+
 describe("Theme Before First Paint", () => {
   const html = read("client/index.html");
   const themeInit = read("client/public/theme-init.js");

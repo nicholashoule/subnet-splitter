@@ -185,14 +185,21 @@ try {
     assert(bad.status === 400, `unknown networkMode gave ${bad.status}`);
   });
 
-  await check("unknown API paths get a JSON 404, not the web app", async () => {
-    // In production the SPA fallback answers unmatched GETs, so this must come first.
-    // Routing is case-sensitive, so /API/... matches no route but is still an API path.
-    for (const path of ["/api/typo", "/api/k8s/plan", "/API/k8s/tiers", "/Api/version"]) {
+  await check("API paths work in any letter case; unknown ones get a rate-limited JSON 404", async () => {
+    // API paths are lowercased before routing, so a miscased path is served by its route
+    for (const path of ["/API/k8s/tiers", "/Api/Version"]) {
+      const res = await fetch(`${base}${path}`);
+      assert(res.status === 200 && (res.headers.get("content-type") ?? "").includes("json"), `GET ${path}: ${res.status}`);
+      assert(res.headers.get("ratelimit-policy") === "100;w=60", `GET ${path}: not rate limited`);
+    }
+    // In production the SPA fallback answers unmatched GETs, so the JSON 404 must come
+    // first, for every spelling of /api
+    for (const path of ["/api/typo", "/api/k8s/plan", "/API/Typo"]) {
       const res = await fetch(`${base}${path}`);
       const body = await res.text();
       assert(res.status === 404 && (res.headers.get("content-type") ?? "").includes("json"), `GET ${path}: ${res.status} ${body.slice(0, 40)}`);
       assert(JSON.parse(body).code === "NOT_FOUND", `GET ${path}: ${body}`);
+      assert(res.headers.get("ratelimit-policy") === "100;w=60", `GET ${path}: not rate limited (${res.headers.get("ratelimit-policy")})`);
     }
     const repeated = await fetch(`${base}/api/k8s/tiers?format=json&format=yaml`);
     assert(repeated.status === 200, `repeated format parameter gave ${repeated.status}`);

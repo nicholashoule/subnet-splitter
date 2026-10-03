@@ -31,6 +31,7 @@ import YAML from "yaml";
 import { version as APP_VERSION } from "../package.json";
 import { logger } from "./logger";
 import { isHealthProbe } from "./health";
+import { API_PATH } from "./api-path";
 import { openApiSpec } from "./openapi";
 import { buildSwaggerUICSP } from "./csp-config";
 import { swaggerUiHtml } from "./swagger-ui";
@@ -47,7 +48,8 @@ export function createApiRateLimiter(): RequestHandler {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
-    // Mounted at /api: req.baseUrl is "/api" and req.path the rest
+    // Mounted on API_PATH: req.baseUrl is the /api segment as sent (/api, /API, ...) and
+    // req.path the rest, so only a correctly cased probe path is exempt
     skip: (req) => isHealthProbe(req.method, req.baseUrl + req.path),
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : "unknown",
   });
@@ -289,10 +291,10 @@ export async function registerRoutes(
 
   // Anything else under /api is a JSON 404, so clients (Terraform http data sources,
   // scripts) never receive the web app's index.html for a mistyped path or method.
-  // Routing is case-sensitive (server/app.ts), so /API/k8s/tiers matches no route;
-  // it is matched here in any letter case, before static serving or Vite.
+  // Matched in any letter case, before static serving or Vite. (createApp() lowercases
+  // API paths first, so /API/k8s/tiers is served by its route and never gets here.)
   app.use((req, res, next) => {
-    if (!/^\/api(?:\/|$)/i.test(req.path)) return next();
+    if (!API_PATH.test(req.path)) return next();
     res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
   });
 

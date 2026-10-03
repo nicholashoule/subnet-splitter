@@ -125,7 +125,7 @@ Browsers send each violation as an `application/csp-report` body wrapped in a `"
 
 ### API Routes (`server/routes.ts`)
 
-Mounted for every `/api` route in `server/app.ts` (`createApp()`) with `app.use("/api", createApiRateLimiter())`. Only health probes skip it, so probes are never throttled: `isHealthProbe()` in `server/health.ts` accepts a `GET` or `HEAD` of exactly `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (a trailing slash allowed). Any other method, such as a `POST` with a body, and any lookalike path, such as `/api/v1/healthz`, counts toward the limit. The unprefixed `/health*` routes are outside `/api` and not limited.
+Mounted in `server/app.ts` (`createApp()`) with `app.use(API_PATH, createApiRateLimiter())`. API paths are lowercased before this runs (`normalizeApiPath()` in `server/api-path.ts`), so `/API/...` shares the quota of `/api/...` and a miscased probe such as `/API/V1/HEALTH` is still exempt. The mount is `API_PATH` (`/^\/api(?=\/|$)/i`) rather than `"/api"` as defense in depth: with case-sensitive routing, a `"/api"` mount would skip `/API/...` if the normalization were ever removed. Request logging and the JSON 404 use the same pattern. Only health probes skip it, so probes are never throttled: `isHealthProbe()` in `server/health.ts` accepts a `GET` or `HEAD` of exactly `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (a trailing slash allowed). Any other method, such as a `POST` with a body, and any lookalike path, such as `/api/v1/healthz`, counts toward the limit. The unprefixed `/health*` routes are outside `/api` and not limited.
 
 ```typescript
 export function createApiRateLimiter(): RequestHandler {

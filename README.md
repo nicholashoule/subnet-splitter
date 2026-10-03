@@ -658,7 +658,7 @@ curl http://localhost:5000/api/k8s/tiers
 }
 ```
 
-**404 Not Found** - No API route for that path and method (paths are case-sensitive):
+**404 Not Found** - No API route for that path and method (API paths work in any letter case: `/API/K8s/Plan` is `/api/k8s/plan`):
 ```json
 {
   "error": "Not found",

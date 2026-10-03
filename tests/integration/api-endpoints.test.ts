@@ -8,8 +8,8 @@
  * - Swagger UI presentation (/api/docs/ui HTML/CSS/themes)
  * - Path variations (/api/k8s/..., /api/v1/k8s/..., /api/kubernetes/... and
  *   /api/v1/kubernetes/...)
- * - Error handling consistency, and unknown API paths in the production app
- *   (case-sensitive routing, SPA fallback)
+ * - Error handling consistency, and API paths in the production app (any letter case
+ *   served, unknown paths a JSON 404, never the SPA fallback)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -312,6 +312,8 @@ describe("API Endpoints Integration", () => {
       // ...the 268 KB standalone preset is not loaded (BaseLayout needs no topbar)...
       expect(html).not.toContain("swagger-ui-standalone-preset");
       expect(html).toContain("layout: 'BaseLayout'");
+      // ...no connection hints to origins outside connect-src (the fonts' preconnects)...
+      expect(html).not.toMatch(/rel=["']?(?:preconnect|dns-prefetch)/i);
 
       // ...and every CDN asset carries Subresource Integrity. A SHA-384 digest is 48
       // bytes, 64 base64 characters; npm run smoke checks the digests against the files.
@@ -781,9 +783,9 @@ describe("API Endpoints Integration", () => {
 });
 
 describe("Unknown API paths in the production app", () => {
-  // The production stack as server/index.ts builds it: createApp() routes
-  // case-sensitively, then the routes, the SPA fallback (which answers unmatched GETs
-  // with index.html) and errorHandler
+  // The production stack as server/index.ts builds it: createApp() (API paths lowercased,
+  // then case-sensitive routing), the routes, the SPA fallback (which answers unmatched
+  // GETs with index.html) and errorHandler
   let app: Express;
   let distPath: string;
 
@@ -800,8 +802,30 @@ describe("Unknown API paths in the production app", () => {
     await fs.promises.rm(distPath, { recursive: true, force: true });
   });
 
-  it("should answer /api in any letter case with a JSON 404, never the web app", async () => {
-    for (const url of ["/API/k8s/tiers", "/Api/version", "/api/K8S/TIERS", "/API", "/API/", "/api/typo"]) {
+  it("should serve API routes in any letter case", async () => {
+    for (const url of ["/API/k8s/tiers", "/Api/K8S/Tiers", "/api/K8S/TIERS"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(Object.keys(response.body), url).toContain("hyperscale");
+    }
+    expect((await request(app).get("/API/VERSION")).body.version).toBe(APP_VERSION);
+    const plan = await request(app).post("/API/K8S/PLAN").send({ deploymentSize: "micro" });
+    expect(plan.status).toBe(200);
+    expect(plan.body.subnets).toBeDefined();
+  });
+
+  it("should lowercase only the path: query values keep their case", async () => {
+    // ?format=yaml works however the path is spelled...
+    const yaml = await request(app).get("/API/k8s/tiers?format=yaml");
+    expect(yaml.headers["content-type"]).toContain("application/yaml");
+    // ...but enum values are still validated as sent
+    const upperProvider = await request(app).get("/API/k8s/tiers?provider=EKS");
+    expect(upperProvider.status).toBe(400);
+    expect(upperProvider.body.code).toBe("INVALID_REQUEST");
+  });
+
+  it("should answer unknown /api paths, in any letter case, with a JSON 404, never the web app", async () => {
+    for (const url of ["/API", "/API/", "/api/typo", "/API/Typo", "/Api/k8s/nothing"]) {
       const response = await request(app).get(url);
       expect(response.status, url).toBe(404);
       expect(response.headers["content-type"], url).toContain("application/json");

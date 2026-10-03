@@ -25,6 +25,9 @@ applyTo: "server/**"
 | `server/openapi.ts` | OpenAPI 3.0 specification; request/response examples are generated at startup from the real generator (never hand-write them) |
 | `server/swagger-ui.ts` | API docs page (`/api/docs/ui`): markup, styles, theme script, pinned Swagger UI assets and SRI hashes |
 | `server/logger.ts` | Structured logging system |
+| `server/api-path.ts` | `normalizeApiPath()` (first middleware: lowercases the path, not the query, of any `/api` request, so the API works in any letter case) and `API_PATH`, shared by the rate limiter mount, request logging and the JSON 404 |
+| `server/health.ts` | `isHealthProbe()`: `GET`/`HEAD` of the exact health paths, exempt from the rate limit and request log |
+| `server/csp-report.ts` | Development CSP violation endpoint (`POST /__csp-violation`) with its own limiter and parser |
 | `shared/schema.ts` | Shared calculator types (`SubnetInfo`) and `SUBNET_CALCULATOR_LIMITS`; no Zod |
 | `shared/kubernetes-schema.ts` | Kubernetes API schemas |
 | `scripts/build.ts` | `npm run build`: Vite client to `dist/public`, esbuild server bundle to `dist/index.cjs` |
@@ -64,7 +67,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 
 ## Security: Rate Limiting
 
-- API routes (`/api/*`): 100 req / min per IP via `createApiRateLimiter()` in `server/routes.ts`; `/api/v1/health*` exempt; 429 `{ error, code: "RATE_LIMITED" }`
+- API routes (`/api/*`, lowercased first, so any letter case shares one quota): 100 req / min per IP via `createApiRateLimiter()` in `server/routes.ts`, mounted on `API_PATH` (`server/api-path.ts`), which request logging and the JSON 404 share; only `GET`/`HEAD` of the exact `/api/v1/health*` probe paths are exempt (`server/health.ts`); 429 `{ error, code: "RATE_LIMITED" }`
 - Request bodies capped at 16 KB (`express.json` on `/api` in `server/app.ts`, after the rate limiter; JSON only, no URL-encoded parser)
 - Production SPA fallback: 30 req / 15 min (file system ops are expensive)
 - Dev SPA fallback: 100 req / 15 min (more permissive)
@@ -89,7 +92,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Error responses: `{ error: string, code: string }` with appropriate HTTP status
 - Never log `req.body` or a body-parser error message (a JSON syntax error quotes part of the body); log validated, allowlisted fields (`planInputsForLog()` in `server/routes.ts`) and `err.type`
 - Support JSON (default) and YAML (`?format=yaml`) output formats. Validation and planning errors from the plan and tiers routes follow `?format=`; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404) and rate limiting (429) are always JSON
-- Unknown `/api` paths, in any letter case (routing is case-sensitive), get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
+- API paths work in any letter case: `normalizeApiPath()` lowercases them before routing, so keep every API route lowercase and free of path parameters. Other routes match case-sensitively. Unknown `/api` paths get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
 
 ### Kubernetes Network Planning API
 

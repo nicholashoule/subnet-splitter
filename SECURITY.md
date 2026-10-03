@@ -71,13 +71,13 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Development adds only what Vite HMR needs, plus a rate-limited CSP violation report endpoint
 
 [PASS] **Rate Limiting** (`express-rate-limit`, per client IP)
-- `/api` routes: 100 requests per minute, counting requests with malformed or oversized bodies (the limiter runs before body parsing); `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
+- `/api` routes: 100 requests per minute (API paths are lowercased first, so `/API/...` shares the same quota), counting requests with malformed or oversized bodies (the limiter runs before body parsing); `429` with `{"code": "RATE_LIMITED"}` and standard `RateLimit-*` headers
 - Health probes are exempt so they never fail: only a `GET` or `HEAD` of `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (`server/health.ts`). Other methods and lookalike paths such as `/api/v1/healthz` count; the unprefixed `/health*` routes are outside `/api`
 - SPA fallback for unknown routes: 30 requests per 15 minutes (production)
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default
 
 [PASS] **Error Handling**
-- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); unknown `/api` paths, in any letter case, get a JSON 404, never the web app
+- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); API paths work in any letter case; unknown `/api` paths get a JSON 404, never the web app
 - Validation and planning errors from the plan and tiers routes follow `?format=` (JSON or YAML); malformed, oversized or wrongly encoded bodies (`400`/`413`/`415`), unknown API paths (`404`) and rate limiting (`429`) are always JSON
 - 5xx responses never include internal error messages or stack traces
 - Validation errors name the offending field without echoing internals

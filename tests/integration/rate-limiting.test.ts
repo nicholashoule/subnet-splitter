@@ -31,6 +31,8 @@ import os from "os";
 import { createServer } from "http";
 import { serveStatic } from "../../server/static";
 import { createApp, errorHandler } from "../../server/app";
+import { API_PATH } from "../../server/api-path";
+import { createApiRateLimiter } from "../../server/routes";
 import { logger } from "../../server/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -346,8 +348,8 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
   let app: Express;
 
   beforeEach(() => {
-    // The production app from server/app.ts: the limiter is mounted on /api ahead of
-    // the routes
+    // The production app from server/app.ts: the limiter is mounted on API_PATH (/api in
+    // any letter case) ahead of the routes
     app = createApp({ isDevelopment: false });
     app.get("/api/k8s/tiers", (_req, res) => { res.json({ ok: true }); });
     app.get("/api/v1/health", (_req, res) => { res.json({ status: "healthy" }); });
@@ -375,6 +377,32 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
 
     const health = await request(app).get("/api/v1/health");
     expect(health.status).toBe(200);
+  });
+
+  it("should treat any letter case of an API path as the path itself: served, counted, exempt", async () => {
+    // API paths are lowercased first, so these share /api/k8s/tiers's quota...
+    for (let i = 0; i < 50; i++) {
+      const upper = await request(app).get("/API/k8s/tiers");
+      expect(upper.status, "/API").toBe(200);
+      expect(upper.headers, "/API").toHaveProperty("ratelimit-limit");
+      expect((await request(app).get("/Api/K8S/Tiers")).status, "/Api").toBe(200);
+    }
+    expect((await request(app).get("/api/k8s/tiers")).status).toBe(429);
+    // ...and a health probe in any letter case is still a probe, never limited
+    for (const url of ["/api/v1/health", "/API/V1/HEALTH"]) {
+      const probe = await request(app).get(url);
+      expect(probe.status, url).toBe(200);
+      expect(probe.headers, url).not.toHaveProperty("ratelimit-limit");
+    }
+  });
+
+  it("should still count every spelling of /api if path normalization were skipped", async () => {
+    // Defense in depth: the limiter is mounted on API_PATH (any letter case), not "/api",
+    // so an app without normalizeApiPath still limits /API/... (which would 404)
+    const bare = express();
+    bare.set("case sensitive routing", true);
+    bare.use(API_PATH, createApiRateLimiter());
+    expect((await request(bare).get("/API/k8s/tiers")).headers).toHaveProperty("ratelimit-limit");
   });
 
   it("should exempt only real health probes: other methods and lookalike paths count", async () => {
@@ -445,18 +473,19 @@ describe("Request logging of rejected requests", () => {
     expect(statuses).toContain(429);
   });
 
-  it("should log API requests in any letter case, and skip only real health probes", async () => {
+  it("should log API requests in any letter case, under the lowercase path, and skip only real health probes", async () => {
     const logged = vi.spyOn(logger, "request").mockImplementation(() => {});
     const app = createApp({ isDevelopment: false });
     app.get("/api/v1/health", (_req, res) => { res.json({ status: "healthy" }); });
 
-    await request(app).get("/API/k8s/tiers"); // answered 404, but still an API request
+    await request(app).get("/API/k8s/tiers"); // an API request, logged as /api/k8s/tiers
     await request(app).get("/api/v1/health"); // a probe: not logged
+    await request(app).get("/API/V1/Health"); // the same probe: not logged
     await request(app).get("/api/v1/healthz"); // a lookalike: logged
     await new Promise((resolve) => setImmediate(resolve));
 
     const paths = logged.mock.calls.map(([, path]) => path);
-    expect(paths).toEqual(["/API/k8s/tiers", "/api/v1/healthz"]);
+    expect(paths).toEqual(["/api/k8s/tiers", "/api/v1/healthz"]);
   });
 
   it("should keep request bodies out of the rejection log (body-parser's type, not its message)", async () => {
