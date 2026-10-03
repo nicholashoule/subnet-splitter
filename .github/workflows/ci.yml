@@ -47,7 +47,8 @@ jobs:
         run: npm run build
 
       # Tests import the source; this starts dist/index.cjs and checks the bundle
-      # over HTTP. It also saves the served OpenAPI document to dist/openapi.json.
+      # over HTTP. It also checks that the served OpenAPI document matches the source
+      # and saves it to dist/openapi.json.
       - name: Smoke test the production build
         run: npm run smoke
 

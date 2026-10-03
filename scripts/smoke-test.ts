@@ -6,7 +6,8 @@
  * validation errors, rate-limit headers, and the API docs. Unit and integration
  * tests import the source; this catches problems that only appear in the bundle.
  *
- * Also writes the served OpenAPI document to dist/openapi.json for validation.
+ * Also checks that the served OpenAPI document matches server/openapi.ts and writes
+ * it to dist/openapi.json for validation.
  *
  * Run after `npm run build`:  npm run smoke
  * Port: SMOKE_PORT (default 5099)
@@ -14,6 +15,8 @@
 
 import { spawn } from "child_process";
 import { readFileSync, writeFileSync } from "fs";
+import { isDeepStrictEqual } from "util";
+import { openApiSpec } from "../server/openapi";
 
 const port = Number(process.env.SMOKE_PORT || 5099);
 const base = `http://127.0.0.1:${port}`;
@@ -150,19 +153,27 @@ try {
     const spec = await (await fetch(`${base}/api/docs`)).json();
     assert(spec.openapi === "3.0.0" && spec.info?.version === version, "unexpected openapi/info.version");
     assert(spec.paths?.["/k8s/plan"]?.post?.operationId === "generateNetworkPlan", "operationId missing");
-    writeFileSync("dist/openapi.json", JSON.stringify(spec, null, 2));
+    // Save the document built from source, not the HTTP response; they must be identical
+    const source = JSON.parse(JSON.stringify(openApiSpec));
+    assert(isDeepStrictEqual(spec, source), "served OpenAPI document differs from server/openapi.ts");
+    writeFileSync("dist/openapi.json", JSON.stringify(source, null, 2));
   });
 
   await check("API docs page loads pinned assets with SRI", async () => {
     const res = await fetch(`${base}/api/docs/ui`);
     const html = await res.text();
     const csp = parseCsp(res.headers.get("content-security-policy") ?? "");
-    const cdnTags = (html.match(/<(?:script|link)\b[^>]*>/g) ?? []).filter((tag) => {
-      const url = tag.match(/\s(?:src|href)="([^"]+)"/)?.[1];
-      return url !== undefined && isCdn(url);
-    });
-    assert(res.ok && cdnTags.length === 2, `expected 2 CDN tags, found ${cdnTags.length}`);
-    assert(cdnTags.every((t) => /integrity="sha384-/.test(t)), "CDN asset without SRI");
+    // Every element that loads from the CDN must carry SRI, whatever its tag name.
+    // Attributes are read per element (text between "<" and ">"); no tag-matching regex.
+    const elements = html.split("<").map((chunk) => new Map(
+      [...chunk.slice(0, chunk.indexOf(">")).matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name.toLowerCase(), value])
+    ));
+    const cdnElements = elements.filter((attrs) => [attrs.get("src"), attrs.get("href")].some((url) => url !== undefined && isCdn(url)));
+    assert(res.ok && cdnElements.length === 2, `expected 2 CDN elements, found ${cdnElements.length}`);
+    assert(
+      cdnElements.every((attrs) => attrs.get("integrity")?.startsWith("sha384-") && attrs.get("crossorigin") === "anonymous"),
+      "CDN asset without SRI"
+    );
     for (const directive of ["script-src", "style-src"]) {
       assert(csp.get(directive)?.some(isHttpsCdn), `docs CSP ${directive} lacks the CDN`);
     }

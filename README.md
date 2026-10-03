@@ -214,7 +214,7 @@ npm run smoke    # optional: start the build on port 5099 and check it over HTTP
 
 The production build creates optimized assets in `dist/public/` and a self-contained server bundle at `dist/index.cjs` (all server dependencies are bundled, so `node_modules` is not needed at runtime; `NODE_ENV=production` is baked in at build time). To deploy, copy `dist/` to a host with Node.js 24 or 26 and run `node dist/index.cjs`.
 
-`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), and the API docs page, then stops it. It also writes the served OpenAPI document to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
+`npm run smoke` starts the built server and checks health, the web app and its security headers, the plan and tiers APIs (including private mode and validation errors), and the API docs page, then stops it. It also checks that the served OpenAPI document matches `server/openapi.ts` and writes it to `dist/openapi.json`. Set `SMOKE_PORT` to use a different port.
 
 **Runtime configuration (environment variables):**
 
