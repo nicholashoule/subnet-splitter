@@ -5,12 +5,24 @@
  * Tests network generation logic, validation, and edge cases
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   generateKubernetesNetworkPlan,
   getDeploymentTierInfo,
-  KubernetesNetworkGenerationError
+  KubernetesNetworkGenerationError,
+  PLAN_FORMAT_VERSION
 } from "@/lib/kubernetes-network-generator";
+import { parseCidr } from "@/lib/subnet-utils";
+
+/** True when the CIDR lies entirely inside one RFC 1918 block */
+function isRfc1918(cidr: string): boolean {
+  const { network, prefix } = parseCidr(cidr);
+  const last = network + 2 ** (32 - prefix) - 1;
+  return ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].some((block) => {
+    const b = parseCidr(block);
+    return network >= b.network && last <= b.network + 2 ** (32 - b.prefix) - 1;
+  });
+}
 
 describe("Kubernetes Network Generator", () => {
   describe("generateKubernetesNetworkPlan", () => {
@@ -63,11 +75,8 @@ describe("Kubernetes Network Generator", () => {
           deploymentSize: "standard"
         });
 
-        const vpc = plan.vpc.cidr;
-        const firstOctet = parseInt(vpc.split(".")[0], 10);
-
-        // Should be RFC 1918: 10, 172, or 192
-        expect([10, 172, 192]).toContain(firstOctet);
+        // Entirely inside an RFC 1918 block (not just a matching first octet)
+        expect(isRfc1918(plan.vpc.cidr), plan.vpc.cidr).toBe(true);
       });
 
       it("should accept custom VPC CIDR", async () => {
@@ -339,22 +348,24 @@ describe("Kubernetes Network Generator", () => {
         expect(plan.subnets.private[2].availabilityZone).toBe("us-east-1c");
       });
 
-      it("should assign GKE-style zones for GKE provider", async () => {
+      it("should leave GKE subnets regional (no zone) with one control-plane range", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "professional",
           provider: "gke",
           vpcCidr: "10.50.0.0/16"
         });
 
-        // Professional tier: 2 public + 2 private subnets
+        // Professional tier: 2 public + 2 private subnets, 1 regional control-plane /28
         expect(plan.subnets.public).toHaveLength(2);
         expect(plan.subnets.private).toHaveLength(2);
+        expect(plan.subnets.controlPlane).toEqual([
+          { cidr: "10.50.1.0/28", name: "control-plane-1", type: "control-plane" }
+        ]);
 
-        // Check zone assignments (GKE default region: us-central1)
-        expect(plan.subnets.public[0].availabilityZone).toBe("us-central1-a");
-        expect(plan.subnets.public[1].availabilityZone).toBe("us-central1-b");
-        expect(plan.subnets.private[0].availabilityZone).toBe("us-central1-a");
-        expect(plan.subnets.private[1].availabilityZone).toBe("us-central1-b");
+        // GCP subnets span every zone in the region; node pools pick zones
+        for (const subnet of [...plan.subnets.public, ...plan.subnets.private]) {
+          expect(subnet).not.toHaveProperty("availabilityZone");
+        }
       });
 
       it("should assign numerical zones for generic Kubernetes", async () => {
@@ -440,7 +451,8 @@ describe("Kubernetes Network Generator", () => {
           deploymentSize: "standard"
         });
 
-        expect(plan.metadata.version).toBe("1.0");
+        expect(plan.metadata.version).toBe(PLAN_FORMAT_VERSION);
+        expect(PLAN_FORMAT_VERSION).toBe("2.0");
       });
 
       it("should include deployment name when provided", async () => {
@@ -584,17 +596,28 @@ describe("Kubernetes Network Generator", () => {
       expect(plan1.services).toEqual(plan2.services);
     });
 
-    it("should produce different VPC CIDRs for random generation", async () => {
-      const plans = await Promise.all([
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" }),
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" }),
-        generateKubernetesNetworkPlan({ deploymentSize: "standard" })
-      ]);
+    it("should derive a random VPC from Math.random (RFC 1918 block, then /18 slot)", async () => {
+      // Without vpcCidr the generator draws twice: which RFC 1918 block, then which /18 in it
+      const random = vi.spyOn(Math, "random");
+      try {
+        random.mockReturnValueOnce(0).mockReturnValueOnce(0);
+        const first = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
 
-      const vpcs = plans.map(p => p.vpc.cidr);
+        random.mockReturnValueOnce(0.99).mockReturnValueOnce(0.99);
+        const last = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
 
-      // It's statistically very unlikely to get the same VPC CIDR twice
-      expect(new Set(vpcs).size).toBeGreaterThan(1);
+        // 172.16.0.0/12 has 64 /18 slots; the 4 inside reserved 172.17.0.0/16 are skipped,
+        // so slot index 4 (floor(0.075 * 60)) is 172.18.0.0/18
+        random.mockReturnValueOnce(0.5).mockReturnValueOnce(0.075);
+        const afterReserved = await generateKubernetesNetworkPlan({ deploymentSize: "standard" });
+
+        expect(random).toHaveBeenCalledTimes(6);
+        expect(first.vpc.cidr).toBe("10.0.0.0/18");
+        expect(last.vpc.cidr).toBe("192.168.192.0/18");
+        expect(afterReserved.vpc.cidr).toBe("172.18.0.0/18");
+      } finally {
+        random.mockRestore();
+      }
     });
   });
 
@@ -757,8 +780,7 @@ describe("Kubernetes Network Generator", () => {
         ]);
 
         for (const plan of plans) {
-          const firstOctet = parseInt(plan.vpc.cidr.split(".")[0], 10);
-          expect([10, 172, 192]).toContain(firstOctet);
+          expect(isRfc1918(plan.vpc.cidr), plan.vpc.cidr).toBe(true);
         }
       });
     });

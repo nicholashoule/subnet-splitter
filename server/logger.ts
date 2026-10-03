@@ -13,6 +13,10 @@
  * - Compatible with open-source log forwarders
  */
 
+import type { Request, Response, NextFunction } from "express";
+import { isHealthProbe } from "./health";
+import { API_PATH, splitRequestTarget } from "./api-path";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogEntry {
@@ -146,6 +150,34 @@ class Logger {
 
 // Export singleton instance
 export const logger = new Logger({ source: "server" });
+
+/**
+ * Logs each API request when its response finishes. Health probes are skipped to keep
+ * logs useful. API paths arrive lowercased (normalizePathCase, server/api-path.ts), so
+ * /API/k8s/tiers is logged under /api/k8s/tiers, with the client's spelling kept in
+ * requestedPath; /api is matched in any letter case all the same. Register it before
+ * the rate limiter and the JSON body parser, as createApp() in server/app.ts does, so
+ * rate-limited requests (429) and malformed, oversized or wrongly encoded bodies (400,
+ * 413, 415) are logged.
+ */
+export function requestLogger(req: Request, res: Response, next: NextFunction): void {
+  const start = Date.now();
+  const path = req.path;
+  // The path as the client sent it (req.originalUrl is never rewritten)
+  const requestedPath = splitRequestTarget(req.originalUrl).path;
+
+  res.on("finish", () => {
+    if (API_PATH.test(path) && !isHealthProbe(req.method, path)) {
+      logger.request(req.method, path, res.statusCode, Date.now() - start, {
+        ...(requestedPath !== path && { requestedPath }),
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+    }
+  });
+
+  next();
+}
 
 // Export factory for custom loggers
 export function createLogger(config: Partial<LoggerConfig>): Logger {

@@ -14,6 +14,9 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.sh text eol=lf
+*.mjs text eol=lf
+# Git hooks run under sh, which rejects CRLF line endings
+.githooks/* text eol=lf
 
 # Keep CRLF for Windows-specific files (if any)
 *.bat text eol=crlf

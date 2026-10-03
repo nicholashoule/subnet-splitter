@@ -7,20 +7,22 @@ applyTo: "client/**"
 ## Stack
 
 - React 18 with TypeScript (strict mode)
-- Tailwind CSS for all styling
+- Tailwind CSS 4 for all styling
 - shadcn/ui component library (Radix UI primitives)
-- React Hook Form with Zod validation
-- Vite for bundling and HMR
-- TanStack React Query for data fetching
+- Forms use plain React state with validator functions (no form library)
+- Vite 8 for bundling and HMR (`npm run dev` serves it through Express on `127.0.0.1:5000`; `npm run build` writes `dist/public`)
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `client/src/App.tsx` | Main application component |
+| `client/src/App.tsx` | Main application component (renders Calculator on `/`, NotFound otherwise; no router library) |
 | `client/src/main.tsx` | React entry point |
+| `client/public/theme-init.js` | Applies the saved theme before first paint (classic script in `index.html` `<head>`; same rule as `lib/theme.ts`) |
+| `client/src/lib/theme.ts` | Theme runtime API: read, save, and apply the light/dark choice (`localStorage` key `theme`) |
 | `client/src/index.css` | Global styles, CSS variables, elegant-scrollbar |
-| `client/src/lib/subnet-utils.ts` | Core CIDR calculation logic |
+| `client/src/lib/subnet-utils.ts` | Core CIDR calculation logic, plus the calculator table's rows, tree updates, and CSV export |
+| `client/src/lib/kubernetes-network-generator.ts` | Kubernetes network plan generator used by the API (first-fit subnet layout, separated pod/service ranges, one-network control plane, `networkMode` public/private layouts with `subnets.loadBalancer`); its invariants are enforced by `tests/unit/network-separation.test.ts`, and `server/openapi.ts` builds its examples from it |
 | `client/src/lib/utils.ts` | Helper functions |
 | `client/src/pages/calculator.tsx` | Calculator page component |
 | `client/src/components/ui/` | shadcn/ui components |
@@ -28,7 +30,7 @@ applyTo: "client/**"
 ## Component Rules
 
 - Use functional components with hooks only
-- Prefer React Hook Form for forms with Zod validation
+- Keep forms simple: React state plus a validator function such as `validateCidrInput()`
 - Use shadcn/ui as the base UI library
 - No implicit `any` -- TypeScript strict mode
 - Components: PascalCase filenames (`Calculator.tsx`)
@@ -38,9 +40,9 @@ applyTo: "client/**"
 
 - **Tailwind utility classes exclusively** -- no inline styles
 - Custom styles only in `index.css` for reusable patterns (e.g., `.elegant-scrollbar`)
-- Support both light and dark modes via Tailwind `dark:` prefix
-- No hardcoded colors -- all via CSS variables
-- No horizontal scrollbars on 1080p+ screens
+- Support both light and dark modes through the theme tokens, which `.dark` redefines (see Color System); a `dark:` variant is rarely needed
+- No hardcoded colors -- all via CSS variables; Tailwind palette classes (`text-green-600`, `bg-gray-50`) fail `tests/unit/ui-styles.test.ts` (only the decorative depth bars in `subnet-utils.ts` are exempt)
+- No horizontal page scrollbar on 1080p+ screens or at 320px wide (WCAG 1.4.10 reflow): rows of buttons use `flex-wrap`; only the subnet table scrolls sideways, inside its own container
 
 ### CSS Variables
 
@@ -48,18 +50,23 @@ Colors defined in `client/src/index.css` (`:root` and `.dark` selectors):
 
 | Variable | Purpose |
 |----------|---------|
-| `--primary` | Action buttons, links, badges (blue) |
-| `--secondary-accent` | Highlights, secondary CTAs (teal) |
-| `--background` | Page background |
+| `--primary` / `--primary-foreground` | Action buttons, links, focus ring (blue); text on primary |
+| `--secondary` | Example buttons, network class badges, subtle surfaces |
+| `--background` / `--card` | Page and card backgrounds |
 | `--foreground` | Primary text |
 | `--muted` / `--muted-foreground` | Secondary backgrounds/text |
-| `--destructive` | Error states |
-| `--border` | Borders, dividers |
+| `--destructive` / `--destructive-foreground` | Error text; destructive buttons and badges |
+| `--destructive-soft` / `--destructive-soft-foreground` | Error toasts |
+| `--success` | Status messages, copy confirmation |
+| `--border` / `--input` | Borders, dividers; input borders (3:1 against card and background) |
+| `--ring` | Focus ring (same as `--primary`) |
+
+The API docs page (`server/swagger-ui.ts`) mirrors the twelve it uses (`--background`, `--foreground`, `--card`, `--border`, `--input`, `--muted`, `--muted-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--destructive`, `--success`); a test fails if any of them drift.
 
 ### Adding New Colors
 
 1. Add to both light and dark mode in `index.css`
-2. Update `tailwind.config.ts` theme extension
+2. Map it in the `@theme inline` block in `index.css` (e.g. `--color-highlight: hsl(var(--highlight));`); Tailwind v4 has no `tailwind.config.ts`
 3. Use semantic naming: `--highlight`, `--success`
 4. Test WCAG contrast ratios in both themes
 
@@ -67,18 +74,31 @@ See [docs/ui-examples.md](../../docs/ui-examples.md) for full color tables and c
 
 ### Tailwind Troubleshooting
 
-- Content config: use `"./client/**/*.{js,jsx,ts,tsx}"` (simple globs only)
-- PostCSS: keep `postcss.config.js` minimal (`tailwindcss: {}`, `autoprefixer: {}`)
+- Tailwind CSS v4 runs through `@tailwindcss/vite` (Rust engine: Oxide scans sources automatically, Lightning CSS adds prefixes); there is no `tailwind.config.ts`, `postcss.config.js`, or content list
+- Theme configuration lives in `client/src/index.css` (`@theme inline`); animations come from `tw-animate-css` (`animate-in`, `fade-in-0`, `zoom-in-95`, `slide-in-from-*`)
+- v4 renamed scales: v3 `shadow-sm` is v4 `shadow-xs`, `outline-none` is `outline-hidden`; `space-y-*` no longer adds margin before an absolutely positioned first child
 - Use real browser for development (VS Code Simple Browser has HMR issues)
 - Hard refresh (`Ctrl+Shift+R`) if CSS changes don't appear
 
 ## Accessibility (WCAG)
 
-- Primary on background: 7.2:1 (WCAG AAA)
-- Foreground text: 12.5:1 (WCAG AAA)
-- Destructive: 5.2:1 (WCAG AA)
-- Muted foreground: 4.2:1 (WCAG AA)
-- Status colors differentiate by brightness, not color alone
+Every text pair the app renders meets WCAG AA (4.5:1) in both themes; `tests/unit/ui-styles.test.ts` reads the tokens from `index.css` and checks them (light / dark):
+
+- Foreground on background: 17.1 / 18.1 (AAA)
+- Primary on background: 5.0 / 5.2; text on primary buttons: 5.2 / 5.2
+- Muted foreground on background, card, and footer: 4.8 or better / 6.9 or better
+- Destructive on card: 4.8 / 5.2; success on card: 5.6 / 9.8; error toast text: 9.2 / 13.2
+- Non-text (3:1): input borders 3.3 / 3.3 on card and 3.2 / 3.4 on background; focus ring 5.0 / 5.2 on background and 5.2 / 4.9 on card
+- In dark mode, primary and destructive surfaces use dark text (`--primary-foreground` and `--destructive-foreground` are `222 47% 8%`); white text on those colors is below 4.5:1
+- Errors pair color with text, never color alone; links inside text are always underlined (`underline underline-offset-2`), not only on hover
+- Icon-only toggles name the action and update with state (`Switch to light mode` / `Switch to dark mode`)
+- Focus: buttons, inputs, and checkboxes use `focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-background`; the gap keeps the ring (`--ring` = `--primary`) visible on primary buttons
+- Headings: one `h1`; `CardTitle` renders an `h2` and holds only its text (toolbars go beside it). Name a table by its heading with `aria-labelledby`
+- Inputs are named by their visible label or heading (`aria-labelledby`), so the accessible name matches the text on screen (WCAG 2.5.3)
+- Messages: validation errors are `role="alert"` plus `aria-invalid`/`aria-describedby`; status text goes in an always-mounted `role="status"` region. Key each message on a new id so repeated text is announced again. Don't also move focus to the invalid input: its `aria-describedby` would read the error a second time
+- Pointer targets are at least 24x24 px (WCAG 2.5.8), or have room around them under its spacing exception, as the 16px row checkboxes do in their 40px-wide cells
+- The Button's `[&_svg]:size-4` overrides size classes on its icon, so size icons through the button: the header icons use `[&_svg]:size-5` on the Button
+- See [docs/ui-examples.md](../../docs/ui-examples.md#accessibility-patterns) for how the calculator applies these
 
 ## Icons
 
@@ -93,13 +113,17 @@ Core logic in `client/src/lib/subnet-utils.ts`:
 - `calculateSubnet()` -- all subnet info from CIDR notation
 - `splitSubnet()` -- recursive splitting down to /32
 - `getSubnetClass()` -- network class (A-E) identification
+- `validateCidrInput()` -- calculator form validation; returns an error message or `null` and requires the network address (e.g., `192.168.1.0/24`, not `192.168.1.5/24`)
+- `collectVisibleRows()` -- the subnet table's rows with depth and parent CIDR; Hide Parents, "select all", and the export all use it
+- `splitSubnetInTree()` / `removeSplitInTree()` -- immutable split and remove-split updates; the split enforces the whole-tree node limit
+- `selectedVisibleSubnets()` / `subnetsToCsv()` -- the CSV export
 - Validates CIDR format, octet ranges, prefix 0-32
 - Handles RFC 3021 /31 (point-to-point) and /32 (host routes)
 - RFC 1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 
 ## CSV Export
 
-Exports all subnet details: CIDR, network/broadcast addresses, host range, masks, prefix length.
+Exports the selected rows that are visible (`selectedVisibleSubnets()`; rows hidden by Hide Parents or a removed split are skipped), in table order, with all subnet details: CIDR, network/broadcast addresses, host range, masks, prefix length (`subnetsToCsv()`).
 
 File naming: `subnet-export-YYYY-MM-DD.csv`
 
@@ -115,15 +139,16 @@ See [docs/ui-examples.md](../../docs/ui-examples.md) for full implementation cod
 ## Performance
 
 - All subnet calculations are client-side (no network requests)
-- Optimize table rendering with React best practices
+- The subnet table renders a flat list of memoized rows from `collectVisibleRows()`. Each row gets primitives (`depth`, `parentCidr`, a boolean `selected`), stable callbacks, and its subnet object, which `splitSubnetInTree()` / `removeSplitInTree()` replace only along the path to the change, so a checkbox re-renders one row and a split only the rows on the path to it
 - Monitor component re-renders with React DevTools
 - Test with large subnet hierarchies (many splits)
 
 ## Code Review Checklist
 
 - [ ] TypeScript compilation passes (`npm run check`)
+- [ ] Production build passes (`npm run build`)
 - [ ] No console warnings or errors
-- [ ] No horizontal scrollbars on 1080p+ screens
+- [ ] No horizontal page scrollbar on 1080p+ screens or at 320px wide
 - [ ] Works in both light and dark modes
 - [ ] Follows existing code style
 - [ ] WCAG accessibility maintained

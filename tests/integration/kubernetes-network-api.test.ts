@@ -1,8 +1,10 @@
 /**
  * tests/integration/kubernetes-network-api.test.ts
  * 
- * Integration tests for Kubernetes network planning API
- * Tests all deployment tiers, providers, and network generation scenarios
+ * End-to-end tests of the network plan generator behind /api/k8s/plan,
+ * called directly (no HTTP). Covers all deployment tiers, providers, and
+ * network generation scenarios. HTTP routing, error responses, and
+ * JSON/YAML output are tested in api-endpoints.test.ts.
  */
 
 import { describe, it, expect } from "vitest";
@@ -11,7 +13,17 @@ import {
   getDeploymentTierInfo,
   KubernetesNetworkGenerationError
 } from "@/lib/kubernetes-network-generator";
-import { ipToNumber } from "@/lib/subnet-utils";
+import { ipToNumber, parseCidr } from "@/lib/subnet-utils";
+
+/** True when the CIDR lies entirely inside one RFC 1918 block */
+function isRfc1918(cidr: string): boolean {
+  const { network, prefix } = parseCidr(cidr);
+  const last = network + 2 ** (32 - prefix) - 1;
+  return ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].some((block) => {
+    const b = parseCidr(block);
+    return network >= b.network && last <= b.network + 2 ** (32 - b.prefix) - 1;
+  });
+}
 
 describe("Kubernetes Network Planning API Integration", () => {
   describe("API Workflow", () => {
@@ -39,7 +51,8 @@ describe("Kubernetes Network Planning API Integration", () => {
 
   describe("Deployment Tiers Coverage", () => {
     it("should handle all deployment tier sizes", async () => {
-      const tiers: Array<"standard" | "professional" | "enterprise" | "hyperscale"> = [
+      const tiers: Array<"micro" | "standard" | "professional" | "enterprise" | "hyperscale"> = [
+        "micro",
         "standard",
         "professional",
         "enterprise",
@@ -114,7 +127,7 @@ describe("Kubernetes Network Planning API Integration", () => {
       expect(plan.subnets.private).toHaveLength(1);
     });
 
-    it("should generate plan for hyperscale multi-region setup", async () => {
+    it("should generate plan for a hyperscale single-region cluster", async () => {
       const plan = await generateKubernetesNetworkPlan({
         deploymentSize: "hyperscale",
         provider: "kubernetes",
@@ -192,7 +205,7 @@ describe("Kubernetes Network Planning API Integration", () => {
       expect(micro.podsPrefix).toBe(20); // 4,096 IPs for 1-2 nodes
       expect(professional.podsPrefix).toBe(18); // 16,384 IPs for 10 nodes
       expect(enterprise.podsPrefix).toBe(16); // 65,536 IPs (IDEAL)
-      expect(hyperscale.podsPrefix).toBe(13); // 524,288 IPs (supports 5000 nodes at 110 pods/node)
+      expect(hyperscale.podsPrefix).toBe(13); // 524,288 IPs: 2,048 nodes at a /24 each (5,000 needs a /11 podsCidr)
       // Larger tiers have more IP space (smaller prefix number)
       expect(professional.podsPrefix).toBeLessThan(micro.podsPrefix);
       expect(enterprise.podsPrefix).toBeLessThan(professional.podsPrefix);
@@ -271,156 +284,47 @@ describe("Kubernetes Network Planning API Integration", () => {
     });
   });
 
-  describe("Output Format Support (JSON/YAML)", () => {
-    it("should generate valid JSON format for network plan", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "eks",
-        vpcCidr: "10.0.0.0/16",
-        deploymentName: "test-cluster"
-      });
+  describe("Serializable Output", () => {
+    // JSON and YAML responses over HTTP (?format=yaml) are tested in
+    // api-endpoints.test.ts "Response Format Support"; this checks the plan itself.
+    it("should be plain data that survives a JSON round trip unchanged", async () => {
+      for (const provider of ["eks", "gke", "aks", "kubernetes"] as const) {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "enterprise",
+          provider,
+          vpcCidr: "10.100.0.0/16",
+          deploymentName: "conversion-test"
+        });
 
-      // Verify can be JSON stringified
-      const jsonStr = JSON.stringify(plan, null, 2);
-      expect(jsonStr).toBeTruthy();
-
-      // Verify can be parsed back
-      const parsed = JSON.parse(jsonStr);
-      expect(parsed.deploymentSize).toBe("professional");
-      expect(parsed.subnets.public).toHaveLength(2);
-      expect(parsed.subnets.private).toHaveLength(2);
-    });
-
-    it("should output all subnet details in JSON format", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "eks",
-        vpcCidr: "10.50.0.0/16"
-      });
-
-      const jsonStr = JSON.stringify(plan, null, 2);
-      const parsed = JSON.parse(jsonStr);
-
-      // Verify public subnets are included
-      expect(parsed.subnets.public).toBeDefined();
-      expect(Array.isArray(parsed.subnets.public)).toBe(true);
-      parsed.subnets.public.forEach((subnet: any) => {
-        expect(subnet).toHaveProperty("cidr");
-        expect(subnet).toHaveProperty("name");
-        expect(subnet).toHaveProperty("type");
-        expect(subnet.type).toBe("public");
-      });
-
-      // Verify private subnets are included
-      expect(parsed.subnets.private).toBeDefined();
-      expect(Array.isArray(parsed.subnets.private)).toBe(true);
-      parsed.subnets.private.forEach((subnet: any) => {
-        expect(subnet).toHaveProperty("cidr");
-        expect(subnet).toHaveProperty("name");
-        expect(subnet).toHaveProperty("type");
-        expect(subnet.type).toBe("private");
-      });
-    });
-
-    it("should support YAML serialization of network plans", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "standard",
-        provider: "gke",
-        vpcCidr: "172.16.0.0/16"
-      });
-
-      // Verify structure is compatible with YAML
-      const jsonStr = JSON.stringify(plan);
-      const obj = JSON.parse(jsonStr);
-
-      // Check key YAML-compatible fields
-      expect(obj).toHaveProperty("deploymentSize");
-      expect(obj).toHaveProperty("provider");
-      expect(obj).toHaveProperty("vpc");
-      expect(obj).toHaveProperty("subnets");
-      expect(obj).toHaveProperty("pods");
-      expect(obj).toHaveProperty("services");
-      expect(obj).toHaveProperty("metadata");
-
-      // Verify nested structure
-      expect(obj.vpc).toHaveProperty("cidr");
-      expect(obj.subnets).toHaveProperty("public");
-      expect(obj.subnets).toHaveProperty("private");
-      expect(obj.pods).toHaveProperty("cidr");
-      expect(obj.services).toHaveProperty("cidr");
-    });
-
-    it("should include all subnet details for YAML/JSON export", async () => {
-      const plan = await generateKubernetesNetworkPlan({
-        deploymentSize: "professional",
-        provider: "kubernetes",
-        vpcCidr: "192.168.0.0/16",
-        deploymentName: "self-hosted-prod"
-      });
-
-      // All data should be serializable
-      const data = {
-        deploymentSize: plan.deploymentSize,
-        provider: plan.provider,
-        deploymentName: plan.deploymentName,
-        vpc: plan.vpc,
-        subnets: plan.subnets,
-        pods: plan.pods,
-        services: plan.services,
-        metadata: plan.metadata
-      };
-
-      // Verify can stringify
-      expect(() => JSON.stringify(data)).not.toThrow();
-
-      const json = JSON.stringify(data);
-      const restored = JSON.parse(json);
-
-      // Verify subnets are fully included
-      expect(restored.subnets.public.length).toBeGreaterThan(0);
-      expect(restored.subnets.private.length).toBeGreaterThan(0);
-    });
-
-    it("should maintain data integrity when converting between JSON formats", async () => {
-      const original = await generateKubernetesNetworkPlan({
-        deploymentSize: "enterprise",
-        provider: "eks",
-        vpcCidr: "10.100.0.0/16",
-        deploymentName: "conversion-test"
-      });
-
-      // Convert to JSON and back
-      const jsonStr = JSON.stringify(original);
-      const restored = JSON.parse(jsonStr);
-
-      // Verify integrity
-      expect(restored.deploymentSize).toBe(original.deploymentSize);
-      expect(restored.provider).toBe(original.provider);
-      expect(restored.deploymentName).toBe(original.deploymentName);
-      expect(restored.vpc.cidr).toBe(original.vpc.cidr);
-      expect(restored.subnets.public).toEqual(original.subnets.public);
-      expect(restored.subnets.private).toEqual(original.subnets.private);
-      expect(restored.pods.cidr).toBe(original.pods.cidr);
-      expect(restored.services.cidr).toBe(original.services.cidr);
+        // A Date, Map, Set, BigInt, NaN, undefined field or class instance would not survive this
+        expect(JSON.parse(JSON.stringify(plan))).toStrictEqual(plan);
+      }
     });
   });
 
   describe("Private IP Security Enforcement (API Level)", () => {
     describe("RFC 1918 Private Ranges Acceptance", () => {
-      it("should accept Class A private range (10.0.0.0/8)", async () => {
+      it("should accept a /16 in the Class A private range (10.0.0.0/8)", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "standard",
-          vpcCidr: "10.0.0.0/8"
+          vpcCidr: "10.200.0.0/16"
         });
-        expect(plan.vpc.cidr).toBe("10.0.0.0/8");
+        expect(plan.vpc.cidr).toBe("10.200.0.0/16");
       });
 
-      it("should accept Class B private range (172.16.0.0/12)", async () => {
+      it("should accept a /16 in the Class B private range (172.16.0.0/12)", async () => {
         const plan = await generateKubernetesNetworkPlan({
           deploymentSize: "professional",
-          vpcCidr: "172.16.0.0/12"
+          vpcCidr: "172.20.0.0/16"
         });
-        expect(plan.vpc.cidr).toBe("172.16.0.0/12");
+        expect(plan.vpc.cidr).toBe("172.20.0.0/16");
+      });
+
+      it("should reject a whole private block as the VPC: /16 is the largest VPC", async () => {
+        for (const vpcCidr of ["10.0.0.0/8", "172.16.0.0/12"]) {
+          await expect(generateKubernetesNetworkPlan({ deploymentSize: "standard", vpcCidr }))
+            .rejects.toThrow(/too large.*\/16 or smaller/);
+        }
       });
 
       it("should accept Class C private range (192.168.0.0/16)", async () => {
@@ -466,13 +370,15 @@ describe("Kubernetes Network Planning API Integration", () => {
     });
 
     describe("Public IP Rejection (Security Anti-Pattern)", () => {
+      // Each VPC is a /16, which fits every tier's layout, so only the private-range
+      // check can reject it; the message proves which check did
       it("should reject public Class A IP ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "standard",
             vpcCidr: "8.8.8.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject public Class B IP ranges", async () => {
@@ -481,34 +387,34 @@ describe("Kubernetes Network Planning API Integration", () => {
             deploymentSize: "professional",
             vpcCidr: "172.100.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject public Class C IP ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "enterprise",
-            vpcCidr: "203.0.113.0/24"
+            vpcCidr: "203.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject multicast Class D ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "standard",
-            vpcCidr: "224.0.0.0/4"
+            vpcCidr: "224.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should reject reserved Class E ranges", async () => {
         await expect(
           generateKubernetesNetworkPlan({
             deploymentSize: "professional",
-            vpcCidr: "240.0.0.0/4"
+            vpcCidr: "240.0.0.0/16"
           })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/uses public IP space/);
       });
 
       it("should include security guidance in error message for public IP", async () => {
@@ -534,15 +440,8 @@ describe("Kubernetes Network Planning API Integration", () => {
             // No vpcCidr specified - uses auto-generation
           });
 
-          const firstOctet = parseInt(plan.vpc.cidr.split(".")[0], 10);
-
-          // Check if in private ranges
-          const isPrivate =
-            firstOctet === 10 ||
-            (firstOctet === 172 && parseInt(plan.vpc.cidr.split(".")[1], 10) >= 16) ||
-            (firstOctet === 192 && parseInt(plan.vpc.cidr.split(".")[1], 10) === 168);
-
-          expect(isPrivate).toBe(true);
+          // Entirely inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16 (not just a matching first octet)
+          expect(isRfc1918(plan.vpc.cidr), plan.vpc.cidr).toBe(true);
         }
       });
     });

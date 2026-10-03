@@ -17,6 +17,7 @@ jobs:
   validate:
     name: Validate (Node.js ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         node-version: [24, 26]
@@ -44,3 +45,32 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Tests import the source; this starts dist/index.cjs and checks the bundle
+      # over HTTP. It also checks that the served OpenAPI document matches the source
+      # and saves it to dist/openapi.json.
+      - name: Smoke test the production build
+        run: npm run smoke
+
+      - name: Validate the OpenAPI document
+        run: npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json
+
+  emoji:
+    name: No emoji
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+
+      # demojify (pinned in package.json, shared with the pre-commit hook) audits every
+      # text file and exits 1 if it finds emoji. Fix locally with `npm run emoji:fix`.
+      # No npm install needed: the script only calls go run.
+      - name: Check for emoji
+        run: npm run emoji:check

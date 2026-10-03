@@ -6,13 +6,35 @@
  * - API version (/api/version)
  * - OpenAPI specification (/api/docs JSON/YAML)
  * - Swagger UI presentation (/api/docs/ui HTML/CSS/themes)
- * - Path variations (/api/v1/... and /v1/...)
- * - Error handling consistency
+ * - Path variations (/api/k8s/..., /api/v1/k8s/..., /api/kubernetes/... and
+ *   /api/v1/kubernetes/...)
+ * - Error handling consistency, and API paths in the production app (any letter case
+ *   served, unknown paths a JSON 404, never the SPA fallback)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { once } from "events";
+import { createServer, request as httpRequest } from "http";
+import type { AddressInfo } from "net";
+import { fileURLToPath } from "url";
+import request from "supertest";
+import type { Express } from "express";
 import { registerRoutes } from "../../server/routes";
+import { createApp, errorHandler } from "../../server/app";
+import { serveStatic } from "../../server/static";
+import { SWAGGER_UI_VERSION } from "../../server/swagger-ui";
+import { splitRequestTarget } from "../../server/api-path";
+import { CIDR_PATTERN } from "../../server/openapi";
+import { parseCidr } from "../../client/src/lib/subnet-utils";
+import YAML from "yaml";
+import { THEME_STORAGE_KEY } from "../../client/src/lib/theme";
+import { version as APP_VERSION } from "../../package.json";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe("API Endpoints Integration", () => {
   let server: TestServer;
@@ -40,9 +62,12 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("status", "healthy");
       expect(data).toHaveProperty("timestamp");
       expect(data).toHaveProperty("uptime");
-      expect(data).toHaveProperty("version", "1.0.0");
-      expect(typeof data.uptime).toBe("number");
-      expect(data.uptime).toBeGreaterThanOrEqual(0);
+      expect(data).toHaveProperty("version", APP_VERSION);
+      expect(Number.isFinite(data.uptime)).toBe(true);
+
+      // Process uptime in seconds, so it grows between two calls
+      const later = await (await fetch(`${baseUrl}/health`)).json();
+      expect(later.uptime).toBeGreaterThan(data.uptime);
     });
 
     it("should return ready status from /health/ready", async () => {
@@ -71,10 +96,10 @@ describe("API Endpoints Integration", () => {
         fetch(`${baseUrl}/health/live`).then(r => r.json())
       ]);
 
-      // All timestamps should be valid ISO 8601 format
-      expect(new Date(health.timestamp).getTime()).toBeGreaterThan(0);
-      expect(new Date(ready.timestamp).getTime()).toBeGreaterThan(0);
-      expect(new Date(live.timestamp).getTime()).toBeGreaterThan(0);
+      // All timestamps are ISO 8601 in UTC, exactly as Date#toISOString() writes them
+      for (const { timestamp } of [health, ready, live]) {
+        expect(timestamp).toBe(new Date(timestamp).toISOString());
+      }
     });
   });
 
@@ -84,7 +109,7 @@ describe("API Endpoints Integration", () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data).toHaveProperty("version", "1.0.0");
+      expect(data).toHaveProperty("version", APP_VERSION);
       expect(data).toHaveProperty("endpoints");
       expect(data.endpoints).toHaveProperty("primary");
       expect(data.endpoints).toHaveProperty("aliases");
@@ -124,7 +149,7 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("openapi", "3.0.0");
       expect(data).toHaveProperty("info");
       expect(data.info).toHaveProperty("title", "CIDR Subnet Calculator API");
-      expect(data.info).toHaveProperty("version", "1.0.0");
+      expect(data.info).toHaveProperty("version", APP_VERSION);
       expect(data).toHaveProperty("paths");
       expect(data).toHaveProperty("components");
     });
@@ -135,8 +160,10 @@ describe("API Endpoints Integration", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/yaml");
-      expect(text).toContain("openapi: 3.0.0");
-      expect(text).toContain("title: CIDR Subnet Calculator API");
+      expect(text).toContain('openapi: "3.0.0"');
+      expect(text).toContain('title: "CIDR Subnet Calculator API"');
+      // Serialized once at startup: every request gets the same document
+      expect(await (await fetch(`${baseUrl}/api/docs?format=YAML`)).text()).toBe(text);
       expect(text).toContain("paths:");
       expect(text).toContain("components:");
     });
@@ -184,8 +211,8 @@ describe("API Endpoints Integration", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deploymentSize: "standard" })
           });
-          // POST should return 200 or 201, not 404
-          expect([200, 201, 400], `POST ${fullPath} should not return 404`).toContain(response.status);
+          // The body is a valid minimal request, so every documented POST path must plan it
+          expect(response.status, `POST ${fullPath}`).toBe(200);
         }
       }
     });
@@ -213,71 +240,142 @@ describe("API Endpoints Integration", () => {
       expect(html).toContain("SwaggerUIBundle");
     });
 
-    it("should include cache control headers on /api/docs/ui to prevent 304 issues", async () => {
+    it("should revalidate the docs page on every load", async () => {
       const response = await fetch(`${baseUrl}/api/docs/ui`);
 
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-cache, no-store, must-revalidate");
-      expect(response.headers.get("pragma")).toBe("no-cache");
-      expect(response.headers.get("expires")).toBe("0");
     });
 
-    it("should include theme toggle functionality in Swagger UI", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should share the theme with the web app and toggle without a reload", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      expect(html).toContain("theme-toggle");
-      // Should use shared 'theme' key (synchronized with webapp)
-      expect(html).toContain("localStorage.getItem('theme')");
-      expect(html).toContain("localStorage.setItem('theme'");
-      expect(html).toContain("html.className");
-      // Should have SVG icons instead of emoji
-      expect(html).toContain("class=\"sun-icon\"");
-      expect(html).toContain("class=\"moon-icon\"");
-      expect(html).toContain("updateThemeIcon");
-      // Should listen for storage events from other tabs/windows
+      // The web app's storage key (client/src/lib/theme.ts), default light, kept in sync across tabs
+      expect(html).toContain(`localStorage.getItem('${THEME_STORAGE_KEY}') === 'dark'`);
+      expect(html).toContain(`localStorage.setItem('${THEME_STORAGE_KEY}', next)`);
       expect(html).toContain("window.addEventListener('storage'");
-      expect(html).toContain("e.key === 'theme'");
+      expect(html).toContain(`if (e.key === '${THEME_STORAGE_KEY}')`);
+      // ...and no other key anywhere on the page
+      const keys = [...html.matchAll(/localStorage\.(?:get|set)Item\('([^']*)'|e\.key === '([^']*)'/g)].map((m) => m[1] ?? m[2]);
+      expect(keys.length).toBeGreaterThanOrEqual(4);
+      expect(new Set(keys)).toEqual(new Set([THEME_STORAGE_KEY]));
+      // Accessible toggle whose name says what a press will do, updated on every render
+      expect(html).toContain('<button id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">');
+      expect(html).toContain("var label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';");
+      expect(html).toContain("toggle.setAttribute('aria-label', label);");
+      // SVG icons whose visibility follows the theme class
+      expect(html).toContain('class="sun-icon"');
+      expect(html).toContain('class="moon-icon"');
+      expect(html).toContain("html.dark #theme-toggle .sun-icon { display: block; }");
+      // Re-mounts Swagger UI with the matching highlight theme instead of reloading
+      expect(html).toContain("theme === 'dark' ? 'tomorrow-night' : 'idea'");
+      expect(html).not.toContain("location.reload()");
     });
 
-    it("should default to light mode in Swagger UI", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should not repaint Swagger UI from script", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      // Theme is set via JavaScript at runtime, not in static HTML
-      // Check that the JS sets theme from localStorage with 'light' as default
-      expect(html).toContain("const savedTheme = localStorage.getItem('theme') || 'light'");
-      expect(html).toContain("document.documentElement.className = savedTheme");
+      // Styling is pure CSS; the old MutationObserver/inline-style repaint hack is gone
+      expect(html).not.toContain("MutationObserver");
+      expect(html).not.toContain("style.setProperty");
+      expect(html).not.toContain("removeAllRanges");
     });
 
-    it("should use webapp color palette in Swagger UI dark mode", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should use the web app's color tokens in both themes", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
+      const appCss = fs.readFileSync(path.resolve(__dirname, "../../client/src/index.css"), "utf8");
 
-      // Verify dark mode colors match webapp
-      expect(html).toContain("hsl(222, 47%, 8%)"); // Dark background
-      expect(html).toContain("hsl(210, 20%, 98%)"); // Dark foreground
-      expect(html).toContain("hsl(222, 47%, 11%)"); // Dark card
-      expect(html).toContain("hsl(217, 33%, 17%)"); // Dark border
-      expect(html).toContain("hsl(217, 91%, 60%)"); // Dark primary
+      // "210 20% 98%" in the app becomes "hsl(210, 20%, 98%)" on the docs page
+      const tokens = (block: string) => Object.fromEntries(
+        [...block.matchAll(/--(background|foreground|card|border|input|muted|muted-foreground|primary|primary-foreground|secondary|destructive|success):\s*(\d+) (\d+%) (\d+%);/g)]
+          .map(([, name, h, s, l]) => [name, `hsl(${h}, ${s}, ${l})`])
+      );
+      const light = tokens(appCss.slice(appCss.indexOf(":root"), appCss.indexOf(".dark {")));
+      const dark = tokens(appCss.slice(appCss.indexOf(".dark {")));
+      // Every token the docs page mirrors (see server/swagger-ui.ts)
+      expect(Object.keys(light)).toHaveLength(12);
+      expect(Object.keys(dark)).toHaveLength(12);
+
+      const docsRoot = html.slice(html.indexOf(":root {"), html.indexOf("html.dark {"));
+      const docsDark = html.slice(html.indexOf("html.dark {"), html.indexOf("}", html.indexOf("html.dark {")));
+      for (const [name, value] of Object.entries(light)) expect(docsRoot).toContain(`--${name}: ${value};`);
+      for (const [name, value] of Object.entries(dark)) expect(docsDark).toContain(`--${name}: ${value};`);
     });
 
-    it("should use webapp color palette in Swagger UI light mode", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should give HTTP method badges readable white text", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      // Verify light mode colors match webapp
-      expect(html).toContain("hsl(214, 24%, 95%)"); // Light background
-      expect(html).toContain("hsl(222, 47%, 11%)"); // Light foreground
+      // Badge colors are fixed per method (not per theme) and dark enough for white text
+      expect(html).toContain("--method-get: #2563eb;");
+      expect(html).toContain("--method-post: #047857;");
+      expect(html).toMatch(/\.opblock-summary-method \{\s*background: var\(--method\); color: #fff;/);
     });
 
-    it("should load Swagger UI from CDN with proper CSP", async () => {
-      const response = await fetch(`${baseUrl}/api/docs/ui`);
-      const html = await response.text();
+    it("should load pinned Swagger UI assets with Subresource Integrity", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css");
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js");
-      expect(html).toContain("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js");
+      // Assets are pinned to an exact version (no floating "@5" tag)...
+      expect(html).toMatch(/swagger-ui-dist@\d+\.\d+\.\d+\/swagger-ui\.css/);
+      expect(html).toMatch(/swagger-ui-dist@\d+\.\d+\.\d+\/swagger-ui-bundle\.js/);
+      // ...the 268 KB standalone preset is not loaded (BaseLayout needs no topbar)...
+      expect(html).not.toContain("swagger-ui-standalone-preset");
+      expect(html).toContain("layout: 'BaseLayout'");
+      // ...no connection hints to origins outside connect-src (the fonts' preconnects)...
+      expect(html).not.toMatch(/rel=["']?(?:preconnect|dns-prefetch)/i);
+
+      // ...and every CDN asset carries Subresource Integrity. A SHA-384 digest is 48
+      // bytes, 64 base64 characters; npm run smoke checks the digests against the files.
+      const cdnTags = html.match(/<(?:script|link)[^>]*cdn\.jsdelivr\.net[^>]*>/g) ?? [];
+      expect(cdnTags).toHaveLength(2);
+      for (const tag of cdnTags) {
+        expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/]{64}"/);
+        expect(tag).toContain('crossorigin="anonymous"');
+      }
+    });
+
+    it("should document the CIDR format the server parses: no leading zeros", () => {
+      // The OpenAPI pattern and the server's parser must agree on the format; the
+      // server also range-checks (octets 0-255, prefix 0-32) and requires private space
+      const pattern = new RegExp(CIDR_PATTERN);
+      const parses = (cidr: string) => { try { parseCidr(cidr); return true; } catch { return false; } };
+      for (const cidr of ["10.0.0.0/16", "0.0.0.0/0", "192.168.1.0/24", "100.64.0.0/10"]) {
+        expect(pattern.test(cidr), cidr).toBe(true);
+        expect(parses(cidr), cidr).toBe(true);
+      }
+      for (const cidr of ["010.0.0.0/16", "10.00.0.0/16", "10.0.0.0/016", "0010.0.0.0/8", "10.0.0.0", "10.0.0.0/16 "]) {
+        expect(pattern.test(cidr), cidr).toBe(false);
+        expect(parses(cidr), cidr).toBe(false);
+      }
+    });
+
+    it("should name the pinned Swagger UI version wherever the docs state it", () => {
+      // Bumping SWAGGER_UI_VERSION must update these too (the CHANGELOG records history)
+      const pinned = `swagger-ui-dist@${SWAGGER_UI_VERSION}`;
+      for (const file of [".github/instructions/backend.instructions.md", "docs/compliance/security-reference.md", "server/swagger-ui.ts"]) {
+        const text = fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
+        const mentioned = [...text.matchAll(/swagger-ui-dist@(\d+\.\d+\.\d+)/g)].map((m) => m[0]);
+        expect(mentioned.length, file).toBeGreaterThan(0);
+        expect(new Set(mentioned), file).toEqual(new Set([pinned]));
+      }
+    });
+
+    it("should link the app favicon (no /favicon.ico 404)", async () => {
+      const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
+      expect(html).toContain('<link rel="icon" type="image/png" href="/favicon.png">');
+    });
+
+    it("should return readable validation errors", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "eks", region: "US East 1" })
+      });
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toContain("deploymentSize: Required");
+      expect(data.error).toContain("region: Region must be lowercase");
     });
 
     it("should include header and footer matching webapp design", async () => {
@@ -287,8 +385,8 @@ describe("API Endpoints Integration", () => {
       // Verify header structure
       expect(html).toContain("<header>");
       expect(html).toContain("github-nicholashoule.png");
-      expect(html).toContain("CIDR Subnet Calculator API");
-      expect(html).toContain("REST API for subnet calculations and Kubernetes network planning");
+      expect(html).toContain("<h1>API Documentation</h1>");
+      expect(html).toContain("Interactive reference for the CIDR Subnet Calculator REST API");
 
       // Verify footer structure
       expect(html).toContain("<footer>");
@@ -299,8 +397,8 @@ describe("API Endpoints Integration", () => {
       // Verify header/footer styling
       expect(html).toContain("header {");
       expect(html).toContain("footer {");
-      expect(html).toContain("border-bottom");
-      expect(html).toContain("border-top");
+      expect(html).toContain("border-bottom: 1px solid var(--border);");
+      expect(html).toContain("border-top: 1px solid var(--border);");
     });
   });
 
@@ -366,13 +464,14 @@ describe("API Endpoints Integration", () => {
       const data2 = await response2.json();
       const data3 = await response3.json();
 
-      // All should return same structure (excluding generated metadata)
-      expect(data1.deploymentSize).toBe(data2.deploymentSize);
-      expect(data2.deploymentSize).toBe(data3.deploymentSize);
-      expect(data1.provider).toBe(data2.provider);
-      expect(data2.provider).toBe(data3.provider);
-      expect(data1.vpc.cidr).toBe(data2.vpc.cidr);
-      expect(data2.vpc.cidr).toBe(data3.vpc.cidr);
+      // The whole plan matches; only the generation timestamp may differ
+      const withoutTimestamp = (plan: { metadata: Record<string, unknown> }) => ({
+        ...plan,
+        metadata: { ...plan.metadata, generatedAt: undefined },
+      });
+      expect(response1.status).toBe(200);
+      expect(withoutTimestamp(data2)).toEqual(withoutTimestamp(data1));
+      expect(withoutTimestamp(data3)).toEqual(withoutTimestamp(data1));
     });
 
     it("should accept requests to /api/v1/kubernetes/tiers", async () => {
@@ -396,6 +495,65 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("professional");
       expect(data).toHaveProperty("enterprise");
       expect(data).toHaveProperty("hyperscale");
+    });
+  });
+
+  describe("Provider-Specific Tiers and Generated Examples", () => {
+    it("should return provider-specific tier layouts", async () => {
+      const generic = await (await fetch(`${baseUrl}/api/k8s/tiers`)).json();
+      const eks = await (await fetch(`${baseUrl}/api/k8s/tiers?provider=eks`)).json();
+
+      expect(generic.micro.publicSubnets).toBe(1);
+      expect(generic.micro.controlPlaneSubnets).toBe(1);
+      // EKS needs two AZs, which costs a larger minimum VPC
+      expect(eks.micro.publicSubnets).toBe(2);
+      expect(eks.micro.privateSubnets).toBe(2);
+      expect(eks.micro.controlPlaneSubnets).toBe(2);
+      expect(eks.micro.minVpcPrefix).toBe(23);
+    });
+
+    it("should return private-mode tier layouts", async () => {
+      const gke = await (await fetch(`${baseUrl}/api/k8s/tiers?provider=gke&networkMode=private`)).json();
+      expect(gke.enterprise.networkMode).toBe("private");
+      expect(gke.enterprise.publicSubnets).toBe(0);
+      expect(gke.enterprise.loadBalancerSubnets).toBe(1);
+      expect(gke.enterprise.controlPlaneSubnets).toBe(1);
+
+      const bad = await fetch(`${baseUrl}/api/k8s/tiers?networkMode=isolated`);
+      expect(bad.status).toBe(400);
+      expect((await bad.json()).error).toContain("networkMode");
+    });
+
+    it("should reject an unknown provider for tiers", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/tiers?provider=openstack`);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toContain("provider");
+    });
+
+    it("should accept every documented example request and serve the plan documented for it", async () => {
+      // server/openapi.ts builds the documented responses with the same generator, so
+      // this proves each example request is valid and that the route serves the
+      // generator's output unchanged; it does not check the plans against fixed values
+      const spec = await (await fetch(`${baseUrl}/api/docs`)).json();
+      const plan = spec.paths["/k8s/plan"].post;
+      const requests = plan.requestBody.content["application/json"].examples;
+      const responses = plan.responses["200"].content["application/json"].examples;
+
+      for (const [name, example] of Object.entries<{ value: Record<string, unknown> }>(requests)) {
+        const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(example.value)
+        });
+        expect(response.status, name).toBe(200);
+        const live = await response.json();
+        const documented = responses[name].value;
+        // Identical apart from the generation timestamp
+        expect({ ...live, metadata: { ...live.metadata, generatedAt: "" } })
+          .toEqual({ ...documented, metadata: { ...documented.metadata, generatedAt: "" } });
+      }
     });
   });
 
@@ -503,6 +661,21 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("code");
     });
 
+    it("should reject a blank CIDR rather than generate a range for it", async () => {
+      // An unset Terraform variable often arrives as ""; it must not mean "pick one"
+      for (const field of ["vpcCidr", "podsCidr", "servicesCidr"]) {
+        const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deploymentSize: "micro", [field]: "  " }),
+        });
+        expect(response.status, field).toBe(400);
+        const data = await response.json();
+        expect(data.code).toBe("INVALID_REQUEST");
+        expect(data.error).toBe(`Invalid request: ${field}: Must not be blank; omit the field to have a range generated`);
+      }
+    });
+
     it("should reject VPC CIDR with invalid prefix", async () => {
       const response = await fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
         method: "POST",
@@ -528,20 +701,51 @@ describe("API Endpoints Integration", () => {
       expect(response.status).toBe(400);
     });
 
-    it("should reject requests with extra unknown fields", async () => {
+    it("should ignore unknown fields (forward compatible) without echoing them", async () => {
       const response = await fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deploymentSize: "standard",
-          provider: "kubernetes",
-          unknownField: "should be rejected"
-        })
+        // Raw JSON: in an object literal, __proto__ would set the prototype and JSON.stringify would drop it
+        body: '{"deploymentSize":"standard","provider":"kubernetes","unknownField":"ignored","__proto__":{"polluted":true}}'
       });
+      const text = await response.text();
 
-      // Should either accept (ignore extra fields) or reject
-      // Most APIs ignore extra fields for forward compatibility
-      expect([200, 400]).toContain(response.status);
+      expect(response.status).toBe(200);
+      expect(text).not.toContain("unknownField");
+      expect(text).not.toContain("polluted");
+    });
+
+    it("should answer unknown API paths and methods with a JSON 404, not the web app", async () => {
+      const requests: Array<[string, RequestInit?]> = [
+        ["/api/typo"],
+        ["/api/k8s/plan"], // exists, but only for POST
+        ["/api/typo", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }],
+      ];
+      for (const [path, init] of requests) {
+        const response = await fetch(`${baseUrl}${path}`, init);
+        expect(response.status, `${init?.method ?? "GET"} ${path}`).toBe(404);
+        expect(response.headers.get("content-type")).toContain("application/json");
+        expect(await response.json()).toEqual({ error: "Not found", code: "NOT_FOUND" });
+      }
+    });
+
+    it("should treat a repeated format parameter as the default (JSON), not fail", async () => {
+      // Repeated values parse as an array; neither the first nor the last value wins
+      const responses = {
+        tiers: await fetch(`${baseUrl}/api/k8s/tiers?format=yaml&format=json`),
+        plan: await fetch(`${baseUrl}/api/k8s/plan?format=yaml&format=yaml`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deploymentSize: "micro", provider: "eks" })
+        }),
+        docs: await fetch(`${baseUrl}/api/docs?format=yaml&format=json`),
+      };
+      for (const [name, response] of Object.entries(responses)) {
+        expect(response.status, name).toBe(200);
+        expect(response.headers.get("content-type"), name).toContain("application/json");
+        const body = JSON.parse(await response.text());
+        expect(typeof body, name).toBe("object");
+      }
     });
   });
 
@@ -579,10 +783,165 @@ describe("API Endpoints Integration", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/yaml");
-      expect(text).toContain("deploymentSize: standard");
-      expect(text).toContain("provider: kubernetes");
+      expect(text).toContain('deploymentSize: "standard"');
+      expect(text).toContain('provider: "kubernetes"');
       expect(text).toContain("vpc:");
       expect(text).toContain("subnets:");
     });
+
+    it("should quote every YAML string, so YAML 1.1 and 1.2 readers load the same values", async () => {
+      // Unquoted, a YAML 1.1 reader (PyYAML) loads no/yes/on/off as booleans, and a YAML
+      // 1.2 reader loads 0o17 as the number 15
+      const response = await fetch(`${baseUrl}/api/k8s/plan?format=yaml`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deploymentSize: "micro", provider: "gke", region: "0o17", deploymentName: "yes" })
+      });
+      const text = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(text).toContain('region: "0o17"');
+      expect(text).toContain('deploymentName: "yes"');
+      for (const version of ["1.1", "1.2"] as const) {
+        const plan = YAML.parse(text, { version });
+        expect(plan.region, version).toBe("0o17");
+        expect(plan.deploymentName, version).toBe("yes");
+        expect(plan.vpc.cidr, version).toMatch(/^\d+\.\d+\.\d+\.\d+\/\d+$/);
+      }
+    });
+
+    it("should cap the issues a validation error lists", async () => {
+      // A 16 KB body can hold thousands of bad array elements; listing each would make
+      // the error response hundreds of KB
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deploymentSize: "micro", availabilityZones: Array(3000).fill(1) })
+      });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.code).toBe("INVALID_REQUEST");
+      expect(data.error).toMatch(/; and \d+ more$/);
+      expect(data.error.length).toBeLessThan(500);
+    });
+  });
+});
+
+describe("Unknown API paths in the production app", () => {
+  // The production stack as server/index.ts builds it: createApp() (API paths lowercased,
+  // then case-sensitive routing), the routes, the SPA fallback (which answers unmatched
+  // GETs with index.html) and errorHandler
+  let app: Express;
+  let distPath: string;
+
+  beforeAll(async () => {
+    distPath = await fs.promises.mkdtemp(path.join(os.tmpdir(), "test-api-404-"));
+    await fs.promises.writeFile(path.join(distPath, "index.html"), '<html><body><div id="root"></div></body></html>');
+    app = createApp({ isDevelopment: false });
+    await registerRoutes(createServer(app), app);
+    serveStatic(app, distPath);
+    app.use(errorHandler);
+  });
+
+  afterAll(async () => {
+    await fs.promises.rm(distPath, { recursive: true, force: true });
+  });
+
+  it("should serve API routes in any letter case", async () => {
+    for (const url of ["/API/k8s/tiers", "/Api/K8S/Tiers", "/api/K8S/TIERS"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(Object.keys(response.body), url).toContain("hyperscale");
+    }
+    expect((await request(app).get("/API/VERSION")).body.version).toBe(APP_VERSION);
+    const plan = await request(app).post("/API/K8S/PLAN").send({ deploymentSize: "micro" });
+    expect(plan.status).toBe(200);
+    expect(plan.body.subnets).toBeDefined();
+  });
+
+  it("should answer the health checks in any letter case, never with the web app", async () => {
+    for (const url of ["/HEALTH", "/Health/Ready", "/health/LIVE", "/API/V1/HEALTH"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(response.headers["content-type"], url).toContain("application/json");
+    }
+  });
+
+  it("should serve an absolute-form request target (as proxies send it) like its path", async () => {
+    // Node accepts "GET http://host/path HTTP/1.1"; supertest cannot send it, so use http
+    const server = createServer(app).listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const { port } = server.address() as AddressInfo;
+      const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = httpRequest({ host: "127.0.0.1", port, path: "http://example.test/API/K8S/TIERS?format=json" }, (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => { body += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(response.status).toBe(200);
+      expect(Object.keys(JSON.parse(response.body))).toContain("hyperscale");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("should split request targets the way Express does", () => {
+    expect(splitRequestTarget("/API/x?Q=1")).toEqual({ origin: "", path: "/API/x", query: "?Q=1" });
+    expect(splitRequestTarget("http://h:80/API/x?y")).toEqual({ origin: "http://h:80", path: "/API/x", query: "?y" });
+    expect(splitRequestTarget("http://h")).toEqual({ origin: "http://h", path: "", query: "" });
+    expect(splitRequestTarget("*")).toEqual({ origin: "", path: "*", query: "" });
+    // A URL in the query is not a scheme and host
+    expect(splitRequestTarget("/a?next=http://c/D")).toEqual({ origin: "", path: "/a", query: "?next=http://c/D" });
+  });
+
+  it("should lowercase only the path: query values keep their case", async () => {
+    // ?format=yaml works however the path is spelled...
+    const yaml = await request(app).get("/API/k8s/tiers?format=yaml");
+    expect(yaml.headers["content-type"]).toContain("application/yaml");
+    // ...but enum values are still validated as sent
+    const upperProvider = await request(app).get("/API/k8s/tiers?provider=EKS");
+    expect(upperProvider.status).toBe(400);
+    expect(upperProvider.body.code).toBe("INVALID_REQUEST");
+  });
+
+  it("should answer unknown /api paths, in any letter case, with a JSON 404, never the web app", async () => {
+    for (const url of ["/API", "/API/", "/api/typo", "/API/Typo", "/Api/k8s/nothing"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(404);
+      expect(response.headers["content-type"], url).toContain("application/json");
+      expect(response.body, url).toEqual({ error: "Not found", code: "NOT_FOUND" });
+    }
+  });
+
+  it("should still serve the web app for client routes outside /api", async () => {
+    for (const url of ["/some/client/route", "/apiary"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(response.text, url).toContain('<div id="root">');
+    }
+  });
+
+  it("should answer in YAML only for the plan and tiers routes' own errors", async () => {
+    // Validation errors from the route follow ?format=
+    const invalid = await request(app).get("/api/k8s/tiers?format=yaml&provider=openstack");
+    expect(invalid.status).toBe(400);
+    expect(invalid.headers["content-type"]).toContain("application/yaml");
+    expect(invalid.text).toContain('code: "INVALID_REQUEST"');
+
+    // A malformed body (express.json, then errorHandler) and an unknown path are always JSON
+    const malformed = await request(app).post("/api/k8s/plan?format=yaml").set("Content-Type", "application/json").send("{bad");
+    expect(malformed.status).toBe(400);
+    expect(malformed.headers["content-type"]).toContain("application/json");
+    expect(malformed.body.code).toBe("INVALID_REQUEST");
+
+    const unknown = await request(app).get("/api/typo?format=yaml");
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers["content-type"]).toContain("application/json");
   });
 });

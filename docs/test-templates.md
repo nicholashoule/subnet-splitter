@@ -50,8 +50,8 @@ describe("API Endpoint", () => {
 ## Test Organization Rules
 
 - **File naming:** `{module}.test.ts` or `{feature}.test.ts`
-- **Location:** `tests/unit/` for pure functions, `tests/integration/` for system features
-- **Imports:** Always use `@/` path aliases, never relative paths
+- **Location:** `tests/unit/` for code tested in isolation with no server (mostly pure functions; some read project files or run git), `tests/integration/` for system features
+- **Imports:** Use `@/` (client/src) and `@shared/` aliases; import server code, test helpers, and `package.json` relatively (they have no alias)
 - **Grouping:** `describe()` blocks for related tests
 - **Description:** Clear, specific `it()` descriptions stating expected behavior
 - **Scope:** Each test verifies one thing
@@ -76,7 +76,7 @@ expect(value).toBeDefined();         // Use specific value check
 
 ```bash
 npm run dev
-# Wait for: "serving on 127.0.0.1:5000"
+# Wait for the "Server started" log line (127.0.0.1:5000)
 ```
 
 ### Test JSON Output (Default)
@@ -95,11 +95,43 @@ curl -X POST "http://127.0.0.1:5000/api/kubernetes/network-plan?format=yaml" \
   -d '{"deploymentSize":"enterprise","provider":"gke","vpcCidr":"10.0.0.0/16"}'
 ```
 
+### Test Overrides and Zones
+
+```bash
+# Second cluster in the same network: explicit pod and service ranges
+curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"gke","vpcCidr":"10.1.0.0/16","podsCidr":"172.16.64.0/18","servicesCidr":"192.168.16.0/20"}'
+
+# EKS with the zones your account has
+curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","region":"ap-northeast-1","vpcCidr":"10.10.0.0/16","availabilityZones":["ap-northeast-1a","ap-northeast-1c"]}'
+```
+
+### Test Private Network Mode
+
+```bash
+# GKE private: subnets.public is [], subnets.loadBalancer has one regional proxy-only-sized subnet
+curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"enterprise","provider":"gke","region":"us-central1","vpcCidr":"10.20.0.0/16","networkMode":"private"}'
+
+# EKS private: internal load-balancer subnets in two AZs
+curl -X POST http://127.0.0.1:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","region":"us-east-1","vpcCidr":"10.30.0.0/16","networkMode":"private"}'
+```
+
 ### Test Tier Info Endpoint
 
 ```bash
 curl http://127.0.0.1:5000/api/kubernetes/tiers
+curl "http://127.0.0.1:5000/api/kubernetes/tiers?provider=eks"
+curl "http://127.0.0.1:5000/api/kubernetes/tiers?provider=gke&networkMode=private"
 curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
+curl "http://127.0.0.1:5000/api/kubernetes/tiers?provider=foo"        # 400 INVALID_REQUEST
+curl "http://127.0.0.1:5000/api/kubernetes/tiers?networkMode=isolated" # 400 INVALID_REQUEST (names networkMode)
 ```
 
 ### Validation Checklist
@@ -107,17 +139,29 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?format=yaml"
 - JSON: parses correctly with `JSON.parse()`
 - YAML: valid structure (keys with colons, proper indentation)
 - Both formats have identical data structure
-- All subnet details present in output
-- Error responses use requested format
+- All subnet details present in output (`subnets.public`, `subnets.private`, `subnets.loadBalancer`, `subnets.controlPlane`), plus top-level `networkMode`
+- No two ranges overlap; pods and services are outside the VPC
+- `metadata.version` is `"2.0"`; `warnings` appears only for a VPC overlapping `172.17.0.0/16`
+- GKE and AKS subnets have no `availabilityZone`; EKS subnets span at least two AZs
+- Control plane is one network: one `/28` for GKE, AKS, and generic; exactly two contiguous `/28`s (one `/27`) in two AZs for EKS
+- Public mode: `subnets.loadBalancer` is `[]`. Private mode: `subnets.public` is `[]` and `subnets.loadBalancer` holds `load-balancer` subnets (GKE and AKS: exactly one; EKS: one per AZ, at least two)
+- Validation and planning errors (400) use the requested format; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON
+- AKS: a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16` is rejected; hyperscale on a `10.x` VNet gives pods `100.64.0.0/13`
+- A `vpcCidr` larger than `/16` is rejected for every provider
 
 ## Running Specific Test Subsets
 
 ```bash
-# All API tests (33 tests)
+# Kubernetes network API integration tests
 npm run test -- tests/integration/kubernetes-network-api.test.ts --run
 
 # Filter by test name
-npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Serializable Output" --run
+npm run test -- tests/integration/api-endpoints.test.ts -t "Response Format Support" --run  # JSON and YAML over HTTP
+
+# Control-plane and private-mode invariants
+npm run test -- tests/unit/network-separation.test.ts -t "Control plane is one network" --run
+npm run test -- tests/unit/network-separation.test.ts -t "Private network mode" --run
 
 # All unit tests
 npm run test -- tests/unit/ --run
@@ -125,19 +169,19 @@ npm run test -- tests/unit/ --run
 # All integration tests
 npm run test -- tests/integration/ --run
 
-# Emoji detection only
-npm run test:emoji
+# Emoji audit (demojify CLI, needs Go; not part of Vitest)
+npm run emoji:check
 ```
 
 ## Test Configuration Details
 
 | Setting | Value |
 |---------|-------|
-| Framework | Vitest 3+ (^3.0.0) |
+| Framework | Vitest 5 (^5.0.0) |
 | Discovery | `tests/**/*.test.ts` |
 | Environment | Node.js |
 | Globals | `describe`, `it`, `expect` available without imports |
-| Module resolution | `@/` prefix path aliases |
+| Module resolution | `@/` (client/src) and `@shared/` aliases, shared with `vite.config.ts` |
 | Type checking | TypeScript strict mode |
 | Config file | `vitest.config.ts` |
 

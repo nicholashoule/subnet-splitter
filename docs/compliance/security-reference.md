@@ -7,10 +7,12 @@ Detailed security configuration, examples, and issue history for the CIDR Subnet
 ### Audit Commands
 
 ```bash
-npm audit               # Check for vulnerabilities
-npm audit fix --force   # Fix vulnerabilities
-npm audit               # Verify 0 vulnerabilities
+npm run audit           # Check for vulnerabilities (npm audit)
+npm run audit:fix       # Fix vulnerabilities (npm audit fix)
+npm run audit           # Verify 0 vulnerabilities
 ```
+
+`npm audit fix --force` can install breaking major versions; use it only after reviewing what it would change. CI runs `npm audit` on every push to `main` and every pull request (`.github/workflows/ci.yml`).
 
 ### When to Run
 
@@ -23,14 +25,14 @@ npm audit               # Verify 0 vulnerabilities
 
 | Dependency | Issue | Resolution |
 |-----------|-------|------------|
-| `qs` 6.14.1 | arrayLimit bypass DoS (GHSA-w7fw-mjwx-w883) | `"qs": "6.14.2"` in `overrides` |
-| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 |
+| `qs` 6.14.1 | arrayLimit bypass DoS (GHSA-w7fw-mjwx-w883) | `"qs": "6.14.2"` in `overrides` (now pinned to 6.16.0) |
+| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 (now ^5.0.0) |
 
 ### Failed Audit Recovery
 
 1. Review `package.json` changes
 2. Run `npm install` to sync `package-lock.json`
-3. Test: `npm run dev` (starts), `npm run test` (passes), `npm run build` (succeeds)
+3. Test: `npm run dev` (starts), `npm run test -- --run` (passes), `npm run build` (succeeds), `npm run smoke` (the built server passes)
 4. Manually review and revert if issues persist
 
 ## Helmet & CSP Configuration
@@ -41,55 +43,76 @@ npm audit               # Verify 0 vulnerabilities
 
 ```typescript
 {
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-  styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   imgSrc: ["'self'", "data:"],
+  connectSrc: ["'self'"],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  frameAncestors: ["'self'"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  formAction: ["'self'"],      // Helmet default, listed so the Swagger UI policy keeps it
+  scriptSrcAttr: ["'none'"],   // Helmet default: no inline event handler attributes
 }
 ```
 
-**Development additions:**
+No third-party script origins: the app bundle is served from `'self'`, and only `/api/docs/ui` gets `cdn.jsdelivr.net` (see below).
+
+These are all the directives of the production header. `createSecurityHeaders()` turns off the one other Helmet default, `upgrade-insecure-requests` (`upgradeInsecureRequests: null`): the server speaks plain HTTP, and over plain HTTP on a LAN address that directive makes browsers request the app's own `/assets` over https, so the page loads blank.
+
+**Development additions** (`createSecurityHeaders(isDevelopment)` in `server/csp-config.ts`, which `createApp()` in `server/app.ts` applies with Helmet):
 
 ```typescript
-cspDirectives.scriptSrc.push("'unsafe-inline'");           // Vite HMR
-cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");  // WebSocket
-cspDirectives.reportUri = ["/__csp-violation"];
+scriptSrc: [...base, "'unsafe-inline'"],                         // Vite HMR
+connectSrc: [...base, "ws://127.0.0.1:*", "ws://localhost:*"],  // HMR WebSocket
+reportUri: ["/__csp-violation"],
 ```
 
 ### Swagger UI Route-Specific CSP
 
-Only `/api/docs/ui` gets `cdn.jsdelivr.net` in `connectSrc` (principle of least privilege):
+Only `/api/docs/ui` adds `'unsafe-inline'` and `https://cdn.jsdelivr.net` to `script-src`, and `https://cdn.jsdelivr.net` to `style-src` and `connect-src` (principle of least privilege). Built from `baseCSPDirectives`, it keeps every other directive and source of the production header; `tests/integration/swagger-ui-csp-middleware.test.ts` and `npm run smoke` compare the two headers:
 
 ```typescript
-export function buildSwaggerUICSP(isDevelopment: boolean = false): string {
-  const swaggerDirectives = { ...baseCSPDirectives };
-  if (isDevelopment) {
-    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
-  }
-  swaggerDirectives.connectSrc.push("https://cdn.jsdelivr.net");
-  return convertToCSPString(swaggerDirectives);
+export function buildSwaggerUICSP(): string {
+  const cdnSource = "https://cdn.jsdelivr.net";
+  const additions: CSPDirectives = {
+    scriptSrc: ["'unsafe-inline'", cdnSource],
+    styleSrc: [cdnSource],
+    connectSrc: [cdnSource],
+  };
+  // Copy baseCSPDirectives (never mutate the shared object), append the
+  // additions without duplicates, then serialize to "script-src ...; ..."
 }
 ```
+
+**Subresource Integrity:** Swagger UI assets are pinned to `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1` and loaded with `sha384` `integrity` hashes and `crossorigin="anonymous"` (`SWAGGER_UI_VERSION` and `SRI` in `server/swagger-ui.ts`), so the browser refuses a changed or compromised CDN file. When upgrading Swagger UI, update the version and both hashes (CSS and bundle) as described in `.github/swagger-ui-theming.md`; `npm run smoke` downloads both files and fails if a hash does not match.
 
 ### CSP Violation Reporting
 
 **Endpoint:** `POST /__csp-violation` (development only)
 
-Browsers send CSP violations wrapped in `"csp-report"` key per W3C spec:
+Browsers send each violation as an `application/csp-report` body wrapped in a `"csp-report"` key (the report-uri serialization in the CSP spec), for example from Chrome:
 
 ```json
 {
   "csp-report": {
-    "blocked-uri": "https://malicious.com/script.js",
-    "violated-directive": "script-src",
-    "original-policy": "script-src 'self'",
-    "document-uri": "http://localhost:5000",
-    "disposition": "enforce"
+    "document-uri": "http://localhost:5000/",
+    "referrer": "",
+    "blocked-uri": "inline",
+    "effective-directive": "script-src-elem",
+    "violated-directive": "script-src-elem",
+    "original-policy": "default-src 'self'; script-src 'self'; report-uri /__csp-violation",
+    "disposition": "enforce",
+    "status-code": 200,
+    "source-file": "http://localhost:5000/",
+    "line-number": 12,
+    "column-number": 5
   }
 }
 ```
 
-Validation uses `cspViolationReportSchema` in `shared/schema.ts`. Always returns 204 No Content (W3C spec).
+`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes. The rate limit runs first, then the route's JSON parser, so malformed reports count toward it too. Reports past the limit never reach the handler: the limiter answers them with an empty `204` and nothing is logged. Every report that reaches the handler, valid or invalid, gets an empty `204 No Content` (browsers ignore the response). A body that is not valid JSON, is larger than 16 KB, or has an unsupported character set never reaches the handler either: the parser rejects it with `400`, `413` or `415` and the JSON error body.
 
 ### Helmet v8 Rules
 
@@ -100,28 +123,63 @@ Validation uses `cspViolationReportSchema` in `shared/schema.ts`. Always returns
 
 ## Rate Limiting Configuration
 
+### API Routes (`server/routes.ts`)
+
+Mounted in `server/app.ts` (`createApp()`) with `app.use(API_PATH, createApiRateLimiter())`. API paths are lowercased before this runs (`normalizePathCase()` in `server/api-path.ts`), so `/API/...` shares the quota of `/api/...` and a miscased probe such as `/API/V1/HEALTH` is still exempt. The mount is `API_PATH` (`/^\/api(?=\/|$)/i`) rather than `"/api"` as defense in depth: with case-sensitive routing, a `"/api"` mount would skip `/API/...` if the normalization were ever removed. Request logging and the JSON 404 use the same pattern. Only health probes skip it, so probes are never throttled: `isHealthProbe()` in `server/health.ts` accepts a `GET` or `HEAD` of exactly `/api/v1/health`, `/api/v1/health/ready` or `/api/v1/health/live` (a trailing slash allowed). Any other method, such as a `POST` with a body, and any lookalike path, such as `/api/v1/healthz`, counts toward the limit. The unprefixed `/health*` routes are outside `/api` and not limited.
+
+```typescript
+export function createApiRateLimiter(): RequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
+    // Mounted at /api: req.baseUrl is "/api" and req.path the rest
+    skip: (req) => isHealthProbe(req.method, req.baseUrl + req.path),
+    keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : "unknown",
+  });
+}
+
+// server/health.ts
+export const HEALTH_PATHS = ["/health", "/health/ready", "/health/live"] as const;
+
+export function isHealthProbe(method: string, fullPath: string): boolean {
+  if (method !== "GET" && method !== "HEAD") return false;
+  // Express treats a trailing slash as the same route (strict routing is off)
+  const path = fullPath.length > 1 && fullPath.endsWith("/") ? fullPath.slice(0, -1) : fullPath;
+  const relative = path.startsWith("/api/v1/") ? path.slice("/api/v1".length) : path;
+  return (HEALTH_PATHS as readonly string[]).includes(relative);
+}
+```
+
+### Request Body Limit (`server/app.ts`)
+
+`express.json()` runs on `/api` only, after the `/api` rate limiter, so malformed or oversized bodies count toward the limit, and is capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`, always in JSON (`errorHandler`), whatever `?format=` asks for. There is no URL-encoded parser: the API takes JSON only.
+
 ### Production SPA Fallback (`server/static.ts`)
 
 ```typescript
 const spaRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 30,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests..."
 });
 ```
 
-### CSP Violation Endpoint (`server/index.ts`)
+### CSP Violation Endpoint (`server/csp-report.ts`)
 
 ```typescript
 const cspViolationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false,
-  message: "Too many CSP violation reports. Please try again later.",
+  // Past the limit, reports are dropped unlogged but still acknowledged with 204
+  handler: (_req, res) => { res.status(204).end(); },
 });
 ```
 
@@ -153,9 +211,18 @@ if (allowedHosts.includes(host)) {
 **CSP directives** (server config -- hardcoded constants, not user input):
 
 ```typescript
+// buildSwaggerUICSP() in server/csp-config.ts
 const cdnSource = "https://cdn.jsdelivr.net";
-if (!swaggerDirectives.connectSrc.includes(cdnSource)) {
-    swaggerDirectives.connectSrc.push(cdnSource);
+const additions: CSPDirectives = {
+  scriptSrc: ["'unsafe-inline'", cdnSource],
+  styleSrc: [cdnSource],
+  connectSrc: [cdnSource],
+};
+for (const [key, values] of Object.entries(additions)) {
+  const existing = (swaggerDirectives[key] ??= []);
+  for (const value of values) {
+    if (!existing.includes(value)) existing.push(value);
+  }
 }
 ```
 
@@ -197,6 +264,6 @@ Before committing:
 - [ ] `npm run check` -- TypeScript strict passes
 - [ ] `npm run test -- --run` -- all tests pass
 - [ ] Dev server: no console errors
-- [ ] Production build: `npm run build && npm start`
+- [ ] Production build: `npm run build && npm run smoke` (checks the strict CSP, the security headers, rate-limit headers, and that the docs page's SRI hashes match the files the CDN serves; `npm start` to try it by hand)
 - [ ] CSP: test in Chrome/Edge/Firefox, check DevTools
 - [ ] If modifying CSP: document rationale, test both modes

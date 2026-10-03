@@ -1,54 +1,38 @@
-# Test API private IP validation
-Write-Host "`n=== TEST 1: Valid Private IP (10.0.0.0/16) ===" -ForegroundColor Green
-$headers = @{"Content-Type"="application/json"}
-$body = '{"deploymentSize":"professional","vpcCidr":"10.0.0.0/16"}'
-try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" -Method POST -Headers $headers -Body $body -UseBasicParsing
-    Write-Host "[PASS] SUCCESS - Status Code: $($resp.StatusCode)" -ForegroundColor Green
-    $json = $resp.Content | ConvertFrom-Json
-    Write-Host "VPC CIDR: $($json.vpc.cidr)"
-    Write-Host "Public Subnets: $($json.subnets.public.length)"
-    Write-Host "Private Subnets: $($json.subnets.private.length)"
-} catch {
-    Write-Host "[FAIL] FAILED - $($_.Exception.Message)" -ForegroundColor Red
+# Quick manual check against a running server (npm run dev): one private VPC is planned
+# and one public VPC is rejected with 400. For all five cases run test-api-endpoints.ps1.
+# Works in Windows PowerShell 5.1 and PowerShell 7. Exit code 1 if a check fails.
+#   .\tests\manual\test-api.ps1 [-BaseUrl http://127.0.0.1:5000]
+param([string]$BaseUrl = "http://127.0.0.1:5000")
+
+$failures = 0
+
+function Invoke-Plan([string]$Body) {
+    try {
+        $resp = Invoke-WebRequest -Uri "$BaseUrl/api/k8s/plan" -Method POST -ContentType "application/json" -Body $Body -UseBasicParsing
+        return @{ Status = [int]$resp.StatusCode; Body = $resp.Content }
+    } catch {
+        if ($_.Exception.Response) {
+            # HTTP error status: PowerShell 5.1 and 7 both put the body in ErrorDetails
+            return @{ Status = [int]$_.Exception.Response.StatusCode; Body = $_.ErrorDetails.Message }
+        }
+        return @{ Status = 0; Body = $_.Exception.Message }
+    }
 }
 
-# Test 2: Public IP should be REJECTED
-Write-Host "`n=== TEST 2: Invalid Public IP (8.8.8.0/16) - Should REJECT ===" -ForegroundColor Yellow
-$body2 = '{"deploymentSize":"professional","vpcCidr":"8.8.8.0/16"}'
-try {
-    $resp2 = Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" -Method POST -Headers $headers -Body $body2 -UseBasicParsing
-    Write-Host "[FAIL] UNEXPECTED - Request should have been rejected" -ForegroundColor Red
-} catch {
-    $errResp = $_.Exception.Response.GetResponseStream()
-    $reader = New-Object System.IO.StreamReader($errResp)
-    $errContent = $reader.ReadToEnd()
-    Write-Host "[PASS] CORRECTLY REJECTED - Status Code: $($_.Exception.Response.StatusCode)" -ForegroundColor Green
-    Write-Host "Error Message: $errContent"
+$private = Invoke-Plan '{"deploymentSize":"professional","vpcCidr":"10.0.0.0/16"}'
+if ($private.Status -eq 200) {
+    Write-Host "[PASS] Private 10.0.0.0/16 is planned: VPC $(($private.Body | ConvertFrom-Json).vpc.cidr)" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] Private 10.0.0.0/16: expected 200, got $($private.Status): $($private.Body)" -ForegroundColor Red
+    $failures++
 }
 
-# Test 3: Class B private range (172.16.0.0/12)
-Write-Host "`n=== TEST 3: Valid Class B Private IP (172.16.0.0/16) ===" -ForegroundColor Green
-$body3 = '{"deploymentSize":"professional","vpcCidr":"172.16.0.0/16"}'
-try {
-    $resp3 = Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" -Method POST -Headers $headers -Body $body3 -UseBasicParsing
-    Write-Host "[PASS] SUCCESS - Status Code: $($resp3.StatusCode)" -ForegroundColor Green
-    $json3 = $resp3.Content | ConvertFrom-Json
-    Write-Host "VPC CIDR: $($json3.vpc.cidr)"
-} catch {
-    Write-Host "[FAIL] FAILED - $($_.Exception.Message)" -ForegroundColor Red
+$public = Invoke-Plan '{"deploymentSize":"professional","vpcCidr":"8.8.8.0/16"}'
+if ($public.Status -eq 400) {
+    Write-Host "[PASS] Public 8.8.8.0/16 is rejected: $(($public.Body | ConvertFrom-Json).error)" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] Public 8.8.8.0/16: expected 400, got $($public.Status): $($public.Body)" -ForegroundColor Red
+    $failures++
 }
 
-# Test 4: Class C private range (192.168.0.0/16)
-Write-Host "`n=== TEST 4: Valid Class C Private IP (192.168.0.0/16) ===" -ForegroundColor Green
-$body4 = '{"deploymentSize":"standard","vpcCidr":"192.168.0.0/16"}'
-try {
-    $resp4 = Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/kubernetes/network-plan" -Method POST -Headers $headers -Body $body4 -UseBasicParsing
-    Write-Host "[PASS] SUCCESS - Status Code: $($resp4.StatusCode)" -ForegroundColor Green
-    $json4 = $resp4.Content | ConvertFrom-Json
-    Write-Host "VPC CIDR: $($json4.vpc.cidr)"
-} catch {
-    Write-Host "[FAIL] FAILED - $($_.Exception.Message)" -ForegroundColor Red
-}
-
-Write-Host "`n=== TESTS COMPLETE ===" -ForegroundColor Cyan
+if ($failures -gt 0) { exit 1 }

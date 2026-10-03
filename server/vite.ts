@@ -23,10 +23,11 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 const viteLogger = createLogger();
 
 export async function setupVite(server: Server, app: Express) {
+  // allowedHosts keeps Vite's default (localhost/IPs only), which guards the
+  // dev server against DNS-rebinding attacks.
   const serverOptions = {
     middlewareMode: true,
     hmr: { server, path: "/vite-hmr" },
-    allowedHosts: true as const,
   };
 
   const vite = await createViteServer({
@@ -49,7 +50,7 @@ export async function setupVite(server: Server, app: Express) {
   // Even in development, protect file system operations from resource exhaustion
   const spaRateLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // More generous limit for development (100 vs production 30)
+    limit: 100, // More generous limit for development (100 vs production 30)
     standardHeaders: true,
     legacyHeaders: false,
     // Custom key generator: handle undefined IPs gracefully and normalize IPv6

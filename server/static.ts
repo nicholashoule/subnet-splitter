@@ -23,7 +23,7 @@ export function serveStatic(app: Express, customDistPath?: string) {
 
   const spaRateLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 30, // limit each IP to 30 SPA fallback requests per windowMs
+    limit: 30, // limit each IP to 30 SPA fallback requests per windowMs
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
     message: "Too many requests to the application. Please wait a moment and try again.",
@@ -34,11 +34,14 @@ export function serveStatic(app: Express, customDistPath?: string) {
 
   app.use(express.static(distPath, {
     setHeaders: (res, filePath) => {
-      // Only Vite's content-hashed asset filenames (e.g. index-DWHbI7t5.js) are
-      // safe to cache immutably for a year. Everything else -- index.html,
-      // favicon, manifest.json, robots.txt -- must revalidate so new builds and
-      // rollbacks take effect immediately.
-      const isHashedAsset = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i.test(path.basename(filePath));
+      // Only the content-hashed files Vite writes to assets/ (e.g. index-DWHbI7t5.js)
+      // are safe to cache immutably for a year. Everything else -- index.html and the
+      // files copied from client/public, such as favicon.png and
+      // github-nicholashoule.png (whose name only looks hashed) -- must revalidate so
+      // new builds and rollbacks take effect immediately.
+      const isHashedAsset =
+        path.dirname(path.relative(distPath, filePath)) === "assets" &&
+        /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i.test(path.basename(filePath));
       res.setHeader(
         "Cache-Control",
         isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",

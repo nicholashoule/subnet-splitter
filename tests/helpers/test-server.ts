@@ -2,7 +2,12 @@
  * tests/helpers/test-server.ts
  * 
  * Shared utilities for integration tests that need HTTP server lifecycle.
- * Reduces duplication across api-endpoints, csp-violation, and CSP middleware tests.
+ *
+ * createTestServer() builds a lighter stack than production's createApp()
+ * (server/app.ts): it keeps case-sensitive routing, API and health paths in any letter
+ * case (normalizePathCase), the 16 KB JSON body limit and errorHandler (registered after
+ * setup), but adds no security headers, logging or rate limiting. Tests that need
+ * those pass them as middleware, or build on createApp().
  * 
  * Usage:
  * ```typescript
@@ -25,6 +30,8 @@
  */
 
 import express, { type Express, type RequestHandler } from "express";
+import { errorHandler } from "../../server/app";
+import { normalizePathCase } from "../../server/api-path";
 import { createServer, type Server as HttpServer } from "http";
 import type { OptionsJson } from "body-parser";
 
@@ -33,10 +40,8 @@ export interface TestServerConfig {
   setup?: (app: Express, httpServer: HttpServer) => void | Promise<void>;
   /** Express middleware to add before routes */
   middleware?: RequestHandler[];
-  /** Custom JSON parser configuration */
+  /** JSON parser options, merged over production's 16 KB limit */
   jsonOptions?: OptionsJson;
-  /** Default port to use if random port allocation fails */
-  defaultPort?: number;
 }
 
 export interface TestServer {
@@ -61,9 +66,13 @@ export interface TestServer {
  */
 export async function createTestServer(config: TestServerConfig = {}): Promise<TestServer> {
   const app = express();
-  
-  // Add default JSON middleware (or custom options)
-  app.use(express.json(config.jsonOptions || {}));
+  // As in production, before the first app.use() creates the router
+  app.set("case sensitive routing", true);
+  // As in production: /API/k8s/tiers is served like /api/k8s/tiers
+  app.use(normalizePathCase);
+
+  // JSON bodies, capped at 16 KB like the API (custom options merged over that)
+  app.use(express.json({ limit: "16kb", ...config.jsonOptions }));
   
   // Add custom middleware
   if (config.middleware) {
@@ -76,16 +85,24 @@ export async function createTestServer(config: TestServerConfig = {}): Promise<T
   if (config.setup) {
     await config.setup(app, httpServer);
   }
+
+  // Production's error handler, last: malformed or oversized bodies get its JSON errors
+  app.use(errorHandler);
   
-  // Start server on random port
-  const { port, baseUrl } = await new Promise<{ port: number; baseUrl: string }>((resolve) => {
+  // Start on a free port chosen by the OS (port 0); a listen error fails the test
+  const port = await new Promise<number>((resolve, reject) => {
+    httpServer.once("error", reject);
     httpServer.listen(0, "127.0.0.1", () => {
+      httpServer.off("error", reject);
       const address = httpServer.address();
-      const port = typeof address === "object" && address ? address.port : (config.defaultPort ?? 5001);
-      const baseUrl = `http://127.0.0.1:${port}`;
-      resolve({ port, baseUrl });
+      if (typeof address === "object" && address) {
+        resolve(address.port);
+      } else {
+        reject(new Error(`Test server has no TCP address: ${String(address)}`));
+      }
     });
   });
+  const baseUrl = `http://127.0.0.1:${port}`;
   
   return { app, httpServer, baseUrl, port };
 }

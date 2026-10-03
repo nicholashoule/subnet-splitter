@@ -4,25 +4,23 @@
  * Production static-serving integration tests.
  *
  * Verifies the performance-oriented behaviors of the production build path:
- * - Content-hashed assets are cached aggressively (immutable, 1 year)
- * - index.html is never cached (must revalidate to pick up new builds)
+ * - Vite's content-hashed files in assets/ are cached aggressively (immutable, 1 year)
+ * - Everything else revalidates: index.html, and files copied from client/public,
+ *   even when their names look hashed (github-nicholashoule.png)
  * - Responses are gzip-compressed to speed up first load
  *
- * Mirrors the production middleware order from server/index.ts:
- *   app.use(compression()) -> serveStatic(app)
+ * Builds the production app as server/index.ts does: createApp() (server/app.ts,
+ * which adds compression) followed by serveStatic().
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import express, { type Express } from "express";
-import compression from "compression";
+import type { Express } from "express";
 import request from "supertest";
 import path from "path";
-import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
+import { createApp } from "../../server/app";
 import { serveStatic } from "../../server/static";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // A hashed asset filename, as emitted by Vite (content hash in the name).
 const HASHED_ASSET = "assets/index-TESTHASH.js";
@@ -34,8 +32,6 @@ describe("Static Serving (Production Configuration)", () => {
   let mockDistPath: string;
 
   beforeEach(async () => {
-    app = express();
-
     const tmpPrefix = path.join(os.tmpdir(), "test-static-");
     mockDistPath = await fs.promises.mkdtemp(tmpPrefix);
 
@@ -46,14 +42,12 @@ describe("Static Serving (Production Configuration)", () => {
     await fs.promises.mkdir(path.join(mockDistPath, "assets"));
     await fs.promises.writeFile(path.join(mockDistPath, HASHED_ASSET), LARGE_JS);
 
-    // A non-hashed static file (favicon, manifest, robots.txt, etc.).
-    await fs.promises.writeFile(
-      path.join(mockDistPath, "favicon.ico"),
-      "icon-bytes",
-    );
+    // Non-hashed static files copied from client/public. The second one's name
+    // matches the hash pattern (a hyphen and 8+ letters before the extension).
+    await fs.promises.writeFile(path.join(mockDistPath, "favicon.ico"), "icon-bytes");
+    await fs.promises.writeFile(path.join(mockDistPath, "github-nicholashoule.png"), "png-bytes");
 
-    // Match production middleware order: compression before static serving.
-    app.use(compression());
+    app = createApp({ isDevelopment: false });
     serveStatic(app, mockDistPath);
   });
 
@@ -89,6 +83,13 @@ describe("Static Serving (Production Configuration)", () => {
       const cacheControl = response.headers["cache-control"];
       expect(cacheControl).toBe("no-cache");
       expect(cacheControl).not.toContain("immutable");
+    });
+
+    it("should not cache files outside assets/ immutably, even when their names look hashed", async () => {
+      const response = await request(app).get("/github-nicholashoule.png");
+
+      expect(response.status).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-cache");
     });
   });
 

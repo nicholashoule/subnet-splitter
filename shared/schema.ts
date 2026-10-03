@@ -1,9 +1,11 @@
 // shared/schema.ts
 //
-// Shared types and validation schemas for the subnet calculator.
-// Used by both client and server code.
+// Shared types and limits for the subnet calculator: used by the client
+// (subnet-utils.ts, the calculator page), its tests, and the server indirectly
+// (server/routes.ts imports the plan generator, which uses subnet-utils.ts).
+// Intentionally dependency-free so the client bundle does not pull in a
+// validation library.
 //
-import { z } from "zod";
 
 // Subnet Calculator Types
 export interface SubnetInfo {
@@ -23,80 +25,7 @@ export interface SubnetInfo {
   isExpanded?: boolean;
 }
 
-export const cidrInputSchema = z.object({
-  cidr: z.string()
-    .min(1, "CIDR notation is required")
-    .regex(
-      /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/,
-      "Invalid CIDR format. Use format: 192.168.1.0/24"
-    )
-    .refine((val) => {
-      const parts = val.split('/');
-      const ip = parts[0].split('.').map(Number);
-      const prefix = parseInt(parts[1]);
-      
-      // Validate IP octets
-      if (!ip.every(octet => octet >= 0 && octet <= 255)) {
-        return false;
-      }
-      
-      // Validate prefix
-      if (prefix < 0 || prefix > 32) {
-        return false;
-      }
-      
-      // Validate that IP matches network address for this prefix
-      const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
-      const ipNum = ip.reduce((acc, octet) => (acc << 8) + octet, 0) >>> 0;
-      const networkNum = (ipNum & mask) >>> 0;
-      
-      // IP must be the network address
-      return ipNum === networkNum;
-    }, "IP address must be the network address for the given prefix (e.g., 192.168.1.0/24, not 192.168.1.5/24)")
-});
-
-export type CidrInput = z.infer<typeof cidrInputSchema>;
-
-/**
- * CSP Violation Report Schema
- * 
- * Used for validating and typing Content Security Policy violation reports
- * sent by browsers to the development-only /__csp-violation endpoint.
- * 
- * Note: Browsers wrap the violation data in a "csp-report" key according to W3C spec.
- * The actual payload structure is:
- * {
- *   "csp-report": {
- *     "blocked-uri": "...",
- *     "violated-directive": "...",
- *     ...
- *   }
- * }
- * 
- * Reference: https://w3c.github.io/webappsec-csp/#violation-reports
- */
-const cspViolationFields = z.object({
-  'blocked-uri': z.string().optional(),
-  'violated-directive': z.string().optional(),
-  'original-policy': z.string().optional(),
-  'source-file': z.string().optional(),
-  'line-number': z.number().optional(),
-  'column-number': z.number().optional(),
-  'document-uri': z.string().optional(),
-  disposition: z.enum(['enforce', 'report']).optional(),
-  status: z.number().optional(),
-}).strict().optional();
-
-// Wrapper schema for the actual browser payload
-export const cspViolationReportSchema = z.object({
-  'csp-report': cspViolationFields,
-}).strict();
-
-export type CSPViolationReport = z.infer<typeof cspViolationFields>;
-
 // Constants for robustness
 export const SUBNET_CALCULATOR_LIMITS = {
-  MAX_SPLIT_DEPTH: 32, // Prevent splitting beyond /32
   MAX_TREE_NODES: 10000, // Prevent memory exhaustion
-  MAX_CALCULATION_TIME: 5000, // 5 second timeout for calculations
 } as const;

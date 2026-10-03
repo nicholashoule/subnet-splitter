@@ -1,8 +1,11 @@
 # Test Suite Improvement Analysis
 
-**Date**: 2025-01-XX  
+**Date**: February 2026 (added to the repository on February 14, 2026)  
 **Scope**: Integration test duplication and shared utilities  
-**Test Count**: 406 tests (218 unit + 188 integration)
+**Test Count**: 406 tests (218 unit + 188 integration) at the time of analysis; `npm test -- --run` prints the current counts  
+**Status**: Implemented. `tests/helpers/test-server.ts` exports `createTestServer`, `closeTestServer`, `createTestServers`, and `closeTestServers`. `api-endpoints.test.ts`, `swagger-ui-csp-middleware.test.ts`, and `swagger-ui-theming.test.ts` use `createTestServer` and `closeTestServer`; `csp-violation-endpoint.test.ts` now builds on `createApp()` from `server/app.ts`, like the rate-limiting and static-serving tests. No test uses `createTestServers` or `closeTestServers`.
+
+The sections below are the original analysis and are kept as history. Where they describe a file's setup "before", or propose code, the current files may differ; notes in each section say what changed.
 
 ## Executive Summary
 
@@ -122,7 +125,7 @@ afterEach(async () => {
 });
 ```
 
-**Recommendation**: Currently only used in one test. Consider extracting if pattern repeats in future tests.
+**Recommendation**: Only used in one test at the time of analysis; consider extracting if the pattern repeats. It has since repeated in `tests/integration/static-serving.test.ts` (see [Future Considerations](#future-considerations)).
 
 ---
 
@@ -131,7 +134,9 @@ afterEach(async () => {
 **Affected Files**:
 - [tests/integration/swagger-ui-theming.test.ts](../tests/integration/swagger-ui-theming.test.ts)
 
-**Approach**: This test expects the development server to be running on port 5000 and implements custom skip logic:
+**History**: This section describes the test at the time of the analysis. It no longer applies: `swagger-ui-theming.test.ts` now starts its own in-process server with `createTestServer`, needs no `npm run dev`, and never skips.
+
+**Approach (at the time)**: This test expected the development server to be running on port 5000 and implemented custom skip logic:
 
 ```typescript
 beforeAll(async () => {
@@ -145,13 +150,15 @@ beforeAll(async () => {
 });
 ```
 
-**Observation**: Different testing approach from other integration tests (external vs internal server). This is intentional for end-to-end testing.
+**Observation (at the time)**: Different testing approach from other integration tests (external vs internal server), intended for end-to-end testing.
 
-**Recommendation**: Document this pattern in [tests/README.md](../tests/README.md) as a valid approach for E2E tests.
+**Recommendation (superseded)**: Document this pattern in [tests/README.md](../tests/README.md) as a valid approach for E2E tests. The test was instead rewritten to start its own server, like the other integration tests.
 
 ---
 
 ## Proposed Solution: Shared Test Utilities
+
+**History**: the proposal as written at the time of the analysis; read [tests/helpers/test-server.ts](../tests/helpers/test-server.ts) for the helper that shipped. It differs: it matches routes case-sensitively, lowercases API paths and caps JSON bodies at 16 KB, as production does; it registers production's `errorHandler` after `setup`; it takes `jsonOptions` instead of `defaultPort`; and a listen error fails the test instead of falling back to a fixed port.
 
 Create `tests/helpers/test-server.ts`:
 
@@ -328,9 +335,11 @@ describe("API Endpoints Integration", () => {
 
 ### swagger-ui-csp-middleware.test.ts (Double Server)
 
+**Proposal, not implemented**: the sketch below uses `createTestServers`, which `tests/helpers/test-server.ts` exports but no test calls. The file was later rewritten to serve the real routes behind `createSecurityHeaders()` from `server/csp-config.ts`, and it calls `createTestServer` once per server instead.
+
 **Before**: ~100 lines of setup/cleanup
 
-**After**:
+**Proposed**:
 
 ```typescript
 import { createTestServers, closeTestServers, type TestServer } from "../helpers/test-server";
@@ -386,11 +395,11 @@ describe("Swagger UI CSP Middleware Integration", () => {
 | **Total** | **160** | **88** | **72** |
 
 **Additional Benefits**:
-- [x] Standardized server lifecycle across all integration tests
+- [x] Standardized server lifecycle across the integration tests that listen on a port (`rate-limiting.test.ts` and `static-serving.test.ts` use supertest on the app instead)
 - [x] Easier to add new integration tests (copy pattern)
 - [x] Single place to fix bugs in server setup
 - [x] Better TypeScript type safety with `TestServer` interface
-- [x] Support for parallel server creation (dual server pattern)
+- [ ] Parallel server creation (dual server pattern): `createTestServers` exists but no test uses it
 
 ---
 
@@ -407,7 +416,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
 ### Step 3: Verify
 ```bash
-npm run test -- --run  # All 406 tests should pass
+npm run test -- --run  # All tests should pass (406 at the time)
 ```
 
 ### Step 4: Document Pattern
@@ -434,7 +443,7 @@ export async function removeTempDir(dirPath: string): Promise<void> {
 }
 ```
 
-Currently only used in rate-limiting.test.ts, but pattern available if needed.
+Used in rate-limiting.test.ts and static-serving.test.ts; no shared helper exists yet.
 
 ---
 
@@ -459,5 +468,5 @@ Currently only used in rate-limiting.test.ts, but pattern available if needed.
 ## References
 
 - [Test Suite Analysis](./test-suite-analysis.md) - Current test audit
-- [Testing Instructions](./.github/instructions/testing.instructions.md) - Test conventions
+- [Testing Instructions](../.github/instructions/testing.instructions.md) - Test conventions
 - [tests/README.md](../tests/README.md) - Test documentation

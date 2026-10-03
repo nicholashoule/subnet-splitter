@@ -1,26 +1,55 @@
 /**
  * client/src/lib/kubernetes-network-generator.ts
- * 
+ *
  * Kubernetes network planning service
- * Generates IP ranges for EKS, GKE, and generic Kubernetes deployments
+ * Generates IP ranges for EKS, GKE, AKS, and generic Kubernetes deployments
  * Supports multiple deployment sizes with battle-tested configurations
+ *
+ * Allocation rules (every tier, every provider):
+ * - Nodes, control plane, and load-balancer subnets (public, or internal in private
+ *   mode) are carved from the VPC first-fit: each takes the lowest offset aligned to
+ *   its own size that is still free. Load-balancer subnets come first, then node
+ *   subnets, then the control-plane network, which usually fills the alignment gap.
+ * - The control plane is one network: a /28, or for EKS one /27 split into the two
+ *   /28 subnets (two AZs) that EKS requires.
+ * - Generated pods and services sit outside the VPC, each in its own RFC 1918 block:
+ *   pods prefer 10.0.0.0/8 (most space), services prefer 192.168.0.0/16. Pods also keep
+ *   out of a caller-supplied servicesCidr's block, and fall back to 100.64.0.0/10
+ *   (RFC 6598, accepted for pods by EKS, GKE and AKS) when no RFC 1918 block has room.
+ * - Generated ranges never touch RESERVED_RANGES or the provider's
+ *   PROVIDER_RESERVED_RANGES; caller-supplied ranges overlapping the latter are rejected.
+ * - Every range in the finished plan is checked to be canonical and disjoint.
  */
 
 import type {
   DeploymentSize,
   Provider,
+  CanonicalProvider,
+  NetworkMode,
   KubernetesNetworkPlan,
   SubnetConfig,
-  DeploymentTierConfig
+  EffectiveTierConfig
 } from "@shared/kubernetes-schema";
 import {
   DEPLOYMENT_TIER_CONFIGS,
+  DeploymentSizeEnum,
   PROVIDER_REGION_EXAMPLES,
   KubernetesNetworkPlanSchema,
   KubernetesNetworkPlanRequestSchema,
+  RESERVED_RANGES,
+  PROVIDER_RESERVED_RANGES,
+  CONTROL_PLANE_SUBNET_PREFIX,
+  PODS_PREFIX_LIMITS,
+  SERVICES_PREFIX_LIMITS,
+  PROVIDER_SERVICES_PREFIX_LIMITS,
+  LARGEST_VPC_PREFIX,
+  LARGEST_VPC_REASON,
   normalizeProvider
 } from "@shared/kubernetes-schema";
-import { ipToNumber, numberToIp, calculateSubnet } from "./subnet-utils";
+import { numberToIp, parseCidr, prefixToMask } from "./subnet-utils";
+
+/** Plan format and allocation rules version, reported in metadata.version */
+export const PLAN_FORMAT_VERSION = "2.0";
 
 export class KubernetesNetworkGenerationError extends Error {
   constructor(message: string) {
@@ -29,382 +58,426 @@ export class KubernetesNetworkGenerationError extends Error {
   }
 }
 
-/**
- * Check if an IP address is in a private RFC 1918 range
- * Private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
- * @returns true if IP is private, false if public or invalid
- */
-function isPrivateIP(ip: string): boolean {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return false;
+// ── Address arithmetic ───────────────────────────────────────────────
 
-  const octets = parts.map(p => parseInt(p, 10));
-
-  // Validate all octets are numbers in range 0-255
-  if (octets.some(o => Number.isNaN(o) || o < 0 || o > 255)) return false;
-
-  const [first, second] = octets;
-
-  // Class A private: 10.0.0.0/8
-  if (first === 10) return true;
-
-  // Class B private: 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
-  if (first === 172 && second >= 16 && second <= 31) return true;
-
-  // Class C private: 192.168.0.0/16
-  if (first === 192 && second === 168) return true;
-
-  return false;
+/** An aligned address range: network number and prefix length */
+interface Block {
+  network: number;
+  prefix: number;
 }
 
-/**
- * Check if a CIDR is entirely within another CIDR
- * Used to validate that generated pod/service CIDRs don't extend outside VPC
- */
-function isCidrWithinCidr(innerCidr: string, outerCidr: string): boolean {
-  const [innerIp, innerPrefixStr] = innerCidr.split("/");
-  const [outerIp, outerPrefixStr] = outerCidr.split("/");
-  
-  const innerPrefix = parseInt(innerPrefixStr, 10);
-  const outerPrefix = parseInt(outerPrefixStr, 10);
-  
-  // Inner prefix must be >= outer prefix (more specific or equal)
-  if (innerPrefix < outerPrefix) return false;
-  
-  const innerNum = ipToNumber(innerIp);
-  const outerNum = ipToNumber(outerIp);
-  
-  // Calculate network addresses
-  const outerMask = (0xffffffff << (32 - outerPrefix)) >>> 0;
-  const innerNetwork = (innerNum & outerMask) >>> 0;
-  const outerNetwork = (outerNum & outerMask) >>> 0;
-  
-  // Inner network must match outer network
-  return innerNetwork === outerNetwork;
+const blockSize = (prefix: number): number => Math.pow(2, 32 - prefix);
+const lastAddress = (b: Block): number => b.network + blockSize(b.prefix) - 1;
+const toCidr = (b: Block): string => `${numberToIp(b.network)}/${b.prefix}`;
+const overlaps = (a: Block, b: Block): boolean => a.network <= lastAddress(b) && b.network <= lastAddress(a);
+const contains = (outer: Block, inner: Block): boolean =>
+  inner.prefix >= outer.prefix && ((inner.network & prefixToMask(outer.prefix)) >>> 0) === outer.network;
+/** Smallest prefix whose block holds the given number of addresses */
+const prefixForSize = (addresses: number): number => 32 - Math.ceil(Math.log2(addresses));
+
+/** RFC 1918 private address blocks */
+const RFC1918_BLOCKS = {
+  10: { network: 0x0a000000, prefix: 8 },   // 10.0.0.0/8
+  172: { network: 0xac100000, prefix: 12 }, // 172.16.0.0/12
+  192: { network: 0xc0a80000, prefix: 16 }, // 192.168.0.0/16
+} as const;
+type Rfc1918Name = keyof typeof RFC1918_BLOCKS;
+const RFC1918_NAMES = [10, 172, 192] as const;
+
+/** RFC 6598 shared address space: caller-supplied pods, and generated pods when RFC 1918 is full */
+const RFC6598_BLOCK: Block = { network: 0x64400000, prefix: 10 }; // 100.64.0.0/10
+
+interface ReservedRange extends Block {
+  cidr: string;
+  reason: string;
+}
+const toReserved = (r: { cidr: string; reason: string }): ReservedRange => ({ ...parseCidr(r.cidr), cidr: r.cidr, reason: r.reason });
+
+/** Reserved for every provider: avoided, and a VPC overlapping them gets a warning */
+const RESERVED: ReservedRange[] = RESERVED_RANGES.map(toReserved);
+/** Refused by one provider: avoided, and caller ranges overlapping them are rejected */
+const providerReserved = (provider: CanonicalProvider): ReservedRange[] =>
+  (PROVIDER_RESERVED_RANGES[provider] ?? []).map(toReserved);
+/** Everything the generator must not allocate for this provider */
+const reservedFor = (provider: CanonicalProvider): ReservedRange[] => [...RESERVED, ...providerReserved(provider)];
+
+/** Pods prefer the largest block; services the smallest, keeping them compact */
+const PODS_BLOCK_ORDER: Rfc1918Name[] = [10, 172, 192];
+const SERVICES_BLOCK_ORDER: Rfc1918Name[] = [192, 172, 10];
+
+/** The RFC 1918 block that fully contains the range, if any */
+function rfc1918BlockOf(b: Block): Rfc1918Name | undefined {
+  return RFC1918_NAMES.find((name) => contains(RFC1918_BLOCKS[name], b));
 }
 
-/**
- * Get the RFC 1918 major block for an IP (10, 172, or 192)
- */
-function getRFC1918MajorBlock(ip: string): number {
-  const firstOctet = parseInt(ip.split(".")[0], 10);
-  if (firstOctet === 10) return 10;
-  if (firstOctet === 172) return 172;
-  if (firstOctet === 192) return 192;
-  return 0; // Not RFC 1918
+/** Lowest slot of the given size inside `within` that overlaps nothing in `avoid` */
+function firstFreeSlot(within: Block, prefix: number, avoid: Block[]): Block | undefined {
+  if (prefix < within.prefix) return undefined;
+  const size = blockSize(prefix);
+  for (let network = within.network; network + size - 1 <= lastAddress(within);) {
+    const candidate = { network, prefix };
+    const clash = avoid.find((a) => overlaps(a, candidate));
+    if (!clash) return candidate;
+    // Jump past the clash to the next aligned slot
+    network = Math.max(network + size, Math.ceil((lastAddress(clash) + 1) / size) * size);
+  }
+  return undefined;
 }
 
+// ── Tier layout ──────────────────────────────────────────────────────
+
+interface SubnetLayout {
+  public: number[];       // Offsets from the VPC network address
+  loadBalancer: number[];
+  private: number[];
+  controlPlane: number[];
+  addressesNeeded: number;
+}
+
+type LayoutCounts = Pick<EffectiveTierConfig,
+  "publicSubnets" | "loadBalancerSubnets" | "privateSubnets" | "controlPlaneSubnets" |
+  "publicSubnetSize" | "loadBalancerSubnetSize" | "privateSubnetSize" | "controlPlaneSubnetSize">;
+
 /**
- * Validate that a CIDR uses private IP space (RFC 1918)
- * Kubernetes deployments MUST use private IPs for security
- * Public IPs expose the cluster to the internet (security anti-pattern)
+ * Place every subnet first-fit: lowest free offset aligned to the subnet's size.
+ * Load-balancer subnets (public or internal) fill the start of the VPC, node subnets
+ * follow at their own alignment, and the control-plane network drops into the gap
+ * left between them. The control plane is placed as one aligned block and then split,
+ * so EKS's two /28s always form a single /27.
  */
-function validatePrivateCIDR(cidr: string): void {
-  try {
-    const ipPart = cidr.split("/")[0];
-    if (!isPrivateIP(ipPart)) {
-      throw new KubernetesNetworkGenerationError(
-        `VPC CIDR "${cidr}" uses public IP space. Kubernetes deployments MUST use private RFC 1918 ranges: ` +
-        `10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. ` +
-        `Public IPs expose nodes to the internet (critical security risk). ` +
-        `Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.`
-      );
+function layoutSubnets(cfg: LayoutCounts): SubnetLayout {
+  const used: Array<[number, number]> = []; // [start, end) offsets
+  const place = (prefix: number): number => {
+    const size = blockSize(prefix);
+    let offset = 0;
+    for (;;) {
+      const clash = used.find(([start, end]) => offset < end && start < offset + size);
+      if (!clash) {
+        used.push([offset, offset + size]);
+        return offset;
+      }
+      offset = Math.ceil(clash[1] / size) * size;
     }
+  };
+  const repeat = (count: number, prefix: number) => Array.from({ length: count }, () => place(prefix));
+
+  const publicOffsets = repeat(cfg.publicSubnets, cfg.publicSubnetSize);
+  const loadBalancerOffsets = repeat(cfg.loadBalancerSubnets, cfg.loadBalancerSubnetSize);
+  const privateOffsets = repeat(cfg.privateSubnets, cfg.privateSubnetSize);
+  const controlPlaneBlock = place(cfg.controlPlaneSubnetSize - Math.ceil(Math.log2(cfg.controlPlaneSubnets)));
+  const controlPlaneOffsets = Array.from({ length: cfg.controlPlaneSubnets },
+    (_, i) => controlPlaneBlock + i * blockSize(cfg.controlPlaneSubnetSize));
+  return {
+    public: publicOffsets,
+    loadBalancer: loadBalancerOffsets,
+    private: privateOffsets,
+    controlPlane: controlPlaneOffsets,
+    addressesNeeded: Math.max(...used.map(([, end]) => end)),
+  };
+}
+
+/**
+ * A tier's layout for one provider and network mode.
+ * - EKS: cluster subnets must span at least two AZs, and ALBs (internet-facing or
+ *   internal) need subnets in two AZs, so node and load-balancer subnets get at least
+ *   two. The control plane is exactly two /28s (one /27): EKS's minimum, and AWS
+ *   advises naming only two subnets so you control where its interfaces land.
+ * - GKE, AKS: subnets are regional, so one control-plane range and, in private mode,
+ *   one internal load-balancer subnet (GKE: the region's single proxy-only subnet).
+ * - Generic: one control-plane subnet, so a floating API server address
+ *   (keepalived, kube-vip) can move between control-plane nodes.
+ * - Private mode: no public subnets; load-balancer subnets take their place at the
+ *   tier's public subnet size (/26 to /23, within GKE's proxy-only limits).
+ */
+export function getTierConfig(
+  size: DeploymentSize,
+  provider: Provider = "kubernetes",
+  networkMode: NetworkMode = "public"
+): EffectiveTierConfig {
+  const base = DEPLOYMENT_TIER_CONFIGS[size];
+  if (!base) {
+    throw new KubernetesNetworkGenerationError(`Unknown deployment size: ${size}`);
+  }
+  const canonical = normalizeProvider(provider);
+  const regional = canonical === "gke" || canonical === "aks";
+  const minPerType = canonical === "eks" ? 2 : 1;
+  const edgeSubnets = regional && networkMode === "private" ? 1 : Math.max(minPerType, base.publicSubnets);
+
+  const counts: LayoutCounts = {
+    publicSubnets: networkMode === "public" ? edgeSubnets : 0,
+    loadBalancerSubnets: networkMode === "private" ? edgeSubnets : 0,
+    privateSubnets: Math.max(minPerType, base.privateSubnets),
+    controlPlaneSubnets: canonical === "eks" ? 2 : 1,
+    publicSubnetSize: base.publicSubnetSize,
+    loadBalancerSubnetSize: base.publicSubnetSize,
+    privateSubnetSize: base.privateSubnetSize,
+    controlPlaneSubnetSize: CONTROL_PLANE_SUBNET_PREFIX,
+  };
+  return {
+    networkMode,
+    publicSubnets: counts.publicSubnets,
+    loadBalancerSubnets: counts.loadBalancerSubnets,
+    privateSubnets: counts.privateSubnets,
+    controlPlaneSubnets: counts.controlPlaneSubnets,
+    publicSubnetSize: counts.publicSubnetSize,
+    loadBalancerSubnetSize: counts.loadBalancerSubnetSize,
+    privateSubnetSize: counts.privateSubnetSize,
+    controlPlaneSubnetSize: counts.controlPlaneSubnetSize,
+    podsPrefix: base.podsPrefix,
+    servicesPrefix: base.servicesPrefix,
+    minVpcPrefix: prefixForSize(layoutSubnets(counts).addressesNeeded),
+    description: base.description,
+  };
+}
+
+// ── Zones ────────────────────────────────────────────────────────────
+
+/** Zone name per subnet, round-robin. GKE and AKS subnets are regional: no zone. */
+function zoneNames(
+  provider: CanonicalProvider,
+  region: string,
+  count: number,
+  override?: string[]
+): Array<string | undefined> {
+  if (provider === "gke" || provider === "aks") return Array(count).fill(undefined);
+  const zones = override ?? (provider === "eks"
+    ? ["a", "b", "c", "d", "e", "f"].map((letter) => `${region}${letter}`)
+    : ["zone-1", "zone-2", "zone-3"]);
+  return Array.from({ length: count }, (_, i) => zones[i % zones.length]);
+}
+
+/** Provider names as error messages show them */
+const PROVIDER_NAMES: Record<CanonicalProvider, string> = { eks: "EKS", gke: "GKE", aks: "AKS", kubernetes: "generic Kubernetes" };
+
+// ── VPC, pod, and service ranges ─────────────────────────────────────
+
+function parseRange(field: string, cidr: string): Block {
+  try {
+    return parseCidr(cidr);
   } catch (error) {
-    if (error instanceof KubernetesNetworkGenerationError) throw error;
-    throw new KubernetesNetworkGenerationError(`Invalid CIDR format: ${cidr}`);
+    throw new KubernetesNetworkGenerationError(
+      `Invalid ${field} "${cidr}": ${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 }
 
+/** Parse the VPC CIDR and verify the entire range is private RFC 1918 space */
+function parseVpc(vpcCidr: string): Block {
+  const vpc = parseRange("VPC CIDR", vpcCidr);
+  if (!rfc1918BlockOf(vpc)) {
+    throw new KubernetesNetworkGenerationError(
+      `VPC CIDR "${vpcCidr}" uses public IP space. The entire range must fall within a private RFC 1918 block: ` +
+      `10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16. ` +
+      `Public IPs expose nodes to the internet (critical security risk). ` +
+      `Use private subnets for Kubernetes nodes and public subnets only for load balancers/ingress controllers.`
+    );
+  }
+  return vpc;
+}
+
 /**
- * Generate a random RFC 1918 private address space
- * Returns one of: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
- * Default VPC size: /18 (16,384 addresses - suitable for most deployments)
+ * Random /18 (16,384 addresses, enough for every tier and provider) inside a
+ * randomly chosen RFC 1918 block, aligned and clear of the provider's reserved ranges.
  */
-function generateRandomRFC1918VPC(): string {
-  const rfc1918Ranges = [
-    { base: 10, prefix: 8 },
-    { base: 172, prefix: 12 },
-    { base: 192, prefix: 16 }
+function randomVpc(reserved: ReservedRange[]): Block {
+  const block = RFC1918_BLOCKS[RFC1918_NAMES[Math.floor(Math.random() * RFC1918_NAMES.length)]];
+  const slots = Array.from({ length: Math.pow(2, 18 - block.prefix) }, (_, i) => ({
+    network: block.network + i * blockSize(18),
+    prefix: 18,
+  })).filter((slot) => !reserved.some((r) => overlaps(r, slot)));
+  return slots[Math.floor(Math.random() * slots.length)];
+}
+
+/** Validate a caller-supplied pod or service range */
+function parseOverride(
+  field: "podsCidr" | "servicesCidr",
+  cidr: string,
+  allowed: Block[],
+  allowedText: string,
+  limits: { largest: number; smallest: number },
+  reserved: ReservedRange[]
+): Block {
+  const range = parseRange(field, cidr);
+  if (!allowed.some((a) => contains(a, range))) {
+    throw new KubernetesNetworkGenerationError(`${field} "${cidr}" must fall entirely within ${allowedText}.`);
+  }
+  if (range.prefix < limits.largest || range.prefix > limits.smallest) {
+    throw new KubernetesNetworkGenerationError(
+      `${field} "${cidr}" must be between /${limits.largest} and /${limits.smallest}; got /${range.prefix}.`
+    );
+  }
+  const clash = reserved.find((r) => overlaps(r, range));
+  if (clash) {
+    throw new KubernetesNetworkGenerationError(`${field} "${cidr}" overlaps ${clash.cidr} (${clash.reason}).`);
+  }
+  return range;
+}
+
+/** First free slot of the given size across the candidate blocks, in order */
+function allocateRange(kind: string, prefix: number, candidates: Block[], avoid: Block[]): Block {
+  for (const block of candidates) {
+    const slot = firstFreeSlot(block, prefix, avoid);
+    if (slot) return slot;
+  }
+  throw new KubernetesNetworkGenerationError(
+    `No free /${prefix} ${kind} range is left outside the VPC in ${candidates.map(toCidr).join(", ")}. Pass ${kind}Cidr explicitly.`
+  );
+}
+
+/**
+ * Guard: subnets inside the VPC, pods and services outside it and clear of reserved
+ * ranges, and no two ranges overlapping. A failure here is a bug, not bad input.
+ */
+function assertSeparated(vpc: Block, subnets: SubnetConfig[], pods: Block, services: Block, reserved: ReservedRange[]): void {
+  const ranges = [
+    ...subnets.map((s) => ({ name: `subnet ${s.name}`, block: parseCidr(s.cidr), insideVpc: true })),
+    { name: "pods", block: pods, insideVpc: false },
+    { name: "services", block: services, insideVpc: false },
   ];
-
-  const range = rfc1918Ranges[Math.floor(Math.random() * rfc1918Ranges.length)];
-  
-  if (range.prefix === 8) {
-    const secondOctet = Math.floor(Math.random() * 256);
-    return `${range.base}.${secondOctet}.0.0/18`;
-  } else if (range.prefix === 12) {
-    // 172.16.0.0 - 172.31.255.255
-    const secondOctet = 16 + Math.floor(Math.random() * 16);
-    return `172.${secondOctet}.0.0/18`;
-  } else {
-    // 192.168.0.0 - 192.168.255.255
-    const thirdOctet = Math.floor(Math.random() * 256);
-    return `192.168.${thirdOctet}.0/18`;
+  for (const r of ranges) {
+    if (r.insideVpc ? !contains(vpc, r.block) : overlaps(vpc, r.block)) {
+      throw new Error(`Allocation bug: ${r.name} ${toCidr(r.block)} is ${r.insideVpc ? "outside" : "inside"} the VPC ${toCidr(vpc)}`);
+    }
+    if (!r.insideVpc && reserved.some((range) => overlaps(range, r.block))) {
+      throw new Error(`Allocation bug: ${r.name} ${toCidr(r.block)} overlaps a reserved range`);
+    }
+  }
+  for (let i = 0; i < ranges.length; i++) {
+    for (let j = i + 1; j < ranges.length; j++) {
+      if (overlaps(ranges[i].block, ranges[j].block)) {
+        throw new Error(`Allocation bug: ${ranges[i].name} overlaps ${ranges[j].name}`);
+      }
+    }
   }
 }
 
+// ── Plan generation ──────────────────────────────────────────────────
+
 /**
- * Calculate the network address from a CIDR
- * Ensures we're working with proper subnet boundaries
- * Validates that CIDR uses private RFC 1918 IP space
+ * Build a complete Kubernetes network plan. Deterministic for a given request
+ * when vpcCidr is supplied (apart from metadata.generatedAt).
  */
-function normalizeVpcCidr(vpcCidr: string): string {
-  try {
-    // Validate it's a private CIDR first (security requirement)
-    validatePrivateCIDR(vpcCidr);
-    
-    // Then normalize to network address
-    const subnet = calculateSubnet(vpcCidr);
-    return subnet.cidr;
-  } catch (error) {
-    if (error instanceof KubernetesNetworkGenerationError) throw error;
+export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Date()): KubernetesNetworkPlan {
+  const req = KubernetesNetworkPlanRequestSchema.parse(request);
+  const provider = normalizeProvider(req.provider);
+  const tier = getTierConfig(req.deploymentSize, provider, req.networkMode);
+  const region = req.region || (PROVIDER_REGION_EXAMPLES[provider] || PROVIDER_REGION_EXAMPLES.kubernetes).default;
+
+  if (req.availabilityZones && (provider === "gke" || provider === "aks")) {
     throw new KubernetesNetworkGenerationError(
-      `Invalid VPC CIDR "${vpcCidr}": ${error instanceof Error ? error.message : "Unknown error"}`
+      `availabilityZones applies to EKS and generic Kubernetes only: ${PROVIDER_NAMES[provider]} subnets are regional, and node pools choose their zones.`
     );
   }
-}
-
-/**
- * Get availability zone assignments for subnets
- * AWS/GKE/AKS best practices recommend minimum 3 AZs for production
- * @param subnetCount Total number of subnets to distribute
- * @param provider Cloud provider (affects AZ naming)
- * @param region Optional region (uses provider default if not specified)
- * @returns Array of AZ identifiers
- */
-function getAvailabilityZones(subnetCount: number, provider: Provider, region?: string): string[] {
-  const azs: string[] = [];
-  const normalizedProvider = normalizeProvider(provider);
-  
-  // Get region from parameter or use provider default
-  const providerConfig = PROVIDER_REGION_EXAMPLES[normalizedProvider] || PROVIDER_REGION_EXAMPLES.kubernetes;
-  const effectiveRegion = region || providerConfig.default;
-  
-  if (normalizedProvider === "eks") {
-    // AWS EKS - use letter suffixes (a, b, c, d, e, f)
-    const azLetters = ["a", "b", "c", "d", "e", "f"];
-    for (let i = 0; i < subnetCount; i++) {
-      const letter = azLetters[i % azLetters.length];
-      azs.push(`${effectiveRegion}${letter}`);
-    }
-  } else if (normalizedProvider === "gke") {
-    // GKE - use letter suffixes for zones
-    const zoneLetters = ["a", "b", "c", "d", "e", "f"];
-    for (let i = 0; i < subnetCount; i++) {
-      const letter = zoneLetters[i % zoneLetters.length];
-      azs.push(`${effectiveRegion}-${letter}`);
-    }
-  } else if (normalizedProvider === "aks") {
-    // AKS - use numerical zones
-    for (let i = 0; i < subnetCount; i++) {
-      const zone = (i % 3) + 1;
-      azs.push(`${effectiveRegion}-${zone}`);
-    }
-  } else {
-    // Generic Kubernetes - use numerical zones
-    for (let i = 0; i < subnetCount; i++) {
-      const zone = (i % 3) + 1;
-      azs.push(`zone-${zone}`);
-    }
+  if (provider === "eks" && req.availabilityZones && req.availabilityZones.length < 2) {
+    throw new KubernetesNetworkGenerationError("EKS needs subnets in at least two availability zones; pass two or more availabilityZones.");
   }
-  
-  return azs;
-}
 
-/**
- * Split a VPC CIDR into subnets for the given deployment tier
- * Automatically distributes subnets across availability zones
- * Uses differentiated sizing: public subnets are smaller than private
- * @param offset Starting byte offset for subnet placement
- * @param region Optional region for AZ naming
- */
-function generateSubnets(
-  vpcCidr: string,
-  config: DeploymentTierConfig,
-  subnetType: "public" | "private",
-  provider: Provider,
-  offset: number = 0,
-  region?: string
-): SubnetConfig[] {
-  const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
-  const vpcPrefix = parseInt(vpcCidr.split("/")[1], 10);
-  
-  // Use differentiated subnet sizes: public subnets are smaller than private
-  const subnetSize = subnetType === "public" 
-    ? config.publicSubnetSize 
-    : config.privateSubnetSize;
-  
-  if (vpcPrefix >= subnetSize) {
+  // VPC: caller's (must be private) or a random /18
+  const reserved = reservedFor(provider);
+  const vpc = req.vpcCidr ? parseVpc(req.vpcCidr) : randomVpc(reserved);
+  const vpcBlock = rfc1918BlockOf(vpc)!;
+  if (vpc.prefix < LARGEST_VPC_PREFIX) {
     throw new KubernetesNetworkGenerationError(
-      `VPC prefix /${vpcPrefix} is too small. Cannot split into /${subnetSize} ${subnetType} subnets`
+      `VPC ${toCidr(vpc)} is too large for ${PROVIDER_NAMES[provider]}: ${LARGEST_VPC_REASON[provider]}. Use a /${LARGEST_VPC_PREFIX} or smaller (larger prefix number).`
+    );
+  }
+  const refused = providerReserved(provider).find((r) => overlaps(r, vpc));
+  if (refused) {
+    throw new KubernetesNetworkGenerationError(
+      `VPC ${toCidr(vpc)} overlaps ${refused.cidr}, ${refused.reason}, so ${PROVIDER_NAMES[provider]} rejects it. Choose a VPC outside it.`
     );
   }
 
-  const subnets: SubnetConfig[] = [];
-  const subnetCount = subnetType === "public" 
-    ? config.publicSubnets 
-    : config.privateSubnets;
-
-  // Calculate step size in IP addresses for this subnet type
-  const subnetAddresses = Math.pow(2, 32 - subnetSize);
-
-  // Align the starting offset up to this subnet's size boundary. Without this a
-  // subnet can be emitted with host bits set (e.g. 10.42.198.0/20), a non-canonical
-  // network address that cloud providers reject and that silently overlaps neighbours.
-  const alignedOffset = Math.ceil(offset / subnetAddresses) * subnetAddresses;
-
-  // Ensure the aligned allocation still fits inside the VPC range.
-  const vpcAddresses = Math.pow(2, 32 - vpcPrefix);
-  const requiredAddresses = alignedOffset + subnetCount * subnetAddresses;
-  if (requiredAddresses > vpcAddresses) {
+  // Nodes, control plane, and public subnets inside the VPC
+  const layout = layoutSubnets(tier);
+  if (layout.addressesNeeded > blockSize(vpc.prefix)) {
     throw new KubernetesNetworkGenerationError(
-      `VPC /${vpcPrefix} is too small for ${subnetCount} /${subnetSize} ${subnetType} subnets. ` +
-      `Needs ${requiredAddresses} addresses after alignment but VPC only provides ${vpcAddresses}. ` +
-      `Use a larger VPC CIDR (smaller prefix number).`
+      `VPC ${toCidr(vpc)} is too small for the ${PROVIDER_NAMES[provider]} ${req.deploymentSize} tier: its subnets need ` +
+      `${layout.addressesNeeded} addresses (a /${tier.minVpcPrefix} or larger), but a /${vpc.prefix} provides ` +
+      `${blockSize(vpc.prefix)}. Use a larger VPC CIDR (smaller prefix number).`
     );
   }
-  
-  // Get availability zone assignments
-  const azs = getAvailabilityZones(subnetCount, provider, region);
-  
-  // Generate subnets with AZ distribution (starting after aligned offset)
-  for (let i = 0; i < subnetCount; i++) {
-    const subnetStart = vpcNum + alignedOffset + (i * subnetAddresses);
-    const subnetIp = numberToIp(subnetStart);
-    
-    subnets.push({
-      cidr: `${subnetIp}/${subnetSize}`,
-      name: `${subnetType}-${i + 1}`,
-      type: subnetType,
-      availabilityZone: azs[i]
-    });
-  }
+  const makeSubnets = (type: SubnetConfig["type"], prefix: number, offsets: number[]): SubnetConfig[] => {
+    const zones = zoneNames(provider, region, offsets.length, req.availabilityZones);
+    return offsets.map((offset, i) => ({
+      cidr: toCidr({ network: vpc.network + offset, prefix }),
+      name: `${type}-${i + 1}`,
+      type,
+      ...(zones[i] ? { availabilityZone: zones[i] } : {}),
+    }));
+  };
+  const publicSubnets = makeSubnets("public", tier.publicSubnetSize, layout.public);
+  const privateSubnets = makeSubnets("private", tier.privateSubnetSize, layout.private);
+  const loadBalancerSubnets = makeSubnets("load-balancer", tier.loadBalancerSubnetSize, layout.loadBalancer);
+  const controlPlaneSubnets = makeSubnets("control-plane", tier.controlPlaneSubnetSize, layout.controlPlane);
 
-  return subnets;
-}
-
-/**
- * Calculate total IP addresses used by a set of subnets
- */
-function calculateTotalSubnetBytes(subnetCount: number, subnetSize: number): number {
-  return subnetCount * Math.pow(2, 32 - subnetSize);
-}
-
-/**
- * Generate the next available CIDR block after a given offset
- */
-function generateCidrAtOffset(vpcCidr: string, byteOffset: number, prefix: number): string {
-  const vpcNum = ipToNumber(vpcCidr.split("/")[0]);
-  const nextStart = vpcNum + byteOffset;
-  const nextIp = numberToIp(nextStart);
-  
-  return `${nextIp}/${prefix}`;
-}
-
-/**
- * Generate a complete Kubernetes network plan
- */
-export async function generateKubernetesNetworkPlan(
-  request: unknown
-): Promise<KubernetesNetworkPlan> {
-  // Validate input
-  const validatedRequest = KubernetesNetworkPlanRequestSchema.parse(request);
-
-  // Get VPC CIDR (generate if not provided)
-  const vpcCidr = validatedRequest.vpcCidr 
-    ? normalizeVpcCidr(validatedRequest.vpcCidr)
-    : generateRandomRFC1918VPC();
-
-  // Get deployment tier config
-  const tierConfig = DEPLOYMENT_TIER_CONFIGS[validatedRequest.deploymentSize];
-  if (!tierConfig) {
-    throw new KubernetesNetworkGenerationError(
-      `Unknown deployment size: ${validatedRequest.deploymentSize}`
-    );
-  }
-
-  // Normalize provider alias (e.g., "k8s" -> "kubernetes")
-  const provider = normalizeProvider(validatedRequest.provider);
-  
-  // Get region (use provider default if not specified)
-  const providerConfig = PROVIDER_REGION_EXAMPLES[provider] || PROVIDER_REGION_EXAMPLES.kubernetes;
-  const region = validatedRequest.region || providerConfig.default;
-  
-  // Generate public subnets (start at VPC base)
-  const publicSubnets = generateSubnets(vpcCidr, tierConfig, "public", provider, 0, region);
-  
-  // Calculate byte offset for private subnets (after all public subnets)
-  const publicBytesUsed = calculateTotalSubnetBytes(tierConfig.publicSubnets, tierConfig.publicSubnetSize);
-  
-  // Generate private subnets (start after public subnets)
-  const privateSubnets = generateSubnets(vpcCidr, tierConfig, "private", provider, publicBytesUsed, region);
-  
-  // Calculate total bytes used by all subnets
-  const privateBytesUsed = calculateTotalSubnetBytes(tierConfig.privateSubnets, tierConfig.privateSubnetSize);
-  const totalSubnetBytes = publicBytesUsed + privateBytesUsed;
-
-  // Generate Pod and Services CIDR blocks in SEPARATE RFC 1918 ranges
-  // This prevents confusion and ensures clear network isolation
-  // Strategy: Use 10.x.x.x (largest) for pods, save smaller ranges for services
-  const vpcIp = vpcCidr.split("/")[0];
-  const vpcMajorBlock = getRFC1918MajorBlock(vpcIp);
-  
-  // Choose different RFC 1918 blocks for pods and services
-  // Prefer 10.x.x.x for pods (most space available)
-  let podsCidr: string;
-  let servicesCidr: string;
-  
-  if (vpcMajorBlock === 10) {
-    // VPC in 10.x.x.x → Pods in 172.16.x.x, Services in 192.168.x.x
-    // (Can't use 10.x for pods since VPC already uses it)
-    podsCidr = `172.16.0.0/${tierConfig.podsPrefix}`;
-    servicesCidr = `192.168.0.0/${tierConfig.servicesPrefix}`;
-  } else {
-    // VPC in 172.x or 192.168.x → Pods in 10.x.x.x (best option - most space)
-    // Services in whichever range VPC isn't using
-    podsCidr = `10.0.0.0/${tierConfig.podsPrefix}`;
-    
-    if (vpcMajorBlock === 172) {
-      // VPC uses 172.x → Services use 192.168.x
-      servicesCidr = `192.168.0.0/${tierConfig.servicesPrefix}`;
-    } else {
-      // VPC uses 192.168.x → Services use 172.16.x
-      servicesCidr = `172.16.0.0/${tierConfig.servicesPrefix}`;
+  // Pods and services: outside the VPC, each in its own block unless overridden
+  const podsOverride = req.podsCidr
+    ? parseOverride("podsCidr", req.podsCidr, [...Object.values(RFC1918_BLOCKS), RFC6598_BLOCK],
+      "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 100.64.0.0/10", PODS_PREFIX_LIMITS, reserved)
+    : undefined;
+  const servicesOverride = req.servicesCidr
+    ? parseOverride("servicesCidr", req.servicesCidr, Object.values(RFC1918_BLOCKS),
+      "10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16",
+      PROVIDER_SERVICES_PREFIX_LIMITS[provider] ?? SERVICES_PREFIX_LIMITS, reserved)
+    : undefined;
+  for (const [field, range] of [["podsCidr", podsOverride], ["servicesCidr", servicesOverride]] as const) {
+    if (range && overlaps(range, vpc)) {
+      throw new KubernetesNetworkGenerationError(`${field} ${toCidr(range)} overlaps the VPC ${toCidr(vpc)}.`);
     }
   }
-  
-  // Validate that pods/services don't overlap with VPC subnets
-  if (isCidrWithinCidr(podsCidr, vpcCidr) || isCidrWithinCidr(servicesCidr, vpcCidr)) {
+  if (podsOverride && servicesOverride && overlaps(podsOverride, servicesOverride)) {
     throw new KubernetesNetworkGenerationError(
-      `Generated pod or service CIDR overlaps with VPC CIDR ${vpcCidr}. ` +
-      `This should not happen with separate RFC 1918 major blocks.`
+      `podsCidr ${toCidr(podsOverride)} overlaps servicesCidr ${toCidr(servicesOverride)}.`
     );
   }
 
-  // Build the network plan
+  // Generated pods: an RFC 1918 block other than the VPC's and the caller's services
+  // block, then RFC 6598 (AKS hyperscale on a 10.x VNet needs it: every /13 left in
+  // 172.16.0.0/12 holds 172.17.0.0/16 or the AKS-reserved 172.30-31.0.0/16)
+  const servicesBlock = servicesOverride ? rfc1918BlockOf(servicesOverride) : undefined;
+  const pods = podsOverride ?? allocateRange(
+    "pods",
+    tier.podsPrefix,
+    [...PODS_BLOCK_ORDER.filter((b) => b !== vpcBlock && b !== servicesBlock).map((b) => RFC1918_BLOCKS[b]), RFC6598_BLOCK],
+    [vpc, ...reserved, ...(servicesOverride ? [servicesOverride] : [])]
+  );
+  const podsBlock = rfc1918BlockOf(pods);
+  const services = servicesOverride ?? allocateRange(
+    "services",
+    tier.servicesPrefix,
+    SERVICES_BLOCK_ORDER.filter((b) => b !== vpcBlock && b !== podsBlock).map((b) => RFC1918_BLOCKS[b]),
+    [vpc, pods, ...reserved]
+  );
+
+  assertSeparated(vpc, [...publicSubnets, ...loadBalancerSubnets, ...privateSubnets, ...controlPlaneSubnets], pods, services, reserved);
+
+  // A caller's VPC may overlap a range reserved for every provider; allowed but flagged
+  // (provider-reserved overlaps were rejected above)
+  const warnings = RESERVED.filter((r) => overlaps(r, vpc)).map((r) =>
+    `VPC ${toCidr(vpc)} overlaps ${r.cidr} (${r.reason}). Prefer a VPC outside it.`
+  );
+
   const plan: KubernetesNetworkPlan = {
-    deploymentSize: validatedRequest.deploymentSize,
-    provider: provider,  // Use normalized provider
-    region: region,      // Include region in response
-    deploymentName: validatedRequest.deploymentName,
-    vpc: {
-      cidr: vpcCidr
-    },
+    deploymentSize: req.deploymentSize,
+    provider,
+    networkMode: req.networkMode,
+    region,
+    deploymentName: req.deploymentName,
+    vpc: { cidr: toCidr(vpc) },
     subnets: {
       public: publicSubnets,
-      private: privateSubnets
+      private: privateSubnets,
+      loadBalancer: loadBalancerSubnets,
+      controlPlane: controlPlaneSubnets,
     },
-    pods: {
-      cidr: podsCidr
-    },
-    services: {
-      cidr: servicesCidr
-    },
+    pods: { cidr: toCidr(pods) },
+    services: { cidr: toCidr(services) },
+    ...(warnings.length ? { warnings } : {}),
     metadata: {
-      generatedAt: new Date().toISOString(),
-      version: "1.0"
-    }
+      generatedAt: now.toISOString(),
+      version: PLAN_FORMAT_VERSION,
+    },
   };
 
   // Validate output
@@ -412,24 +485,23 @@ export async function generateKubernetesNetworkPlan(
 }
 
 /**
- * Get information about deployment tiers
+ * Generate a complete Kubernetes network plan
  */
-export function getDeploymentTierInfo(size?: DeploymentSize): Record<string, unknown> {
-  if (size) {
-    const config = DEPLOYMENT_TIER_CONFIGS[size];
-    if (!config) {
-      throw new KubernetesNetworkGenerationError(`Unknown deployment size: ${size}`);
-    }
-    return {
-      size,
-      ...config
-    };
-  }
+export async function generateKubernetesNetworkPlan(request: unknown): Promise<KubernetesNetworkPlan> {
+  return buildKubernetesNetworkPlan(request);
+}
 
-  // Return all tiers
-  const tiers: Record<string, unknown> = {};
-  for (const [tierName, config] of Object.entries(DEPLOYMENT_TIER_CONFIGS)) {
-    tiers[tierName] = config;
+/**
+ * Get information about deployment tiers as the generator applies them for a
+ * provider (defaults to generic Kubernetes)
+ */
+export function getDeploymentTierInfo(
+  size?: DeploymentSize,
+  provider: Provider = "kubernetes",
+  networkMode: NetworkMode = "public"
+): Record<string, unknown> {
+  if (size) {
+    return { size, ...getTierConfig(size, provider, networkMode) };
   }
-  return tiers;
+  return Object.fromEntries(DeploymentSizeEnum.options.map((tier) => [tier, getTierConfig(tier, provider, networkMode)]));
 }

@@ -1,12 +1,13 @@
 /**
  * vite.config.ts
- * 
+ *
  * Vite build and development server configuration.
- * 
+ *
  * Features:
  * - React plugin integration
- * - Path aliases (@, @shared, @assets)
- * - Replit integration (dev banner, error modal, cartographer)
+ * - Tailwind CSS v4 via its Vite plugin (Rust engine: Oxide scanner + Lightning CSS
+ *   for prefixing and minification; no PostCSS pipeline)
+ * - Path aliases (@, @shared)
  * - Strict FS access control
  * - Client root at ./client directory
  * - Build output to dist/public
@@ -14,34 +15,15 @@
 
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
-// Replit-only dev tooling; loaded lazily so local dev doesn't pull it in.
-const isReplitDev =
-  process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined;
-
 export default defineConfig({
-  plugins: [
-    react(),
-    ...(isReplitDev
-      ? [
-          await import("@replit/vite-plugin-runtime-error-modal").then((m) =>
-            m.default(),
-          ),
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
   },
   root: path.resolve(import.meta.dirname, "client"),

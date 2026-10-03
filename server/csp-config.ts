@@ -1,17 +1,24 @@
 /**
  * server/csp-config.ts
- * 
+ *
  * Centralized Content Security Policy (CSP) configuration.
- * 
+ *
  * This module defines CSP directives used across the application to prevent drift
- * between global and route-specific policies. Both server/index.ts (global Helmet CSP)
- * and server/routes.ts (Swagger UI override) reference these shared directives.
- * 
+ * between global and route-specific policies. createSecurityHeaders() (the global
+ * Helmet CSP, applied by server/app.ts) and buildSwaggerUICSP() (the /api/docs/ui
+ * override, applied by server/routes.ts) both start from these shared directives.
+ *
  * Design:
  * - Global CSP: Applied to all endpoints via Helmet middleware
- * - Swagger UI CSP: Extends global CSP with 'unsafe-inline' for scripts (required by SwaggerUIBundle)
- * - Shared directives: Base set that both policies inherit from
+ * - Swagger UI CSP: Extends global CSP with the jsDelivr CDN and 'unsafe-inline'
+ *   for scripts (required by SwaggerUIBundle)
+ * - Shared directives: Base set that both policies inherit from. It lists every
+ *   directive of the production global policy, Helmet's defaults included, so the
+ *   Swagger UI policy loses none of them (tests compare the two headers)
  */
+
+import helmet from "helmet";
+import { z } from "zod";
 
 export interface CSPDirectives {
   [key: string]: string[];
@@ -20,48 +27,44 @@ export interface CSPDirectives {
 /**
  * Base CSP directives applied globally to all endpoints.
  * These are strict by default for maximum security.
- * 
+ *
  * Security Architecture Note:
- * - scriptSrc/styleSrc include 'https://cdn.jsdelivr.net' for loading Swagger UI assets
- * - connectSrc does NOT include cdn.jsdelivr.net in base policy (intentional)
- * - Only /api/docs/ui route gets cdn.jsdelivr.net in connectSrc (via buildSwaggerUICSP)
- * - This follows principle of least privilege: other routes can't connect to external CDNs
- * - Prevents compromised endpoints from exfiltrating data to third-party domains
+ * - No third-party script origins. The app bundle is served from 'self'; only
+ *   /api/docs/ui gets cdn.jsdelivr.net (via buildSwaggerUICSP). A CDN that serves
+ *   arbitrary npm packages would otherwise let an injected <script> load any code.
+ * - Follows principle of least privilege: other routes can't load or connect to external CDNs
  */
 export const baseCSPDirectives: CSPDirectives = {
   defaultSrc: ["'self'"],
   // Strict: no inline scripts on any endpoint
   // Swagger UI gets exception via route-specific override
-  scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-  // 'unsafe-inline' required for:
-  // - Dynamic chart inline styles (client/src/components/ui/chart.tsx)
-  // - Tailwind CSS compiled styles with inline blocks
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
+  scriptSrc: ["'self'"],
+  // 'unsafe-inline' allows runtime-injected <style> blocks (Vite dev CSS injection,
+  // Swagger UI). Style injection is far lower risk than script injection.
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   imgSrc: ["'self'", "data:"],
-  // Note: cdn.jsdelivr.net NOT in base connectSrc (route-specific permission for Swagger UI only)
-  connectSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+  connectSrc: ["'self'"],
   objectSrc: ["'none'"],
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  // Helmet defaults, listed so the Swagger UI policy keeps them too: forms submit only
+  // to this origin, and inline event handler attributes (onclick="...") never run.
+  // Neither page uses them; React and Swagger UI attach their handlers from script.
+  formAction: ["'self'"],
+  scriptSrcAttr: ["'none'"],
 };
 
 /**
  * Development-only CSP additions
- * Allows Vite HMR and Replit plugins
- * 
+ * Allows Vite HMR
+ *
  * CSP Reporting Strategy:
  * - Uses 'report-uri' (deprecated but widely supported) for CSP violation reports
  * - 'report-to' (modern W3C Reporting API) not used yet due to limited browser support
  * - Modern browsers that support 'report-to' will ignore it if reporting endpoint not configured
  * - Keeping 'report-uri' ensures CSP violations are caught in all browsers during development
- * 
- * Future migration path:
- * When browser support for Reporting API becomes widespread (>95%), consider:
- * 1. Add 'report-to' directive with Reporting-Endpoints header
- * 2. Keep 'report-uri' for older browser support (gradual phase-out)
- * 3. Eventually remove 'report-uri' when legacy browser support no longer needed
- * 
+ *
  * Reference: https://w3c.github.io/reporting/
  */
 export const developmentCSPAdditions: CSPDirectives = {
@@ -71,42 +74,55 @@ export const developmentCSPAdditions: CSPDirectives = {
 };
 
 /**
- * Replit-specific CSP additions (development only)
- * Allows Replit runtime overlays and dev tooling
+ * Global security headers (Helmet) for every response; /api/docs/ui replaces the CSP
+ * with buildSwaggerUICSP(). Development adds Vite HMR and CSP violation reporting.
+ * Exported so tests exercise the production configuration, not a copy.
  */
-export const replitCSPAdditions: CSPDirectives = {
-  scriptSrc: ["https://*.replit.com", "https://*.replit.dev"],
-  connectSrc: ["https://*.replit.com", "https://*.replit.dev", "wss://*.replit.com", "wss://*.replit.dev"],
-  imgSrc: ["https://*.replit.com", "https://*.replit.dev"],
-};
+export function createSecurityHeaders(isDevelopment: boolean): ReturnType<typeof helmet> {
+  const directives: Record<string, string[]> = { ...baseCSPDirectives };
+
+  if (isDevelopment) {
+    // Vite injects inline scripts for Fast Refresh and HMR
+    directives.scriptSrc = [...(directives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
+    // Vite's HMR websocket
+    directives.connectSrc = [...(directives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
+    // Enable CSP violation reporting so we catch issues before production
+    directives.reportUri = developmentCSPAdditions.reportUri;
+  }
+
+  // crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
+  // X-Content-Type-Options: nosniff is set by default in Helmet v8
+  return helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...directives,
+        // Drop Helmet's default upgrade-insecure-requests. The server speaks plain
+        // HTTP (TLS, where used, is terminated in front of it), and over plain HTTP on
+        // a LAN address the directive makes browsers fetch the app's own /assets over
+        // https, so the page loads blank.
+        upgradeInsecureRequests: null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  });
+}
 
 /**
  * Swagger UI-specific CSP overrides
- * 
- * This function automatically builds environment-aware CSP for Swagger UI by:
- * 1. Starting with baseCSPDirectives (ensures consistency with global policy)
- * 2. In DEVELOPMENT: Adding 'unsafe-inline' to script-src for SwaggerUIBundle inline scripts
- * 3. In PRODUCTION: Keeping strict CSP without 'unsafe-inline' to maintain security posture
- * 4. Always adding 'https://cdn.jsdelivr.net' to connect-src for Swagger UI source map fetching
- * 
+ *
+ * Builds the CSP for /api/docs/ui by:
+ * 1. Starting with baseCSPDirectives, the directives of the production global policy
+ *    (so, like it, no upgrade-insecure-requests)
+ * 2. Adding 'unsafe-inline' to script-src for SwaggerUIBundle initialization scripts
+ * 3. Adding 'https://cdn.jsdelivr.net' to script-src/style-src (Swagger UI assets, pinned
+ *    with Subresource Integrity in server/swagger-ui.ts) and connect-src (source maps)
+ *
  * Security Rationale - Route-Specific CSP:
- * - Only /api/docs/ui gets cdn.jsdelivr.net in connectSrc (NOT in base policy)
- * - Follows principle of least privilege: other endpoints can't connect to external CDNs
- * - Prevents data exfiltration if another route is compromised
- * - Swagger UI requires 'unsafe-inline': SwaggerUIBundle initialization uses inline scripts
- * - Safe because route-specific: main application and API endpoints maintain strict CSP
- * - CDN connection only for source maps (non-injectable resource type, safe for debugging)
- * 
- * Why cdn.jsdelivr.net in connectSrc (not just scriptSrc/styleSrc)?
- * - scriptSrc: Loads Swagger UI bundle JavaScript (global policy has this)
- * - styleSrc: Loads Swagger UI CSS (global policy has this)
- * - connectSrc: Fetch/XHR for source maps when DevTools open (Swagger UI route only)
- * 
- * Benefits of programmatic approach:
- * - Automatic synchronization: Changes to baseCSPDirectives automatically inherited
- * - No manual sync required: Eliminates risk of configuration drift
- * - Single source of truth: All CSP policies derive from baseCSPDirectives
- * 
+ * - Only /api/docs/ui gets cdn.jsdelivr.net and inline scripts (NOT in base policy)
+ * - The page renders only the server's own OpenAPI spec (no user-controlled content)
+ * - Main application and API endpoints maintain strict CSP
+ *
  * @returns CSP header string for the Swagger UI route
  */
 export function buildSwaggerUICSP(): string {
@@ -115,44 +131,72 @@ export function buildSwaggerUICSP(): string {
     return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
   };
 
-  // Start with a copy of baseCSPDirectives to avoid mutating the original
+  // SECURITY NOTE: This is CSP directive construction, NOT URL validation or sanitization.
+  // We are building an allowlist of exact hosts for Content-Security-Policy headers.
+  const cdnSource = "https://cdn.jsdelivr.net";
+  const additions: CSPDirectives = {
+    scriptSrc: ["'unsafe-inline'", cdnSource],
+    styleSrc: [cdnSource],
+    connectSrc: [cdnSource],
+  };
+
+  // Copy base directives (never mutate the shared object), then append additions
   const swaggerDirectives: CSPDirectives = {};
-  
-  // Copy all base directives
   for (const [key, values] of Object.entries(baseCSPDirectives)) {
     swaggerDirectives[key] = [...values];
   }
-
-  // Swagger UI requires 'unsafe-inline' for SwaggerUIBundle initialization scripts
-  // This is safe because:
-  // 1. Route-specific: Only /api/docs/ui gets this relaxed CSP
-  // 2. Documentation endpoint: Not user-facing application logic
-  // 3. Required by Swagger UI: Cannot function without inline script execution
-  if (!swaggerDirectives.scriptSrc) {
-    swaggerDirectives.scriptSrc = [];
-  }
-  if (!swaggerDirectives.scriptSrc.includes("'unsafe-inline'")) {
-    swaggerDirectives.scriptSrc.push("'unsafe-inline'");
+  for (const [key, values] of Object.entries(additions)) {
+    const existing = (swaggerDirectives[key] ??= []);
+    for (const value of values) {
+      if (!existing.includes(value)) existing.push(value);
+    }
   }
 
-  // Always add CDN for Swagger UI dependencies (route-specific permission)
-  // SECURITY NOTE: This is CSP directive construction, NOT URL validation or sanitization.
-  // We are building a whitelist of exact hosts for Content-Security-Policy headers.
-  // Array.includes() checks for exact element match - no substring matching occurs.
-  const cdnSource = "https://cdn.jsdelivr.net";
-  if (!swaggerDirectives.connectSrc) {
-    swaggerDirectives.connectSrc = [];
-  }
-  // lgtm[js/incomplete-url-substring-sanitization] - CSP directive building, not URL validation
-  if (!swaggerDirectives.connectSrc.includes(cdnSource)) { // lgtm[js/incomplete-url-substring-sanitization]
-    swaggerDirectives.connectSrc.push(cdnSource);
-  }
-
-  // Convert CSPDirectives object to CSP header string
   // Format: "directive-name value1 value2; another-directive value3"
-  const cspString = Object.entries(swaggerDirectives)
+  return Object.entries(swaggerDirectives)
     .map(([key, values]) => `${toKebabCase(key)} ${values.join(" ")}`)
     .join("; ");
-
-  return cspString;
 }
+
+/**
+ * CSP Violation Report Schema
+ *
+ * Used for validating and typing Content Security Policy violation reports
+ * sent by browsers to the development-only /__csp-violation endpoint.
+ *
+ * Note: Browsers wrap the violation data in a "csp-report" key according to W3C spec.
+ * The actual payload structure is:
+ * {
+ *   "csp-report": {
+ *     "blocked-uri": "...",
+ *     "violated-directive": "...",
+ *     ...
+ *   }
+ * }
+ *
+ * Reference: https://w3c.github.io/webappsec-csp/#violation-reports
+ */
+// Every field of the report-uri (application/csp-report) serialization; browsers send
+// all of these (script-sample, source-file and the positions only when they apply).
+// Strict, so anything else is logged as an invalid report.
+const cspViolationFields = z.object({
+  'document-uri': z.string().optional(),
+  referrer: z.string().optional(),
+  'blocked-uri': z.string().optional(),
+  'effective-directive': z.string().optional(),
+  'violated-directive': z.string().optional(), // historic name; same value as effective-directive
+  'original-policy': z.string().optional(),
+  disposition: z.enum(['enforce', 'report']).optional(),
+  'status-code': z.number().optional(),
+  'script-sample': z.string().optional(),
+  'source-file': z.string().optional(),
+  'line-number': z.number().optional(),
+  'column-number': z.number().optional(),
+}).strict().optional();
+
+// Wrapper schema for the actual browser payload
+export const cspViolationReportSchema = z.object({
+  'csp-report': cspViolationFields,
+}).strict();
+
+export type CSPViolationReport = z.infer<typeof cspViolationFields>;

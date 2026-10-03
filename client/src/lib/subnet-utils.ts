@@ -7,9 +7,14 @@
  * Core functions:
  * - calculateSubnet: Parse CIDR and compute subnet details
  * - splitSubnet: Split a subnet into two smaller subnets
+ * - parseCidr: Strictly parse CIDR notation into a network number and prefix
+ * - validateCidrInput: Form validation for the calculator input
  * - ipToNumber / numberToIp: IP address conversion
  * - prefixToMask / maskToPrefix: Prefix/mask conversion
- * 
+ * - collectVisibleRows: the calculator table's rows (with depth and parent CIDR)
+ * - splitSubnetInTree / removeSplitInTree: immutable tree updates for the table
+ * - selectedVisibleSubnets / subnetsToCsv: the CSV export
+ *
  * Validation:
  * - Memory limits to prevent tree explosion
  * - Strict CIDR format validation
@@ -27,22 +32,74 @@ export class SubnetCalculationError extends Error {
   }
 }
 
+// A decimal number without leading zeros: "0", or 1-9 then digits. A leading zero is
+// ambiguous: inet_aton-style parsers read "010" as octal 8, so "010.0.0.0/8" would mean
+// 8.0.0.0/8 to some tools and 10.0.0.0/8 to others. Go, Python and Node reject it too.
+const OCTET = /^(0|[1-9]\d{0,2})$/;
+const PREFIX = /^(0|[1-9]\d?)$/;
+
 export function ipToNumber(ip: string): number {
   const octets = ip.split('.');
   if (octets.length !== 4) {
     throw new SubnetCalculationError(`Invalid IP format: ${ip}`);
   }
-  
+
   let result = 0;
   for (const octet of octets) {
-    const num = parseInt(octet, 10);
-    if (isNaN(num) || num < 0 || num > 255) {
+    // Reject anything parseInt would silently truncate ("1abc", " 1", "") or misread
+    if (/^0\d/.test(octet)) {
+      throw new SubnetCalculationError(`Invalid IP octet: ${octet} (leading zeros are not allowed; some tools read them as octal)`);
+    }
+    const num = OCTET.test(octet) ? Number(octet) : NaN;
+    if (isNaN(num) || num > 255) {
       throw new SubnetCalculationError(`Invalid IP octet: ${octet}`);
     }
     result = ((result << 8) + num) >>> 0;
   }
-  
+
   return result;
+}
+
+/**
+ * Strictly parse CIDR notation. Host bits are masked off, so
+ * "10.1.2.3/16" yields the 10.1.0.0 network.
+ */
+export function parseCidr(cidr: string): { network: number; prefix: number } {
+  const parts = cidr.split('/');
+  if (parts.length !== 2) {
+    throw new SubnetCalculationError(`Invalid CIDR format: ${cidr}`);
+  }
+  const [ipStr, prefixStr] = parts;
+  if (!PREFIX.test(prefixStr)) {
+    throw new SubnetCalculationError(/^0\d/.test(prefixStr)
+      ? `Invalid prefix: ${prefixStr} (leading zeros are not allowed)`
+      : `Invalid prefix: ${prefixStr}`);
+  }
+  const prefix = Number(prefixStr);
+  const mask = prefixToMask(prefix);
+  return { network: (ipToNumber(ipStr) & mask) >>> 0, prefix };
+}
+
+/**
+ * Validate calculator input. Returns an error message, or null when valid.
+ * Unlike calculateSubnet, this requires the address to already be the
+ * network address so users don't silently get a different range.
+ */
+export function validateCidrInput(value: string): string | null {
+  const cidr = value.trim();
+  if (!cidr) return "CIDR notation is required";
+  let parsed: { network: number; prefix: number };
+  try {
+    parsed = parseCidr(cidr);
+  } catch (error) {
+    return error instanceof SubnetCalculationError && error.message.includes("leading zeros are not allowed")
+      ? "Leading zeros are not allowed (some tools read 010 as octal 8). Use format: 10.0.0.0/8"
+      : "Invalid CIDR format. Use format: 192.168.1.0/24";
+  }
+  if (ipToNumber(cidr.split('/')[0]) !== parsed.network) {
+    return "IP address must be the network address for the given prefix (e.g., 192.168.1.0/24, not 192.168.1.5/24)";
+  }
+  return null;
 }
 
 export function numberToIp(num: number): string {
@@ -73,47 +130,37 @@ export function maskToPrefix(mask: number): number {
   return prefix;
 }
 
+// Monotonic ids are unique within the page and, unlike crypto.randomUUID(),
+// also work on plain-HTTP origins (randomUUID requires a secure context).
+let nextSubnetId = 0;
+
 export function calculateSubnet(cidr: string, id?: string): SubnetInfo {
   try {
-    const parts = cidr.split('/');
-    if (parts.length !== 2) {
-      throw new SubnetCalculationError(`Invalid CIDR format: ${cidr}`);
-    }
-    
-    const [ipStr, prefixStr] = parts;
-    const prefix = parseInt(prefixStr, 10);
-    
-    if (isNaN(prefix)) {
-      throw new SubnetCalculationError(`Invalid prefix: ${prefixStr}`);
-    }
-    
-    const ip = ipToNumber(ipStr);
+    const { network: networkAddress, prefix } = parseCidr(cidr);
     const mask = prefixToMask(prefix);
-  
-  const networkAddress = (ip & mask) >>> 0;
-  const broadcastAddress = (networkAddress | (~mask >>> 0)) >>> 0;
-  
-  const totalHosts = Math.pow(2, 32 - prefix);
-  const usableHosts = prefix <= 30 ? totalHosts - 2 : (prefix === 31 ? 2 : 1);
-  
-  let firstHost: string;
-  let lastHost: string;
-  
-  if (prefix === 32) {
-    firstHost = numberToIp(networkAddress);
-    lastHost = numberToIp(networkAddress);
-  } else if (prefix === 31) {
-    firstHost = numberToIp(networkAddress);
-    lastHost = numberToIp(broadcastAddress);
-  } else {
-    firstHost = numberToIp(networkAddress + 1);
-    lastHost = numberToIp(broadcastAddress - 1);
-  }
-  
+    const broadcastAddress = (networkAddress | (~mask >>> 0)) >>> 0;
+
+    const totalHosts = Math.pow(2, 32 - prefix);
+    const usableHosts = prefix <= 30 ? totalHosts - 2 : (prefix === 31 ? 2 : 1);
+
+    let firstHost: string;
+    let lastHost: string;
+
+    if (prefix === 32) {
+      firstHost = numberToIp(networkAddress);
+      lastHost = numberToIp(networkAddress);
+    } else if (prefix === 31) {
+      firstHost = numberToIp(networkAddress);
+      lastHost = numberToIp(broadcastAddress);
+    } else {
+      firstHost = numberToIp(networkAddress + 1);
+      lastHost = numberToIp(broadcastAddress - 1);
+    }
+
     const wildcardMask = (~mask >>> 0);
-    
+
     return {
-      id: id || crypto.randomUUID(),
+      id: id || `subnet-${++nextSubnetId}`,
       cidr: `${numberToIp(networkAddress)}/${prefix}`,
       networkAddress: numberToIp(networkAddress),
       broadcastAddress: numberToIp(broadcastAddress),
@@ -151,9 +198,10 @@ export function splitSubnet(subnet: SubnetInfo, currentTreeSize: number = 1): Su
     throw new SubnetCalculationError("Cannot split a /32 subnet.");
   }
   
-  // Enforce tree size limit to prevent memory exhaustion
-  if (currentTreeSize >= SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES) {
-    throw new SubnetCalculationError(`Tree size limit (${SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES} nodes) exceeded. Cannot split further.`);
+  // Enforce tree size limit to prevent memory exhaustion. A split adds two nodes,
+  // so refuse any split that would take the tree past the limit.
+  if (currentTreeSize + 2 > SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES) {
+    throw new SubnetCalculationError(`Tree size limit (${SUBNET_CALCULATOR_LIMITS.MAX_TREE_NODES} nodes) reached. Cannot split further.`);
   }
   
   const newPrefix = subnet.prefix + 1;
@@ -204,26 +252,141 @@ export function collectAllSubnets(subnet: SubnetInfo): SubnetInfo[] {
   return result;
 }
 
+/** A row of the calculator's subnet table */
+export interface VisibleRow {
+  subnet: SubnetInfo;
+  /** Depth in the tree (0 = the calculated range), also when Hide Parents skips ancestors */
+  depth: number;
+  /** CIDR of the subnet this row was split from; undefined for the root */
+  parentCidr?: string;
+}
+
+/**
+ * The rows the subnet table shows, depth-first in address order. A split row's
+ * children show while it is expanded; with hideParents, rows that have children
+ * are left out and their descendants show instead. The table, "select all" and
+ * the CSV export all read this list, so they always agree on what is visible.
+ */
+export function collectVisibleRows(root: SubnetInfo, hideParents: boolean): VisibleRow[] {
+  const rows: VisibleRow[] = [];
+  const visit = (subnet: SubnetInfo, depth: number, parentCidr: string | undefined) => {
+    const children = subnet.children ?? [];
+    const hasChildren = children.length > 0;
+    if (!(hideParents && hasChildren)) rows.push({ subnet, depth, parentCidr });
+    if (hasChildren && (hideParents || subnet.isExpanded)) {
+      for (const child of children) visit(child, depth + 1, subnet.cidr);
+    }
+  };
+  visit(root, 0, undefined);
+  return rows;
+}
+
 export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] {
-  const hasChildren = subnet.children && subnet.children.length > 0;
-  
-  // If hiding parents and this subnet has children, skip it and collect children
-  if (hideParents && hasChildren && subnet.children) {
-    const result: SubnetInfo[] = [];
-    for (const child of subnet.children) {
-      result.push(...collectVisibleSubnets(child, hideParents));
-    }
-    return result;
+  return collectVisibleRows(subnet, hideParents).map((row) => row.subnet);
+}
+
+export function findSubnetById(subnet: SubnetInfo, targetId: string): SubnetInfo | null {
+  if (subnet.id === targetId) return subnet;
+  for (const child of subnet.children ?? []) {
+    const found = findSubnetById(child, targetId);
+    if (found) return found;
   }
-  
-  // Otherwise, include this subnet
-  const result: SubnetInfo[] = [subnet];
-  if (hasChildren && subnet.isExpanded && subnet.children) {
-    for (const child of subnet.children) {
-      result.push(...collectVisibleSubnets(child, hideParents));
-    }
+  return null;
+}
+
+export function findParentOf(subnet: SubnetInfo, childId: string): SubnetInfo | null {
+  for (const child of subnet.children ?? []) {
+    if (child.id === childId) return subnet;
+    const found = findParentOf(child, childId);
+    if (found) return found;
   }
-  return result;
+  return null;
+}
+
+/**
+ * Replaces one node, copying only the nodes on the path from the root to it.
+ * Every other subtree keeps its object identity, so memoized table rows for
+ * them skip re-rendering. Returns the same root when targetId is not found.
+ */
+export function updateSubnetInTree(
+  subnet: SubnetInfo,
+  targetId: string,
+  updateFn: (s: SubnetInfo) => SubnetInfo
+): SubnetInfo {
+  if (subnet.id === targetId) return updateFn(subnet);
+  if (!subnet.children) return subnet;
+  let changed = false;
+  const children = subnet.children.map((child) => {
+    const next = updateSubnetInTree(child, targetId, updateFn);
+    if (next !== child) changed = true;
+    return next;
+  });
+  return changed ? { ...subnet, children } : subnet;
+}
+
+/**
+ * Splits one leaf of the tree into its two halves and expands it, without
+ * mutating the tree. Returns null when the node is missing, already split, or a
+ * /32. Throws SubnetCalculationError when the whole tree (every node, collapsed
+ * or hidden ones included) would grow past MAX_TREE_NODES.
+ */
+export function splitSubnetInTree(
+  root: SubnetInfo,
+  id: string
+): { root: SubnetInfo; children: SubnetInfo[] } | null {
+  const target = findSubnetById(root, id);
+  if (!target || !target.canSplit || target.children?.length) return null;
+
+  const children = splitSubnet(target, countSubnetNodes(root));
+  return {
+    root: updateSubnetInTree(root, id, (subnet) => ({ ...subnet, children, isExpanded: true })),
+    children,
+  };
+}
+
+/**
+ * Removes the split that produced childId: its parent loses both halves and
+ * everything below them. Returns null for the root or an unknown id.
+ */
+export function removeSplitInTree(
+  root: SubnetInfo,
+  childId: string
+): { root: SubnetInfo; parent: SubnetInfo } | null {
+  const parent = findParentOf(root, childId);
+  if (!parent) return null;
+
+  const restored: SubnetInfo = { ...parent, children: undefined, isExpanded: false };
+  return { root: updateSubnetInTree(root, parent.id, () => restored), parent: restored };
+}
+
+/**
+ * The rows the CSV export writes: selected rows among the visible ones, in table
+ * order. A selected id whose row is gone (split removed, Hide Parents on) is skipped.
+ */
+export function selectedVisibleSubnets(visible: SubnetInfo[], selectedIds: ReadonlySet<string>): SubnetInfo[] {
+  return visible.filter((subnet) => selectedIds.has(subnet.id));
+}
+
+export const CSV_HEADERS = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
+
+/** CSV text for the export: a header line, then one quoted line per subnet */
+export function subnetsToCsv(subnets: SubnetInfo[]): string {
+  const rows = subnets.map((s) => [
+    s.cidr,
+    s.networkAddress,
+    s.broadcastAddress,
+    s.firstHost,
+    s.lastHost,
+    s.usableHosts.toString(),
+    s.totalHosts.toString(),
+    s.subnetMask,
+    s.wildcardMask,
+    `/${s.prefix}`,
+  ]);
+  return [
+    CSV_HEADERS.join(","),
+    ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+  ].join("\n");
 }
 
 /**
@@ -233,7 +396,7 @@ export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean):
  * @returns Tailwind CSS className string
  */
 export function getDepthIndicatorClasses(depth: number, prefix: number): string {
-  const baseClasses = "w-1.5 h-7 rounded-full shadow-sm border";
+  const baseClasses = "w-1.5 h-7 rounded-full shadow-xs border";
   
   if (depth === 0) {
     return `${baseClasses} border-transparent bg-transparent`;

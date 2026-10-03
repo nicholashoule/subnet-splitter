@@ -1,191 +1,245 @@
 /**
- * Integration tests for Swagger UI light/dark mode theming
- * 
- * Consolidated from 35 tests to 12 essential tests.
- * Removed: Redundant CSS detail tests, fragile DOM structure tests, 
- *          implementation details covered by other tests.
- * Kept: Critical behavior, theme functionality, configuration validation.
- * 
- * NOTE: These tests require the webapp to be running on port 5000.
- * Start the server with: npm run dev
- * 
- * When server is not available, tests are skipped with informative message.
+ * tests/integration/swagger-ui-theming.test.ts
+ *
+ * Light/dark theming of the Swagger UI page (/api/docs/ui), served by an
+ * in-process server with the real routes (server/routes.ts).
+ *
+ * The page's inline scripts run in a node:vm sandbox with small stand-ins for
+ * document, localStorage, window and SwaggerUIBundle, so these tests check what
+ * the scripts do (which theme is applied, persisted and rendered), not how the
+ * source is written.
+ *
+ * Markup, color tokens, cache headers, Subresource Integrity, the theme toggle's
+ * markup and the no-reload/no-repaint checks are in api-endpoints.test.ts
+ * ("Swagger UI Presentation").
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import vm from "node:vm";
+import { registerRoutes } from "../../server/routes";
+import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
 
-describe("Swagger UI Theming", () => {
-  const SWAGGER_UI_URL = "http://127.0.0.1:5000/api/docs/ui";
-  let serverAvailable = false;
+/** Inline <script> blocks (those without a src) in document order */
+function inlineScripts(html: string): Array<{ start: number; code: string }> {
+  const open = "<script>";
+  const scripts: Array<{ start: number; code: string }> = [];
+  for (let start = html.indexOf(open); start !== -1; start = html.indexOf(open, start + 1)) {
+    scripts.push({ start, code: html.slice(start + open.length, html.indexOf("</script>", start)) });
+  }
+  return scripts;
+}
 
-  beforeAll(async () => {
-    try {
-      const response = await fetch(SWAGGER_UI_URL, { signal: AbortSignal.timeout(2000) });
-      serverAvailable = response.ok;
-      if (!serverAvailable) {
-        console.log("[SKIP] Server not responding properly. Skipping Swagger UI tests.");
-      }
-    } catch (error) {
-      serverAvailable = false;
-      console.log("[SKIP] Server not available on port 5000. Skipping Swagger UI tests.");
-      console.log("   Start the server with: npm run dev");
-    }
-  });
+type SwaggerConfig = {
+  url: string;
+  domNode: object;
+  syntaxHighlight: { activated: boolean; theme: string };
+  [option: string]: unknown;
+};
 
-  // Helper to skip test if server not available
-  const skipIfNoServer = () => {
-    if (!serverAvailable) {
-      return true;
-    }
-    return false;
+/**
+ * Run the page's main script against stand-ins for the browser APIs it uses.
+ * `saved` is the theme already in localStorage; `storageFails` makes every
+ * localStorage call throw, as some private-browsing modes do.
+ */
+function loadDocsPage(script: string, saved: string | null, storageFails = false) {
+  const storage = new Map<string, string>(saved === null ? [] : [["theme", saved]]);
+  const localStorage = {
+    getItem(key: string) {
+      if (storageFails) throw new Error("storage disabled");
+      return storage.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      if (storageFails) throw new Error("storage disabled");
+      storage.set(key, value);
+    },
   };
 
-  describe("Core Functionality", () => {
-    it("should return valid HTML with proper headers", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      
+  const root = { className: "" };
+  const attributes: Record<string, string> = {};
+  const clickHandlers: Array<() => void> = [];
+  const toggle = {
+    title: "",
+    setAttribute: (name: string, value: string) => { attributes[name] = value; },
+    addEventListener: (type: string, handler: () => void) => { if (type === "click") clickHandlers.push(handler); },
+  };
+
+  // The #swagger-ui mount point; each render replaces it with a fresh clone
+  const makeMountNode = (): object => ({
+    cloneNode: () => makeMountNode(),
+    replaceWith: (next: object) => { mountNode = next; },
+  });
+  let mountNode = makeMountNode();
+
+  const renders: SwaggerConfig[] = [];
+  const SwaggerUIBundle = Object.assign(
+    (config: SwaggerConfig) => { renders.push(config); return { config }; },
+    { presets: { apis: "apis-preset" } }
+  );
+
+  const storageHandlers: Array<(event: { key: string }) => void> = [];
+  const window: Record<string, unknown> = {
+    addEventListener: (type: string, handler: (event: { key: string }) => void) => {
+      if (type === "storage") storageHandlers.push(handler);
+    },
+  };
+  const document = {
+    documentElement: root,
+    getElementById: (id: string) => (id === "theme-toggle" ? toggle : id === "swagger-ui" ? mountNode : null),
+  };
+
+  vm.runInNewContext(script, { window, document, localStorage, SwaggerUIBundle });
+
+  return {
+    root,
+    toggle,
+    attributes,
+    renders,
+    storage,
+    window,
+    mountNode: () => mountNode,
+    click: () => clickHandlers.forEach((handler) => handler()),
+    storageEvent: (key: string) => storageHandlers.forEach((handler) => handler({ key })),
+  };
+}
+
+describe("Swagger UI Theming", () => {
+  let server: TestServer;
+  let html: string;
+  let themeInitScript: { start: number; code: string };
+  let mainScript: string;
+
+  beforeAll(async () => {
+    server = await createTestServer({
+      setup: async (app, httpServer) => {
+        await registerRoutes(httpServer, app);
+      },
+    });
+    const response = await fetch(`${server.baseUrl}/api/docs/ui`);
+    expect(response.status).toBe(200);
+    html = await response.text();
+
+    const scripts = inlineScripts(html);
+    expect(scripts).toHaveLength(2);
+    [themeInitScript] = scripts;
+    mainScript = scripts[1].code;
+  });
+
+  afterAll(async () => {
+    await closeTestServer(server);
+  });
+
+  describe("Initial Theme", () => {
+    it("should apply the saved theme before any stylesheet loads", () => {
+      // Running ahead of the CSS means the page never paints in the wrong theme
+      expect(themeInitScript.start).toBeLessThan(html.indexOf('rel="stylesheet"'));
+      expect(themeInitScript.start).toBeLessThan(html.indexOf("<style>"));
+
+      const themeFor = (getItem: () => string | null) => {
+        const documentElement = { className: "" };
+        vm.runInNewContext(themeInitScript.code, { document: { documentElement }, localStorage: { getItem } });
+        return documentElement.className;
+      };
+
+      expect(themeFor(() => "dark")).toBe("dark");
+      expect(themeFor(() => "light")).toBe("light");
+      // Same rule as the web app: anything but a saved "dark" is light
+      expect(themeFor(() => null)).toBe("light");
+      expect(themeFor(() => "sepia")).toBe("light");
+      expect(themeFor(() => { throw new Error("storage disabled"); })).toBe("light");
+    });
+
+    it("should mount Swagger UI with the saved theme's code highlighting", () => {
+      const light = loadDocsPage(mainScript, null);
+      expect(light.renders).toHaveLength(1);
+      expect(light.renders[0]).toMatchObject({
+        url: "/api/docs",
+        deepLinking: true,
+        layout: "BaseLayout",
+        presets: ["apis-preset"],
+        validatorUrl: null,
+        syntaxHighlight: { activated: true, theme: "idea" },
+      });
+      // Rendered into the node that replaced #swagger-ui
+      expect(light.renders[0].domNode).toBe(light.mountNode());
+      expect(light.window.ui).toEqual({ config: light.renders[0] });
+      expect(light.root.className).toBe("light");
+      expect(light.attributes["aria-label"]).toBe("Switch to dark mode");
+
+      const dark = loadDocsPage(mainScript, "dark");
+      expect(dark.renders[0].syntaxHighlight.theme).toBe("tomorrow-night");
+      expect(dark.root.className).toBe("dark");
+      expect(dark.attributes["aria-label"]).toBe("Switch to light mode");
+      expect(dark.toggle.title).toBe("Switch to light mode");
+    });
+
+    it("should point Swagger UI at the URL that serves the OpenAPI spec", async () => {
+      const { renders } = loadDocsPage(mainScript, null);
+      const response = await fetch(`${server.baseUrl}${renders[0].url}`);
+
       expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')).toContain('text/html');
-      expect(response.headers.get('cache-control')).toContain('no-cache');
+      expect(response.headers.get("content-type")).toContain("application/json");
+      const spec = await response.json();
+      expect(spec.openapi).toMatch(/^3\./);
+      expect(Object.keys(spec.paths).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Theme Toggle", () => {
+    it("should switch theme, save it, and re-mount Swagger UI in place", () => {
+      const page = loadDocsPage(mainScript, null);
+      const firstMount = page.mountNode();
+
+      page.click();
+      expect(page.root.className).toBe("dark");
+      expect(page.storage.get("theme")).toBe("dark");
+      expect(page.renders).toHaveLength(2);
+      expect(page.renders[1].syntaxHighlight.theme).toBe("tomorrow-night");
+      // A fresh mount node, so the old Swagger UI instance is discarded
+      expect(page.mountNode()).not.toBe(firstMount);
+      expect(page.renders[1].domNode).toBe(page.mountNode());
+      expect(page.attributes["aria-label"]).toBe("Switch to light mode");
+
+      page.click();
+      expect(page.root.className).toBe("light");
+      expect(page.storage.get("theme")).toBe("light");
+      expect(page.renders[2].syntaxHighlight.theme).toBe("idea");
+      expect(page.attributes["aria-label"]).toBe("Switch to dark mode");
     });
 
-    it("should include theme initialization before CSS loads", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("localStorage.getItem('theme')");
-      expect(html).toContain("document.documentElement.className = savedTheme");
-      
-      const scriptIndex = html.indexOf("localStorage.getItem('theme')");
-      const cssIndex = html.indexOf('swagger-ui.css');
-      expect(scriptIndex).toBeLessThan(cssIndex);
+    it("should still switch theme when localStorage is unavailable", () => {
+      const page = loadDocsPage(mainScript, null, true);
+      expect(page.root.className).toBe("light");
+
+      page.click();
+      expect(page.root.className).toBe("dark");
+      expect(page.renders.map((config) => config.syntaxHighlight.theme)).toEqual(["idea", "tomorrow-night"]);
     });
 
-    it("should include all required Swagger UI assets", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("swagger-ui-dist@5");
-      expect(html).toContain("swagger-ui.css");
-      expect(html).toContain("swagger-ui-bundle.js");
-      expect(html).toContain('id="swagger-ui"');
-      expect(html).toContain('id="theme-toggle"');
+    it("should follow theme changes made in another tab", () => {
+      const page = loadDocsPage(mainScript, null);
+
+      // Another tab (the web app or the docs) saves a new theme
+      page.storage.set("theme", "dark");
+      page.storageEvent("theme");
+      expect(page.root.className).toBe("dark");
+      expect(page.renders).toHaveLength(2);
+      expect(page.renders[1].syntaxHighlight.theme).toBe("tomorrow-night");
+
+      // Changes to other keys are ignored
+      page.storageEvent("unrelated-key");
+      expect(page.renders).toHaveLength(2);
     });
   });
 
   describe("Theme Styling", () => {
-    it("should define light mode theme colors", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("background-color: hsl(214, 24%, 95%)");
-      expect(html).toContain("color: hsl(222, 47%, 11%)");
-      expect(html).toContain(".swagger-ui .microlight");
-    });
+    it("should color the version badge with the theme's primary tokens", () => {
+      const selector = ".swagger-ui .info .title small.version-stamp {";
+      const start = html.indexOf(selector);
+      expect(start).toBeGreaterThan(-1);
+      const declarations = html.slice(start + selector.length, html.indexOf("}", start));
 
-    it("should define dark mode theme colors", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("html.dark body");
-      expect(html).toContain("background-color: hsl(222, 47%, 8%)");
-      expect(html).toContain("color: hsl(210, 20%, 98%)");
-      expect(html).toContain("html.dark .swagger-ui");
-    });
-
-    it("should style version badges with theme colors", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain(".swagger-ui .info .title small");
-      expect(html).toContain(".version-stamp");
-      expect(html).toContain("background-color: hsl(221, 83%, 53%)");
-      expect(html).toContain("html.dark .swagger-ui .info .title small");
-    });
-  });
-
-  describe("Theme Behavior", () => {
-    it("should configure syntax highlighting based on theme", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("syntaxHighlightConfig");
-      expect(html).toContain("currentTheme === 'dark'");
-      expect(html).toContain("theme: 'tomorrow-night'");
-    });
-
-    it("should have theme toggle with persistence", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("themeToggle.addEventListener('click'");
-      expect(html).toContain("localStorage.setItem('theme', newTheme)");
-      expect(html).toContain("location.reload()");
-    });
-
-    it("should sync theme changes across tabs", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("window.addEventListener('storage'");
-      expect(html).toContain("e.key === 'theme'");
-      expect(html).toContain("location.reload()");
-    });
-
-    it("should enforce styles with onComplete callback", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("onComplete: function()");
-      expect(html).toContain("applyLightStyles");
-      expect(html).toContain("IntersectionObserver");
-      expect(html).toContain("entry.isIntersecting");
-    });
-  });
-
-  describe("SwaggerUI Configuration", () => {
-    it("should initialize SwaggerUIBundle correctly", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("SwaggerUIBundle({");
-      expect(html).toContain("url: '/api/docs'");
-      expect(html).toContain("dom_id: '#swagger-ui'");
-      expect(html).toContain("deepLinking: true");
-      expect(html).toContain("SwaggerUIBundle.presets.apis");
-    });
-
-    it("should include footer with attribution", async () => {
-      if (skipIfNoServer()) return;
-      
-      const response = await fetch(SWAGGER_UI_URL);
-      const html = await response.text();
-      
-      expect(html).toContain("<footer>");
-      expect(html).toContain("</footer>");
-      expect(html).toContain("border-top: 1px solid");
+      expect(declarations).toMatch(/background:\s*var\(--primary\);/);
+      expect(declarations).toMatch(/color:\s*var\(--primary-foreground\);/);
     });
   });
 });

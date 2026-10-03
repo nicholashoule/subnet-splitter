@@ -12,7 +12,7 @@
  */
 
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "tests/**/*"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*", "scripts/**/*", "tests/**/*"],
   "exclude": ["node_modules", "build", "dist"],
   "compilerOptions": {
     "incremental": true,
@@ -26,6 +26,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {
