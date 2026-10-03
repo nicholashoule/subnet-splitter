@@ -348,14 +348,22 @@ describe("Edge Cases & Robustness", () => {
   });
 
   describe("Error handling and validation", () => {
-    it("accepts leading zeros as decimal and normalizes them away", () => {
-      // parseCidr reads "024" as 24 and ipToNumber reads "010" as 10 (decimal, never octal)
-      expect(parseCidr("192.168.1.0/024")).toEqual(parseCidr("192.168.1.0/24"));
-      expect(validateCidrInput("192.168.1.0/024")).toBeNull();
-      expect(calculateSubnet("192.168.1.0/024").cidr).toBe("192.168.1.0/24");
-      expect(calculateSubnet("010.000.000.000/8").cidr).toBe("10.0.0.0/8");
-      // More than three digits in an octet is still rejected
-      expect(() => calculateSubnet("0010.0.0.0/8")).toThrow(SubnetCalculationError);
+    it("rejects leading zeros, which some parsers read as octal", () => {
+      // inet_aton-style parsers read "010" as 8, so "010.0.0.0/8" is ambiguous
+      expect(() => ipToNumber("010.0.0.0")).toThrow(/leading zeros are not allowed/);
+      for (const cidr of ["010.0.0.0/8", "10.00.0.0/16", "192.168.1.000/24", "0010.0.0.0/8", "192.168.1.0/024", "10.0.0.0/08"]) {
+        expect(() => calculateSubnet(cidr), cidr).toThrow(SubnetCalculationError);
+        expect(validateCidrInput(cidr), cidr).not.toBeNull();
+      }
+      // The calculator says why
+      expect(validateCidrInput("010.0.0.0/8")).toMatch(/^Leading zeros are not allowed/);
+      expect(validateCidrInput("10.0.0.0/08")).toMatch(/^Leading zeros are not allowed/);
+      // ...and only for leading zeros: other bad prefixes get the general format hint
+      expect(validateCidrInput("10.0.0.0/abc")).toMatch(/^Invalid CIDR format/);
+      // A lone zero is not a leading zero
+      expect(calculateSubnet("0.0.0.0/0").cidr).toBe("0.0.0.0/0");
+      expect(calculateSubnet("10.0.0.0/8").cidr).toBe("10.0.0.0/8");
+      expect(parseCidr("100.64.0.0/10")).toEqual({ network: ipToNumber("100.64.0.0"), prefix: 10 });
     });
 
     it("handles various CIDR input formats", () => {

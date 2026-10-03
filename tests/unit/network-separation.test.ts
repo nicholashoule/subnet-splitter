@@ -365,6 +365,10 @@ describe("Pod and service overrides", () => {
     reject({ servicesCidr: "192.168.0.0/25" }, /between \/13 and \/24/);
     reject({ podsCidr: "192.168.0.0/25" }, /between \/8 and \/24/);
     reject({ podsCidr: "not-a-cidr" }, /Invalid podsCidr/);
+    // Leading zeros are ambiguous (some tools read "010" as octal 8)
+    reject({ podsCidr: "100.064.0.0/16" }, /leading zeros are not allowed/);
+    reject({ servicesCidr: "192.168.016.0/20" }, /leading zeros are not allowed/);
+    expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", vpcCidr: "010.0.0.0/24" })).toThrow(/leading zeros are not allowed/);
   });
 
   it("rejects a blank CIDR instead of treating it as omitted", () => {

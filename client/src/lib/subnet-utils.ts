@@ -32,7 +32,11 @@ export class SubnetCalculationError extends Error {
   }
 }
 
-const DIGITS = /^\d+$/;
+// A decimal number without leading zeros: "0", or 1-9 then digits. A leading zero is
+// ambiguous: inet_aton-style parsers read "010" as octal 8, so "010.0.0.0/8" would mean
+// 8.0.0.0/8 to some tools and 10.0.0.0/8 to others. Go, Python and Node reject it too.
+const OCTET = /^(0|[1-9]\d{0,2})$/;
+const PREFIX = /^(0|[1-9]\d?)$/;
 
 export function ipToNumber(ip: string): number {
   const octets = ip.split('.');
@@ -42,8 +46,11 @@ export function ipToNumber(ip: string): number {
 
   let result = 0;
   for (const octet of octets) {
-    // Reject anything parseInt would silently truncate (e.g. "1abc", " 1", "")
-    const num = DIGITS.test(octet) && octet.length <= 3 ? Number(octet) : NaN;
+    // Reject anything parseInt would silently truncate ("1abc", " 1", "") or misread
+    if (/^0\d/.test(octet)) {
+      throw new SubnetCalculationError(`Invalid IP octet: ${octet} (leading zeros are not allowed; some tools read them as octal)`);
+    }
+    const num = OCTET.test(octet) ? Number(octet) : NaN;
     if (isNaN(num) || num > 255) {
       throw new SubnetCalculationError(`Invalid IP octet: ${octet}`);
     }
@@ -63,8 +70,10 @@ export function parseCidr(cidr: string): { network: number; prefix: number } {
     throw new SubnetCalculationError(`Invalid CIDR format: ${cidr}`);
   }
   const [ipStr, prefixStr] = parts;
-  if (!DIGITS.test(prefixStr)) {
-    throw new SubnetCalculationError(`Invalid prefix: ${prefixStr}`);
+  if (!PREFIX.test(prefixStr)) {
+    throw new SubnetCalculationError(/^0\d/.test(prefixStr)
+      ? `Invalid prefix: ${prefixStr} (leading zeros are not allowed)`
+      : `Invalid prefix: ${prefixStr}`);
   }
   const prefix = Number(prefixStr);
   const mask = prefixToMask(prefix);
@@ -82,8 +91,10 @@ export function validateCidrInput(value: string): string | null {
   let parsed: { network: number; prefix: number };
   try {
     parsed = parseCidr(cidr);
-  } catch {
-    return "Invalid CIDR format. Use format: 192.168.1.0/24";
+  } catch (error) {
+    return error instanceof SubnetCalculationError && error.message.includes("leading zeros are not allowed")
+      ? "Leading zeros are not allowed (some tools read 010 as octal 8). Use format: 10.0.0.0/8"
+      : "Invalid CIDR format. Use format: 192.168.1.0/24";
   }
   if (ipToNumber(cidr.split('/')[0]) !== parsed.network) {
     return "IP address must be the network address for the given prefix (e.g., 192.168.1.0/24, not 192.168.1.5/24)";

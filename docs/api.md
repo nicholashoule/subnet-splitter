@@ -1216,7 +1216,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 **Pods CIDR (`podsCidr`):**
 - Optional. If omitted, a range of the tier's `podsPrefix` is generated outside the VPC, in an RFC 1918 block used by neither the VPC nor `servicesCidr`, or in `100.64.0.0/10` when none has room
 - Must fall entirely within `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, or `100.64.0.0/10`
-- Prefix `/8` to `/24`; host bits are cleared
+- Prefix `/8` to `/24`; host bits are cleared; no leading zeros in octets or prefix (applies to every CIDR field: `010.0.0.0/16` is rejected, since some tools read `010` as octal 8)
 - Must not overlap the VPC, `servicesCidr`, or `172.17.0.0/16` (AKS: nor `172.30.0.0/16` or `172.31.0.0/16`)
 - Max 18 characters after trimming
 

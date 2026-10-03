@@ -47,7 +47,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Input Validation**
 - Every API request is validated with Zod schemas (`shared/kubernetes-schema.ts`)
-- CIDRs are parsed strictly: digits only, octets 0-255, prefix 0-32; a blank CIDR field is rejected, not read as "generate one"
+- CIDRs are parsed strictly: digits only, no leading zeros (some tools read `010` as octal 8), octets 0-255, prefix 0-32; a blank CIDR field is rejected, not read as "generate one"
 - The whole VPC range must fall inside one RFC 1918 block (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`); public ranges and ranges that spill out of private space are refused
 - `region` and `availabilityZones` must be lowercase letters, digits and hyphens (max 64), because they are written into zone names; `deploymentName` max 128 characters
 - `podsCidr` and `servicesCidr` must be private (pods: RFC 1918 or 100.64.0.0/10; services: RFC 1918), within provider size limits, and must not overlap the VPC, each other, or 172.17.0.0/16 (Docker's default bridge)

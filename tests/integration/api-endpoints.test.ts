@@ -27,6 +27,8 @@ import { createApp, errorHandler } from "../../server/app";
 import { serveStatic } from "../../server/static";
 import { SWAGGER_UI_VERSION } from "../../server/swagger-ui";
 import { splitRequestTarget } from "../../server/api-path";
+import { CIDR_PATTERN } from "../../server/openapi";
+import { parseCidr } from "../../client/src/lib/subnet-utils";
 import YAML from "yaml";
 import { THEME_STORAGE_KEY } from "../../client/src/lib/theme";
 import { version as APP_VERSION } from "../../package.json";
@@ -328,6 +330,21 @@ describe("API Endpoints Integration", () => {
       for (const tag of cdnTags) {
         expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/]{64}"/);
         expect(tag).toContain('crossorigin="anonymous"');
+      }
+    });
+
+    it("should document the CIDR format the server parses: no leading zeros", () => {
+      // The OpenAPI pattern and the server's parser must agree on the format; the
+      // server also range-checks (octets 0-255, prefix 0-32) and requires private space
+      const pattern = new RegExp(CIDR_PATTERN);
+      const parses = (cidr: string) => { try { parseCidr(cidr); return true; } catch { return false; } };
+      for (const cidr of ["10.0.0.0/16", "0.0.0.0/0", "192.168.1.0/24", "100.64.0.0/10"]) {
+        expect(pattern.test(cidr), cidr).toBe(true);
+        expect(parses(cidr), cidr).toBe(true);
+      }
+      for (const cidr of ["010.0.0.0/16", "10.00.0.0/16", "10.0.0.0/016", "0010.0.0.0/8", "10.0.0.0", "10.0.0.0/16 "]) {
+        expect(pattern.test(cidr), cidr).toBe(false);
+        expect(parses(cidr), cidr).toBe(false);
       }
     });
 
