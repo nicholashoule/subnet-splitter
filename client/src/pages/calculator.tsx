@@ -9,14 +9,14 @@
  * 
  * Features:
  * - Form validation with validateCidrInput (no form library needed for one field)
- * - Interactive tree view for subnet hierarchy
+ * - Subnet hierarchy shown as a flat list of table rows (collectVisibleRows)
  * - Copy-to-clipboard functionality for subnet details
  * - CSV export of selected subnets
- * - Recursion depth limiting and memory protection
+ * - Tree size limit (splitSubnetInTree) for memory protection
  */
 
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, type FormEvent } from "react";
-import { Moon, Sun, Network, Split, Copy, Check, CheckCircle2, Info, Trash2, Download, Loader2, Eye, EyeOff, BookOpen } from "lucide-react";
+import { Moon, Sun, Network, Split, Copy, Check, CheckCircle2, Info, Trash2, Download, Eye, EyeOff, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -39,38 +39,22 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { applyTheme, getSavedTheme, saveTheme, THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
 import type { SubnetInfo } from "@shared/schema";
-import { calculateSubnet, splitSubnet, formatNumber, getSubnetClass, SubnetCalculationError, countSubnetNodes, collectVisibleSubnets, getDepthIndicatorClasses, validateCidrInput } from "@/lib/subnet-utils";
+import {
+  calculateSubnet,
+  formatNumber,
+  getSubnetClass,
+  SubnetCalculationError,
+  collectVisibleRows,
+  splitSubnetInTree,
+  removeSplitInTree,
+  selectedVisibleSubnets,
+  subnetsToCsv,
+  getDepthIndicatorClasses,
+  validateCidrInput,
+} from "@/lib/subnet-utils";
 
-function findSubnetById(subnet: SubnetInfo, targetId: string): SubnetInfo | null {
-  if (subnet.id === targetId) return subnet;
-  for (const child of subnet.children ?? []) {
-    const found = findSubnetById(child, targetId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function findParentOf(subnet: SubnetInfo, childId: string): SubnetInfo | null {
-  for (const child of subnet.children ?? []) {
-    if (child.id === childId) return subnet;
-    const found = findParentOf(child, childId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function findAndUpdateSubnet(
-  subnet: SubnetInfo,
-  targetId: string,
-  updateFn: (s: SubnetInfo) => SubnetInfo
-): SubnetInfo {
-  if (subnet.id === targetId) return updateFn(subnet);
-  if (!subnet.children) return subnet;
-  return {
-    ...subnet,
-    children: subnet.children.map(child => findAndUpdateSubnet(child, targetId, updateFn)),
-  };
-}
+/** A message with a fresh id each time it is shown, so the same text can be announced again */
+type Message = { id: number; text: string };
 
 // Defined at module scope so cells keep their identity across renders
 // (a component declared inside SubnetRow would remount on every render).
@@ -91,41 +75,41 @@ function CopyableCell({
     <TableCell className="font-mono text-xs py-2 px-2">
       <div className="flex items-center gap-1">
         <span>{value}</span>
+        {/* 24x24 target (WCAG 2.5.8); the icon is the Button's 16px [&_svg]:size-4 */}
         <Button
           size="icon"
           variant="ghost"
-          className="h-5 w-5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 transition-opacity"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 transition-opacity"
           onClick={() => onCopy(value, fieldName)}
           data-testid={`button-copy-${fieldName.toLowerCase().replace(' ', '-')}-${subnetId}`}
           aria-label={`Copy ${fieldName}: ${value}`}
         >
-          {copied ? (
-            <Check className="h-2.5 w-2.5 text-success" />
-          ) : (
-            <Copy className="h-2.5 w-2.5" />
-          )}
+          {copied ? <Check className="text-success" /> : <Copy />}
         </Button>
       </div>
     </TableCell>
   );
 }
 
+// One table row. Rows are rendered as a flat list (collectVisibleRows); every prop is a
+// primitive, a callback that keeps its identity, or a subnet object that the immutable
+// tree updates replace only along the path to a change, so memo skips unchanged rows.
 const SubnetRow = memo(function SubnetRow({
-  subnet, 
-  depth = 0, 
-  onSplit, 
+  subnet,
+  depth,
+  parentCidr,
+  selected,
+  onSplit,
   onDelete,
-  selectedIds,
   onSelectChange,
-  hideParents = false
-}: { 
-  subnet: SubnetInfo; 
-  depth?: number; 
+}: {
+  subnet: SubnetInfo;
+  depth: number;
+  parentCidr?: string;
+  selected: boolean;
   onSplit: (id: string) => void;
   onDelete: (id: string) => void;
-  selectedIds: Set<string>;
   onSelectChange: (id: string, checked: boolean) => void;
-  hideParents?: boolean;
 }) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -158,123 +142,90 @@ const SubnetRow = memo(function SubnetRow({
     onCopy: copyToClipboard,
   });
 
-  const hasChildren = subnet.children && subnet.children.length > 0;
-
-  // If hideParents is true and this subnet has children, only render the children
-  if (hideParents && hasChildren) {
-    return (
-      <>
-        {subnet.children?.map((child) => (
-          <SubnetRow
-            key={child.id}
-            subnet={child}
-            depth={depth + 1}
-            onSplit={onSplit}
-            onDelete={onDelete}
-            selectedIds={selectedIds}
-            onSelectChange={onSelectChange}
-            hideParents={hideParents}
-          />
-        ))}
-      </>
-    );
-  }
+  const hasChildren = !!subnet.children?.length;
 
   return (
-    <>
-      <TableRow 
-        className="group hover-elevate"
-        data-testid={`row-subnet-${subnet.id}`}
-      >
-        <TableCell className="py-2 px-2 w-10">
-          <Checkbox
-            checked={selectedIds.has(subnet.id)}
-            onCheckedChange={(checked) => onSelectChange(subnet.id, checked === true)}
-            data-testid={`checkbox-select-${subnet.id}`}
-            aria-label={`Select subnet ${subnet.cidr}`}
-          />
-        </TableCell>
-        <TableCell className="py-2 px-2">
-          <div className="flex items-center gap-2">
-            {/* Color-coded depth indicator - High contrast colors for maximum distinction */}
-            <div className={getDepthIndicatorClasses(depth, subnet.prefix)} />
-            
-            <Badge 
-              variant="outline" 
-              className="font-mono text-xs"
-              data-testid={`badge-cidr-${subnet.id}`}
-            >
-              {subnet.cidr}
-            </Badge>
-          </div>
-        </TableCell>
-        <TableCell className="py-2 px-2">
-          <Badge variant="secondary" className="text-[10px]">
-            Class {getSubnetClass(subnet)}
-          </Badge>
-        </TableCell>
-        <CopyableCell {...copyCellProps(subnet.networkAddress, "Network")} />
-        <CopyableCell {...copyCellProps(subnet.broadcastAddress, "Broadcast")} />
-        <CopyableCell {...copyCellProps(subnet.firstHost, "First Host")} />
-        <CopyableCell {...copyCellProps(subnet.lastHost, "Last Host")} />
-        <TableCell className="text-right font-mono text-xs py-2 px-2">
-          {formatNumber(subnet.usableHosts)}
-        </TableCell>
-        <CopyableCell {...copyCellProps(subnet.subnetMask, "Subnet Mask")} />
-        <TableCell className="py-2 px-2">
-          <div className="flex items-center gap-0.5 justify-end">
-            {subnet.canSplit && !hasChildren && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => onSplit(subnet.id)}
-                    data-testid={`button-split-${subnet.id}`}
-                    aria-label={`Split ${subnet.cidr} into two /${subnet.prefix + 1} subnets`}
-                  >
-                    <Split className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Split into /{subnet.prefix + 1} subnets</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {depth > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => onDelete(subnet.id)}
-                    data-testid={`button-delete-${subnet.id}`}
-                    aria-label={`Remove split for ${subnet.cidr}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Remove subnet split</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-        </TableCell>
-      </TableRow>
-      {hasChildren && subnet.isExpanded && subnet.children?.map((child) => (
-        <SubnetRow
-          key={child.id}
-          subnet={child}
-          depth={depth + 1}
-          onSplit={onSplit}
-          onDelete={onDelete}
-          selectedIds={selectedIds}
-          onSelectChange={onSelectChange}
-          hideParents={hideParents}
+    <TableRow
+      className="group hover-elevate"
+      data-testid={`row-subnet-${subnet.id}`}
+    >
+      <TableCell className="py-2 px-2 w-10">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onSelectChange(subnet.id, checked === true)}
+          data-testid={`checkbox-select-${subnet.id}`}
+          aria-label={`Select subnet ${subnet.cidr}`}
         />
-      ))}
-    </>
+      </TableCell>
+      <TableCell className="py-2 px-2">
+        <div className="flex items-center gap-2">
+          {/* Color-coded depth indicator - High contrast colors for maximum distinction */}
+          <div className={getDepthIndicatorClasses(depth, subnet.prefix)} />
+          
+          <Badge 
+            variant="outline" 
+            className="font-mono text-xs"
+            data-testid={`badge-cidr-${subnet.id}`}
+          >
+            {subnet.cidr}
+          </Badge>
+        </div>
+      </TableCell>
+      <TableCell className="py-2 px-2">
+        <Badge variant="secondary" className="text-[10px]">
+          Class {getSubnetClass(subnet)}
+        </Badge>
+      </TableCell>
+      <CopyableCell {...copyCellProps(subnet.networkAddress, "Network")} />
+      <CopyableCell {...copyCellProps(subnet.broadcastAddress, "Broadcast")} />
+      <CopyableCell {...copyCellProps(subnet.firstHost, "First Host")} />
+      <CopyableCell {...copyCellProps(subnet.lastHost, "Last Host")} />
+      <TableCell className="text-right font-mono text-xs py-2 px-2">
+        {formatNumber(subnet.usableHosts)}
+      </TableCell>
+      <CopyableCell {...copyCellProps(subnet.subnetMask, "Subnet Mask")} />
+      <TableCell className="py-2 px-2">
+        <div className="flex items-center gap-0.5 justify-end">
+          {subnet.canSplit && !hasChildren && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onSplit(subnet.id)}
+                  data-testid={`button-split-${subnet.id}`}
+                  aria-label={`Split ${subnet.cidr} into two /${subnet.prefix + 1} subnets`}
+                >
+                  <Split className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Split into /{subnet.prefix + 1} subnets</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {/* Removes the parent's split: this row, its sibling and everything below them */}
+          {parentCidr && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => onDelete(subnet.id)}
+                  data-testid={`button-delete-${subnet.id}`}
+                  aria-label={`Remove split of ${parentCidr}`}
+                >
+                  <Trash2 className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Remove split of {parentCidr}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
   );
 });
 
@@ -288,7 +239,8 @@ function SubnetDetails({ subnet }: { subnet: SubnetInfo }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* One column on phones: two columns of 4,294,967,296 (a /0) would overlap at 320px */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">Total Addresses</p>
             <p className="text-2xl font-bold font-mono" data-testid="text-total-addresses">
@@ -323,20 +275,20 @@ export default function Calculator() {
   const [isDark, setIsDark] = useState(() => getSavedTheme() === 'dark');
   const [rootSubnet, setRootSubnet] = useState<SubnetInfo | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<Message | null>(null);
   const [hideParents, setHideParents] = useState(false);
   const [cidrValue, setCidrValue] = useState("");
-  const [cidrError, setCidrError] = useState<string | null>(null);
+  const [cidrError, setCidrError] = useState<Message | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messageId = useRef(0);
 
-  // Status line under the table title; each message restarts the timer that clears it
+  // Status line under the table title; each message restarts the timer that clears it.
+  // A new id per message re-mounts the text, so a repeat of the same text is announced too.
   const statusTimer = useRef<ReturnType<typeof setTimeout>>();
-  const showStatus = useCallback((message: string | null) => {
+  const showStatus = useCallback((text: string | null) => {
     clearTimeout(statusTimer.current);
-    setStatusMessage(message);
-    if (message) statusTimer.current = setTimeout(() => setStatusMessage(null), 2500);
+    setStatusMessage(text ? { id: ++messageId.current, text } : null);
+    if (text) statusTimer.current = setTimeout(() => setStatusMessage(null), 2500);
   }, []);
   useEffect(() => () => clearTimeout(statusTimer.current), []);
 
@@ -344,8 +296,8 @@ export default function Calculator() {
   // the same place in the table (selector applied after the tree re-renders)
   const pendingFocus = useRef<string | null>(null);
 
-  // main.tsx applied the saved theme before the first render. Follow changes made
-  // in other tabs (e.g. the API docs page), which share the same storage key.
+  // public/theme-init.js applied the saved theme before first paint. Follow changes
+  // made in other tabs (e.g. the API docs page), which share the same storage key.
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === THEME_STORAGE_KEY) {
@@ -369,14 +321,16 @@ export default function Calculator() {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const error = validateCidrInput(cidrValue);
-    setCidrError(error);
+    // The message is role="alert", so it is announced however the form was submitted:
+    // after Enter in the input, focus() below changes nothing and announces nothing.
+    // A new id per failed submit re-mounts it, so the same error is announced again.
+    setCidrError(error ? { id: ++messageId.current, text: error } : null);
     if (error) {
-      // The input carries aria-invalid and aria-describedby, so focusing it reads the error
+      // Return to the input to correct it; aria-invalid and aria-describedby tie the error to it
       inputRef.current?.focus();
       return;
     }
 
-    setIsCalculating(true);
     try {
       const subnet = calculateSubnet(cidrValue.trim());
       setRootSubnet(subnet);
@@ -395,13 +349,11 @@ export default function Calculator() {
         description: message,
         variant: "destructive",
       });
-    } finally {
-      setIsCalculating(false);
     }
   };
 
-  // Read the latest tree through a ref so handleSplit stays referentially
-  // stable; otherwise every split would re-render every memoized row.
+  // Read the latest tree through a ref so handleSplit and handleDelete stay
+  // referentially stable; otherwise every tree change would re-render every row.
   const rootSubnetRef = useRef(rootSubnet);
   useLayoutEffect(() => {
     rootSubnetRef.current = rootSubnet;
@@ -418,27 +370,17 @@ export default function Calculator() {
     if (!root) return;
 
     try {
-      const targetSubnet = findSubnetById(root, id);
-
-      // State validation: ensure target exists and is in valid state for splitting
-      if (!targetSubnet || !targetSubnet.canSplit || targetSubnet.children?.length) {
-        return;
-      }
-
-      // Validate tree size before splitting (throws past the node limit)
-      const children = splitSubnet(targetSubnet, countSubnetNodes(root));
-      setRootSubnet(findAndUpdateSubnet(root, id, (subnet) => ({
-        ...subnet,
-        children,
-        isExpanded: true,
-      })));
+      // Null when the row is missing, already split or a /32; throws past the tree size limit
+      const result = splitSubnetInTree(root, id);
+      if (!result) return;
+      setRootSubnet(result.root);
 
       // The split button is gone (and with Hide Parents the whole row); continue on the first child
-      const [first] = children;
+      const [first] = result.children;
       pendingFocus.current = first.canSplit
         ? `[data-testid="button-split-${first.id}"]`
         : `[data-testid="checkbox-select-${first.id}"]`;
-      showStatus(`Successfully split subnet into two equal /${targetSubnet.prefix + 1} networks`);
+      showStatus(`Successfully split subnet into two equal /${first.prefix} networks`);
     } catch (error) {
       const message = error instanceof SubnetCalculationError
         ? error.message
@@ -452,34 +394,13 @@ export default function Calculator() {
   }, [showStatus]);
 
   const handleDelete = useCallback((id: string) => {
-    // The removed row's parent gets its split button back; focus it
     const root = rootSubnetRef.current;
-    const parent = root && findParentOf(root, id);
-    if (parent) pendingFocus.current = `[data-testid="button-split-${parent.id}"]`;
+    const result = root && removeSplitInTree(root, id);
+    if (!result) return;
+    setRootSubnet(result.root);
 
-    const deleteFromChildren = (subnet: SubnetInfo): SubnetInfo => {
-      if (!subnet.children) return subnet;
-      
-      const hasTargetChild = subnet.children.some(c => c.id === id);
-      if (hasTargetChild) {
-        return {
-          ...subnet,
-          children: undefined,
-          isExpanded: false,
-        };
-      }
-
-      return {
-        ...subnet,
-        children: subnet.children.map(deleteFromChildren),
-      };
-    };
-
-    setRootSubnet(prev => {
-      if (!prev) return prev;
-      return deleteFromChildren(prev);
-    });
-
+    // The parent row gets its split button back (and reappears with Hide Parents); focus it
+    pendingFocus.current = `[data-testid="button-split-${result.parent.id}"]`;
     showStatus("Subnet split removed - parent restored");
   }, [showStatus]);
 
@@ -505,14 +426,16 @@ export default function Calculator() {
     });
   }, []);
 
-  // Selection counts only rows on screen: removing a split or hiding parents can leave
-  // selected ids that are no longer visible, and those are neither counted nor exported
-  const visibleSubnets = useMemo(
-    () => (rootSubnet ? collectVisibleSubnets(rootSubnet, hideParents) : []),
+  // The table's rows. Selection counts only rows on screen: removing a split or hiding
+  // parents can leave selected ids that are no longer visible, and those are neither
+  // counted nor exported
+  const visibleRows = useMemo(
+    () => (rootSubnet ? collectVisibleRows(rootSubnet, hideParents) : []),
     [rootSubnet, hideParents],
   );
+  const visibleSubnets = useMemo(() => visibleRows.map(row => row.subnet), [visibleRows]);
   const selectedSubnets = useMemo(
-    () => visibleSubnets.filter(s => selectedIds.has(s.id)),
+    () => selectedVisibleSubnets(visibleSubnets, selectedIds),
     [visibleSubnets, selectedIds],
   );
   const allVisibleSelected = selectedSubnets.length > 0 && selectedSubnets.length === visibleSubnets.length;
@@ -531,46 +454,20 @@ export default function Calculator() {
       return;
     }
 
-    setIsExporting(true);
+    const blob = new Blob([subnetsToCsv(selectedSubnets)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `subnet-export-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
-    try {
-
-      const headers = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
-      const rows = selectedSubnets.map(s => [
-        s.cidr,
-        s.networkAddress,
-        s.broadcastAddress,
-        s.firstHost,
-        s.lastHost,
-        s.usableHosts.toString(),
-        s.totalHosts.toString(),
-        s.subnetMask,
-        s.wildcardMask,
-        `/${s.prefix}`
-      ]);
-
-      const csvContent = [
-        headers.join(","),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-      ].join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `subnet-export-${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      toast({
-        title: "CSV exported",
-        description: `Exported ${selectedSubnets.length} subnet${selectedSubnets.length > 1 ? 's' : ''} to CSV`,
-      });
-    } finally {
-      setIsExporting(false);
-    }
+    toast({
+      title: "CSV exported",
+      description: `Exported ${selectedSubnets.length} subnet${selectedSubnets.length > 1 ? 's' : ''} to CSV`,
+    });
   }, [selectedSubnets]);
 
   const loadExample = (cidr: string) => {
@@ -644,7 +541,7 @@ export default function Calculator() {
 
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Enter CIDR Range</CardTitle>
+            <CardTitle id="cidr-heading">Enter CIDR Range</CardTitle>
             <CardDescription>
               Enter a CIDR notation to analyze your network and plan subnets (e.g., 10.0.0.0/8 for Class A, 172.16.0.0/12 for Class B, or 192.168.0.0/16 for Class C)
             </CardDescription>
@@ -652,13 +549,14 @@ export default function Calculator() {
           <CardContent>
             <form onSubmit={onSubmit} noValidate className="flex flex-col sm:flex-row sm:items-start gap-4">
               <div className="flex-1 space-y-2">
-                <label htmlFor="cidr-input" className="sr-only">CIDR Notation</label>
+                {/* Named by the visible heading, so the accessible name matches what is shown (WCAG 2.5.3) */}
                 <Input
                   ref={inputRef}
                   id="cidr-input"
                   name="cidr"
+                  aria-labelledby="cidr-heading"
                   placeholder="e.g., 192.168.1.0/24"
-                  className="font-mono text-lg h-12"
+                  className="font-mono text-lg md:text-lg h-12"
                   data-testid="input-cidr"
                   autoComplete="off"
                   spellCheck={false}
@@ -671,21 +569,14 @@ export default function Calculator() {
                   aria-describedby={cidrError ? "cidr-input-error" : undefined}
                 />
                 {cidrError && (
-                  <p id="cidr-input-error" className="text-sm font-medium text-destructive">
-                    {cidrError}
+                  <p key={cidrError.id} id="cidr-input-error" role="alert" className="text-sm font-medium text-destructive">
+                    {cidrError.text}
                   </p>
                 )}
               </div>
-              <div className="flex gap-2">
-                <Button type="submit" size="lg" className="h-12" data-testid="button-calculate" aria-label="Calculate subnet details" disabled={isCalculating}>
-                  {isCalculating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Calculating...
-                    </>
-                  ) : (
-                    "Calculate"
-                  )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" size="lg" className="h-12" data-testid="button-calculate" aria-label="Calculate subnet details">
+                  Calculate
                 </Button>
                 {rootSubnet && (
                   <Button 
@@ -726,9 +617,11 @@ export default function Calculator() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center justify-between flex-wrap gap-4">
-                  <span>Subnet Table</span>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  {/* The heading holds only its text; it names the table (aria-labelledby) */}
+                  <CardTitle id="subnet-table-title">Subnet Table</CardTitle>
+                  {/* Wraps on narrow screens: only the table itself scrolls sideways (WCAG 1.4.10) */}
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
@@ -751,36 +644,28 @@ export default function Calculator() {
                       variant="outline"
                       size="sm"
                       onClick={handleExportCSV}
-                      disabled={selectedSubnets.length === 0 || isExporting}
+                      disabled={selectedSubnets.length === 0}
                       data-testid="button-export-csv"
                     >
-                      {isExporting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Exporting...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV ({selectedSubnets.length})
-                        </>
-                      )}
+                      <Download className="h-4 w-4 mr-2" />
+                      Export CSV ({selectedSubnets.length})
                     </Button>
-                    <Badge variant="outline" className="font-normal">
-                      Click <Split className="h-3 w-3 inline mx-1" /> to split a subnet
+                    {/* Hint only; the description below says the same. Hidden where it would crowd the buttons */}
+                    <Badge variant="outline" className="hidden sm:inline-flex font-normal">
+                      Click <Split className="h-3 w-3 inline mx-1" aria-hidden="true" /> to split a subnet
                     </Badge>
                   </div>
-                </CardTitle>
-                <div className="flex items-center justify-between">
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                   <CardDescription>
                     Split any subnet into two smaller networks, or remove a split to restore its parent. Select rows to export them as CSV.
                   </CardDescription>
                   {/* Always mounted, so screen readers announce each message placed in it */}
                   <div role="status">
                     {statusMessage && (
-                      <span key={statusMessage} className="flex items-center gap-1.5 text-xs font-semibold text-success animate-in fade-in duration-300" data-testid="text-status-message">
+                      <span key={statusMessage.id} className="flex items-center gap-1.5 text-xs font-semibold text-success animate-in fade-in duration-300" data-testid="text-status-message">
                         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        {statusMessage}
+                        {statusMessage.text}
                       </span>
                     )}
                   </div>
@@ -788,7 +673,7 @@ export default function Calculator() {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto elegant-scrollbar">
-                  <Table className="text-xs">
+                  <Table className="text-xs" aria-labelledby="subnet-table-title">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10 text-xs py-2 px-2">
@@ -811,14 +696,18 @@ export default function Calculator() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      <SubnetRow 
-                        subnet={rootSubnet} 
-                        onSplit={handleSplit}
-                        onDelete={handleDelete}
-                        selectedIds={selectedIds}
-                        onSelectChange={handleSelectChange}
-                        hideParents={hideParents}
-                      />
+                      {visibleRows.map(({ subnet, depth, parentCidr }) => (
+                        <SubnetRow
+                          key={subnet.id}
+                          subnet={subnet}
+                          depth={depth}
+                          parentCidr={parentCidr}
+                          selected={selectedIds.has(subnet.id)}
+                          onSplit={handleSplit}
+                          onDelete={handleDelete}
+                          onSelectChange={handleSelectChange}
+                        />
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
@@ -845,7 +734,7 @@ export default function Calculator() {
           CIDR (Classless Inter-Domain Routing) allows flexible IP allocation. Split subnets to create smaller network segments for better organization, efficient management, and improved security through network isolation.
         </p>
         <p className="text-xs">
-          Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium" data-testid="link-github">nicholashoule</a>
+          Created by <a href="https://github.com/nicholashoule" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:decoration-2 font-medium" data-testid="link-github">nicholashoule</a>
         </p>
       </footer>
     </div>

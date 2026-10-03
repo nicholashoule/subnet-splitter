@@ -2,11 +2,11 @@
 
 ## Executive Summary
 
-**Current State**: 503 tests across 14 test files (inventory and per-file counts refreshed October 2, 2026)  
+**Current State**: 504 tests across 14 test files (inventory and per-file counts refreshed October 2, 2026)  
 **Status**: All tests passing  
 **Assessment**: **A** - Test suite is healthy with comprehensive coverage and proper organization  
-**Execution Time**: ~3.5 seconds total  
-**Pass Rate**: 100% (503/503)
+**Execution Time**: about 7-10 seconds wall clock for `npx vitest run` (measured October 2, 2026 on a Windows 11 development machine: 9.5 s on a first run, 6.8 s on a repeat); the February 8, 2026 audit recorded ~3.5 seconds for its 406 tests  
+**Pass Rate**: 100% (504/504)
 
 The inventory below and the file sections under **Detailed File Analysis** reflect the current suite. The issues, recommendations, and before/after totals further down (from **Issues Identified** on) record the February 8, 2026 audit (406 tests in 13 files) and are kept as history; files, test counts, and server requirements named there may no longer apply.
 
@@ -25,7 +25,7 @@ The inventory below and the file sections under **Detailed File Analysis** refle
 | [ui-styles.test.ts](#ui-stylestestts) | 61 | 216 | WCAG contrast read from index.css, page semantics | [PASS] MOVED from integration |
 | [config.test.ts](#configtestts) | 11 | 128 | Build configuration, emoji check scripts, pre-commit hook | [PASS] MOVED from integration |
 
-### Integration Tests (8 files, 180 tests, ~2,880 lines)
+### Integration Tests (8 files, 181 tests, ~2,920 lines)
 
 | File | Tests | Lines | Purpose | Status |
 |------|-------|-------|---------|--------|
@@ -35,10 +35,10 @@ The inventory below and the file sections under **Detailed File Analysis** refle
 | [rate-limiting.test.ts](#rate-limitingtestts) | 27 | 409 | Security middleware | [PASS] Keep as-is |
 | [swagger-ui-csp-middleware.test.ts](#swagger-ui-csp-middlewaretestts) | 10 | 186 | CSP middleware (production `createSecurityHeaders()`) | [PASS] Rewritten after this audit |
 | [swagger-ui-theming.test.ts](#swagger-ui-themingtestts) | 7 | 245 | Swagger UI themes (inline scripts run in `node:vm`) | [PASS] Rewritten after this audit |
-| [csp-violation-endpoint.test.ts](#csp-violation-endpointtestts) | 12 | 355 | CSP security endpoint (`server/csp-report.ts`) | [PASS] Keep as-is |
+| [csp-violation-endpoint.test.ts](#csp-violation-endpointtestts) | 13 | 396 | CSP security endpoint (`server/csp-report.ts`) | [PASS] Keep as-is |
 | static-serving.test.ts | 5 | 114 | Production static serving (cache headers, compression) | [PASS] Added after this audit |
 
-**Total**: 503 tests across 14 files
+**Total**: 504 tests across 14 files
 
 The production bundle itself is checked outside Vitest by `npm run smoke` (`scripts/smoke-test.ts`), which CI runs after `npm run build`.
 
@@ -94,14 +94,14 @@ The emoji check is not a Vitest test either. `npm run emoji:check` runs the demo
 ---
 
 #### csp-violation-endpoint.test.ts
-**Tests**: 12 | **Lines**: 355 | **Lines/Test**: 29.6
+**Tests**: 13 | **Lines**: 396 | **Lines/Test**: 30.5
 
 **Purpose**: Security endpoint for CSP violation reporting with W3C spec compliance, rate limiting, and schema validation. The test registers the production endpoint and limiter (`registerCspViolationEndpoint` in `server/csp-report.ts`) on a test server and makes real HTTP requests to it.
 
 **Test Coverage**:
-- Valid reports (4 tests): 204 No Content; logged fields (blocked URI, line and column); minimal and complete reports
+- Valid reports (4 tests): 204 No Content; logged fields (blocked URI, effective directive, script sample, line and column); minimal reports and a complete report with every field of the report-uri serialization, as browsers send it
 - Invalid payloads (5 tests): wrong field types, extra fields (strict schema), invalid disposition, and an empty payload (a debug entry, no warning); no schema details in the response body
-- Rate limiting (1 test): log flooding prevention, 100 reports per 15 minutes (`RateLimit-Policy: 100;w=900`)
+- Rate limiting (2 tests): log flooding prevention, 100 reports per 15 minutes (`RateLimit-Policy: 100;w=900`); reports past the limit still get 204 and are not logged
 - W3C spec compliance (2 tests): always 204 with an empty body; fields outside the `csp-report` wrapper are logged as an invalid report
 
 **Assessment**: [PASS] **Good** - Higher lines/test ratio justified by comprehensive security testing. Exercises the real handler rather than a copy defined in the test.
@@ -217,7 +217,7 @@ The emoji check is not a Vitest test either. `npm run emoji:check` runs the demo
 #### config.test.ts
 **Tests**: 11 | **Lines**: 128 | **Lines/Test**: 11.6
 
-**Purpose**: Configuration file validation for build tools (Tailwind CSS v4, Vite), the emoji check, and the pre-commit hook. **MOVED from integration/** - pure file validation, no server needed.
+**Purpose**: Configuration file validation for build tools (Tailwind CSS v4, Vite), the emoji check, and the pre-commit hook. **MOVED from integration/** - reads project files, runs git (the hook's file mode in the index), and runs the pre-commit hook in temporary git repositories; no server needed.
 
 **Test Coverage**:
 - Vite configuration (1 test): config file present

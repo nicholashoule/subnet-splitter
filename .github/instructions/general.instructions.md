@@ -27,7 +27,7 @@ server/             # Express backend (routes, CSP, middleware, OpenAPI)
 shared/             # Shared TypeScript types and Zod schemas
 tests/unit/         # Unit tests
 tests/integration/  # Integration tests
-scripts/            # Production smoke test
+scripts/            # build.ts (production build), smoke-test.ts, install-hooks.mjs (git hooks)
 docs/               # API reference, compliance audits, test audit
 ```
 
@@ -96,7 +96,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 
 ## Agent Guidelines
 
-1. **Type Safety** -- TypeScript strict mode, no `any` without justification
+1. **Type Safety** -- TypeScript strict mode; avoid `any` (use a proper type or `unknown`), and use it only with a reason, such as a test passing deliberately invalid input
 2. **Cross-Platform** -- Windows primary dev environment; npm scripts set no inline env vars (`NODE_ENV=production` is inlined at build time)
 3. **Performance** -- subnet calculations client-side, optimize React re-renders
 4. **UI/UX** -- no horizontal scrollbars, shadcn/ui components, dark/light mode support

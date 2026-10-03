@@ -4,6 +4,10 @@
  * Development-only CSP violation reporting endpoint (POST /__csp-violation).
  * Browsers send a report here whenever the Content-Security-Policy blocks something,
  * so CSP problems show up in the dev server log before they reach production.
+ *
+ * Every report that reaches the handler is answered 204 No Content. A body that is
+ * not valid JSON, or is larger than 16 KB, is rejected earlier by express.json()
+ * (server/app.ts): 400 or 413 with the JSON error body from errorHandler.
  */
 
 import type { Express, Request, Response } from "express";
@@ -12,15 +16,18 @@ import { cspViolationReportSchema } from "./csp-config";
 import { logger } from "./logger";
 
 export function registerCspViolationEndpoint(app: Express): void {
-  // Rate limit CSP violation reports to prevent log flooding attacks
-  // Legitimate CSP violations are rare and browsers batch them
+  // Rate limit CSP violation reports to prevent log flooding attacks.
+  // With report-uri a browser sends one request per violation, so a broken policy on
+  // a busy page can send many; legitimate violations are otherwise rare.
   const cspViolationLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 reports per window
+    limit: 100, // limit each IP to 100 reports per window
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: false, // Count all requests, even successful ones
-    message: "Too many CSP violation reports. Please try again later.",
+    // Past the limit, reports are dropped unlogged but still acknowledged with 204,
+    // like every other report (browsers ignore the response anyway)
+    handler: (_req, res) => { res.status(204).end(); },
     // Custom key generator: handle undefined IPs gracefully and normalize IPv6
     // When trust proxy = false, req.ip may be undefined for some connections
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : 'localhost-dev',
@@ -52,10 +59,12 @@ export function registerCspViolationEndpoint(app: Express): void {
       const violation = validationResult.data['csp-report'];
 
       // Only log if we have actual violation data (at least one expected field)
-      if (violation && (violation['blocked-uri'] || violation['violated-directive'])) {
+      if (violation && (violation['blocked-uri'] || violation['effective-directive'] || violation['violated-directive'])) {
         logger.warn('CSP Violation Detected in Development', {
           blockedUri: violation['blocked-uri'],
+          effectiveDirective: violation['effective-directive'],
           violatedDirective: violation['violated-directive'],
+          scriptSample: violation['script-sample'],
           originalPolicy: violation['original-policy'],
           sourceFile: violation['source-file'],
           lineNumber: violation['line-number'],
@@ -76,8 +85,8 @@ export function registerCspViolationEndpoint(app: Express): void {
       });
     }
 
-    // Always return 204 No Content per CSP spec
-    // This acknowledges receipt without exposing details
+    // Acknowledge with 204 No Content. Browsers ignore the response (the CSP spec
+    // defines none), and an empty answer exposes nothing about validation.
     res.status(204).end();
   });
 }

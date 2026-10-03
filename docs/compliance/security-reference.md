@@ -52,22 +52,26 @@ npm run audit           # Verify 0 vulnerabilities
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  formAction: ["'self'"],      // Helmet default, listed so the Swagger UI policy keeps it
+  scriptSrcAttr: ["'none'"],   // Helmet default: no inline event handler attributes
 }
 ```
 
 No third-party script origins: the app bundle is served from `'self'`, and only `/api/docs/ui` gets `cdn.jsdelivr.net` (see below).
 
-**Development additions:**
+These are all the directives of the production header. `createSecurityHeaders()` turns off the one other Helmet default, `upgrade-insecure-requests` (`upgradeInsecureRequests: null`): the server speaks plain HTTP, and over plain HTTP on a LAN address that directive makes browsers request the app's own `/assets` over https, so the page loads blank.
+
+**Development additions** (`createSecurityHeaders(isDevelopment)` in `server/csp-config.ts`, which `createApp()` in `server/app.ts` applies with Helmet):
 
 ```typescript
-cspDirectives.scriptSrc.push("'unsafe-inline'");           // Vite HMR
-cspDirectives.connectSrc.push("ws://127.0.0.1:*", "ws://localhost:*");  // WebSocket
-cspDirectives.reportUri = ["/__csp-violation"];
+scriptSrc: [...base, "'unsafe-inline'"],                         // Vite HMR
+connectSrc: [...base, "ws://127.0.0.1:*", "ws://localhost:*"],  // HMR WebSocket
+reportUri: ["/__csp-violation"],
 ```
 
 ### Swagger UI Route-Specific CSP
 
-Only `/api/docs/ui` adds `'unsafe-inline'` and `https://cdn.jsdelivr.net` to `script-src`, and `https://cdn.jsdelivr.net` to `style-src` and `connect-src` (principle of least privilege):
+Only `/api/docs/ui` adds `'unsafe-inline'` and `https://cdn.jsdelivr.net` to `script-src`, and `https://cdn.jsdelivr.net` to `style-src` and `connect-src` (principle of least privilege). Built from `baseCSPDirectives`, it keeps every other directive and source of the production header; `tests/integration/swagger-ui-csp-middleware.test.ts` and `npm run smoke` compare the two headers:
 
 ```typescript
 export function buildSwaggerUICSP(): string {
@@ -88,21 +92,27 @@ export function buildSwaggerUICSP(): string {
 
 **Endpoint:** `POST /__csp-violation` (development only)
 
-Browsers send CSP violations wrapped in `"csp-report"` key per W3C spec:
+Browsers send each violation as an `application/csp-report` body wrapped in a `"csp-report"` key (the report-uri serialization in the CSP spec), for example from Chrome:
 
 ```json
 {
   "csp-report": {
-    "blocked-uri": "https://malicious.com/script.js",
-    "violated-directive": "script-src",
-    "original-policy": "script-src 'self'",
-    "document-uri": "http://localhost:5000",
-    "disposition": "enforce"
+    "document-uri": "http://localhost:5000/",
+    "referrer": "",
+    "blocked-uri": "inline",
+    "effective-directive": "script-src-elem",
+    "violated-directive": "script-src-elem",
+    "original-policy": "default-src 'self'; script-src 'self'; report-uri /__csp-violation",
+    "disposition": "enforce",
+    "status-code": 200,
+    "source-file": "http://localhost:5000/",
+    "line-number": 12,
+    "column-number": 5
   }
 }
 ```
 
-Validation uses `cspViolationReportSchema` in `server/csp-config.ts`. Always returns 204 No Content (W3C spec).
+`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes; reports past the limit are dropped without logging. Every report that reaches the handler, including invalid and rate-limited ones, gets an empty `204 No Content` (browsers ignore the response). A body that is not valid JSON, or is larger than 16 KB, never reaches it: `express.json()` in `server/app.ts` rejects it first with `400` or `413` and the JSON error body.
 
 ### Helmet v8 Rules
 
@@ -115,7 +125,7 @@ Validation uses `cspViolationReportSchema` in `server/csp-config.ts`. Always ret
 
 ### API Routes (`server/routes.ts`)
 
-Mounted for every `/api` route in `server/index.ts` with `app.use("/api", createApiRateLimiter())`. Health endpoints (`/api/v1/health*`) are skipped so probes are never throttled; the unprefixed `/health*` routes are outside `/api` and not limited.
+Mounted for every `/api` route in `server/app.ts` (`createApp()`) with `app.use("/api", createApiRateLimiter())`. Health endpoints (`/api/v1/health*`) are skipped so probes are never throttled; the unprefixed `/health*` routes are outside `/api` and not limited.
 
 ```typescript
 export function createApiRateLimiter(): RequestHandler {
@@ -131,32 +141,33 @@ export function createApiRateLimiter(): RequestHandler {
 }
 ```
 
-### Request Body Limit (`server/index.ts`)
+### Request Body Limit (`server/app.ts`)
 
-`express.json()` and `express.urlencoded()` are capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`.
+`express.json()` is capped at 16 KB (`limit: "16kb"`). Larger bodies are rejected with 413 and code `INVALID_REQUEST`, always in JSON (`errorHandler`), whatever `?format=` asks for. There is no URL-encoded parser: the API takes JSON only.
 
 ### Production SPA Fallback (`server/static.ts`)
 
 ```typescript
 const spaRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 30,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: "Too many requests..."
 });
 ```
 
-### CSP Violation Endpoint (`server/index.ts`)
+### CSP Violation Endpoint (`server/csp-report.ts`)
 
 ```typescript
 const cspViolationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false,
-  message: "Too many CSP violation reports. Please try again later.",
+  // Past the limit, reports are dropped unlogged but still acknowledged with 204
+  handler: (_req, res) => { res.status(204).end(); },
 });
 ```
 

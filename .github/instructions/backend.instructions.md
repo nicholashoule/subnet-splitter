@@ -16,7 +16,8 @@ applyTo: "server/**"
 
 | File | Purpose |
 |------|---------|
-| `server/index.ts` | Express server setup, middleware, `HOST`/`PORT` binding |
+| `server/index.ts` | Entry point: routes, static serving or Vite, error handler, timeouts, `TRUST_PROXY`, `HOST`/`PORT` binding |
+| `server/app.ts` | `createApp()` (security headers, compression, request logging, JSON body parsing, `/api` rate limit, dev CSP endpoint) and `errorHandler`; integration tests build their servers with these |
 | `server/routes.ts` | API route definitions (shared handler functions) |
 | `server/csp-config.ts` | Centralized CSP directive configuration and `cspViolationReportSchema` |
 | `server/static.ts` | Production static file serving with file-extension guard |
@@ -44,7 +45,8 @@ Health checks: `/health`, `/health/ready`, `/health/live`, and the same under `/
 - Only `/api/docs/ui` adds `'unsafe-inline'` + `cdn.jsdelivr.net` to `script-src` and `cdn.jsdelivr.net` to `style-src`/`connect-src` (principle of least privilege)
 - Swagger UI assets are pinned to `swagger-ui-dist@5.33.1` with `sha384` Subresource Integrity; markup and SRI hashes live in `server/swagger-ui.ts` (`SWAGGER_UI_VERSION`, `SRI`); see `.github/swagger-ui-theming.md` before bumping the version
 - Development adds `'unsafe-inline'` for Vite HMR + WebSocket URLs
-- CSP violation endpoint: `POST /__csp-violation` (dev only, W3C `"csp-report"` wrapper format)
+- Helmet's default `upgrade-insecure-requests` is turned off (`upgradeInsecureRequests: null`): the server speaks plain HTTP, and over HTTP on a LAN address the directive blanks the page. `baseCSPDirectives` lists every other directive Helmet sends (including `formAction` and `scriptSrcAttr`), so the Swagger UI policy keeps them
+- CSP violation endpoint: `POST /__csp-violation` (dev only, report-uri `"csp-report"` wrapper format)
 
 **Helmet v8 rules:**
 - Do NOT use `xssFilter` or `noSniff` options (removed in v8)
@@ -63,7 +65,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 ## Security: Rate Limiting
 
 - API routes (`/api/*`): 100 req / min per IP via `createApiRateLimiter()` in `server/routes.ts`; `/api/v1/health*` exempt; 429 `{ error, code: "RATE_LIMITED" }`
-- Request bodies capped at 16 KB (`express.json`/`express.urlencoded`)
+- Request bodies capped at 16 KB (`express.json` in `server/app.ts`; JSON only, no URL-encoded parser)
 - Production SPA fallback: 30 req / 15 min (file system ops are expensive)
 - Dev SPA fallback: 100 req / 15 min (more permissive)
 - CSP violation endpoint: 100 reports / 15 min
@@ -85,7 +87,8 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Use Zod for all request validation in route handlers
 - Shared handler functions (e.g., `handleNetworkPlan`, `handleTiers`) -- no code duplication
 - Error responses: `{ error: string, code: string }` with appropriate HTTP status
-- Support JSON (default) and YAML (`?format=yaml`) output formats
+- Support JSON (default) and YAML (`?format=yaml`) output formats. Validation and planning errors from the plan and tiers routes follow `?format=`; malformed or oversized bodies (400/413), unknown API paths (404) and rate limiting (429) are always JSON
+- Unknown `/api` paths, in any letter case (routing is case-sensitive), get a JSON 404 from `server/routes.ts`, registered before static serving and Vite
 
 ### Kubernetes Network Planning API
 
@@ -111,7 +114,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - Use clear error messages with specific error codes
 - Validate all inputs before processing
 - Return appropriate HTTP status codes (400 for validation, 413 for oversized bodies, 429 for rate limits, 500 for internal)
-- CSP violation endpoint always returns 204 (W3C spec)
+- CSP violation endpoint answers every report it receives with an empty 204 (browsers ignore the response); a malformed JSON body is rejected with 400 by `express.json` before it
 
 ## Security Pitfalls (Do NOT)
 
@@ -139,7 +142,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
   "test": "vitest",
   "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist",
   "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist -sub",
-  "prepare": "node scripts/install-hooks.mjs",
+  "prepare": "node scripts/install-hooks.mjs || exit 0",
   "audit": "npm audit",
   "audit:fix": "npm audit fix"
 }

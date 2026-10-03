@@ -2,7 +2,7 @@
 
 > **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [api.md](../api.md) for current tier values.
 >
-> **Updated**: October 2, 2026 (plan format 2.0). Every EKS plan now has every subnet type (public, private, control plane) in at least two AZs in every tier, plus a dedicated control-plane network (`subnets.controlPlane`) for `vpc_config.subnet_ids`: exactly two `/28` subnets in two AZs (never three), forming one contiguous `/27`. A `networkMode` request field adds a private mode with internal load-balancer subnets and no public subnets (see [Private Network Mode](#private-network-mode)). Services are `/20` (`/18` for hyperscale), generated ranges avoid `172.17.0.0/16`, and micro and standard EKS plans need `/23` and `/22` VPCs. See [api.md](../api.md#address-space-separation).
+> **Updated**: October 2, 2026 (plan format 2.0). Every EKS plan now has every subnet type (public, private, control plane) in at least two AZs in every tier, plus a dedicated control-plane network (`subnets.controlPlane`) for `vpc_config.subnet_ids`: exactly two `/28` subnets in two AZs (never three), forming one contiguous `/27`. A `networkMode` request field adds a private mode with internal load-balancer subnets and no public subnets (see [Private Network Mode](#private-network-mode)). Services are `/20` (`/18` for hyperscale), generated ranges avoid `172.17.0.0/16`, and micro and standard EKS plans need `/23` and `/22` VPCs. An EKS `vpcCidr` larger than `/16` is rejected, since AWS VPC CIDR blocks are `/16` to `/28`. See [api.md](../api.md#address-space-separation).
 
 **Date**: February 1, 2026  
 **Scope**: AWS EKS (Elastic Kubernetes Service)  
@@ -258,7 +258,7 @@ VPC: 10.0.0.0/18; private subnets 10.0.16.0/20, 10.0.32.0/20, 10.0.48.0/20
 
 ### Non-Overlapping Subnet Guarantee
 
- **VALIDATED** - The API guarantees that public, private (node), and control-plane subnets never overlap within the VPC CIDR, and that pods and services sit outside the VPC in two other RFC 1918 blocks.
+ **VALIDATED** - The API guarantees that public, private (node), and control-plane subnets never overlap within the VPC CIDR, and that pods and services sit outside the VPC: services in another RFC 1918 block, pods in another RFC 1918 block or, when none has room, in `100.64.0.0/10`.
 
 **Implementation** (first-fit):
 - Each subnet takes the lowest offset, aligned to its own size, that is still free
@@ -385,7 +385,7 @@ Based on AWS EKS documentation and best practices:
 | **Max Nodes (Specialized)** | 100,000 nodes (with AWS onboarding) | 5,000 nodes |  Supported |
 | **Max Pods per Node** | 110 default, 250 with ENI/prefix | 110+ |  Supported |
 | **Min Subnet Size** | /28 per prefix (16 addresses) | /20 hyperscale |  Compliant |
-| **Primary Subnet** | Depends on node count | 3 × /20 (4,092 nodes each) |  Sufficient |
+| **Primary Subnet** | Depends on node count | 3 × /20 (4,091 nodes each; AWS reserves 5 addresses per subnet) |  Sufficient |
 | **Pod CIDR** | Secondary range required | /13 hyperscale |  Compliant |
 | **Service CIDR** | RFC 1918, /12 to /24 | /20 (/18 hyperscale) |  Compliant |
 | **Cluster subnets** | At least two AZs, 6+ IPs each (16 recommended) | Exactly two /28s (16 addresses each) in two AZs, one contiguous /27, in every tier |  Compliant |
@@ -468,7 +468,7 @@ kubectl set env daemonset/calico-node -n kube-system CALICO_IPV4POOL_CIDR=172.24
 
 **Option B: VPC CNI Custom Networking (Secondary VPC CIDR)**
 
-WARNING: Do not associate `pods.cidr` with the VPC. The API always places it in a different RFC 1918 block than the VPC (e.g. `172.24.0.0/13` for a hyperscale VPC in `10.0.0.0/8`), and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges. Secondary blocks must also be /16 to /28, so a /13 is rejected on size alone ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, choose a secondary block from `100.64.0.0/10`; this API does not generate it.
+WARNING: Do not associate a generated `pods.cidr` with the VPC. The API places it in a different RFC 1918 block than the VPC (e.g. `172.24.0.0/13` for a hyperscale VPC in `10.0.0.0/8`), and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges. Secondary blocks must also be /16 to /28, so a /13 is rejected on size alone, even when the generated range falls back to `100.64.0.0/10` because no RFC 1918 block has room ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, choose a secondary block of /16 or smaller from `100.64.0.0/10` (and pass it as `podsCidr` if you want the plan to match).
 
 ```hcl
 resource "aws_vpc_ipv4_cidr_block_association" "pods" {
@@ -736,18 +736,20 @@ EKS calculates primary subnet requirements based on ENI allocation:
 
 **Formula**:
 ```
-Node Capacity = 2^(32 - prefix_length) - 4 (reserved IPs)
+Node Capacity = 2^(32 - prefix_length) - 5 (reserved IPs)
 ```
+
+AWS reserves 5 addresses in every subnet: the network address, the VPC router, the DNS server, one for future use, and the broadcast address ([AWS: subnet CIDR blocks](https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html)).
 
 **Applied to Our Tiers**:
 
 | Tier | Prefix | Calculation | Node Capacity | Actual Nodes |
 |------|--------|-------------|---------------|--------------|
-| Micro | /25 | 2^7 - 4 | 124 | 1 |
-| Standard | /24 | 2^8 - 4 | 252 | 1-3 |
-| Professional | /23 | 2^9 - 4 | 508 | 3-10 |
-| Enterprise | /21 | 2^11 - 4 | 2,044 | 10-50 |
-| **Hyperscale** | **/20** | **2^12 - 4** | **4,092 per subnet (3 subnets)** | **50-5000** |
+| Micro | /25 | 2^7 - 5 | 123 | 1 |
+| Standard | /24 | 2^8 - 5 | 251 | 1-3 |
+| Professional | /23 | 2^9 - 5 | 507 | 3-10 |
+| Enterprise | /21 | 2^11 - 5 | 2,043 | 10-50 |
+| **Hyperscale** | **/20** | **2^12 - 5** | **4,091 per subnet (3 subnets)** | **50-5000** |
 
 **Verification**: All tiers have sufficient capacity for their node ranges 
 
@@ -1050,7 +1052,7 @@ kubectl set env ds aws-node \
 
 ## 7. RFC 1918 Private Address Space Compliance
 
-All EKS clusters **must** use private RFC 1918 address ranges. Our implementation enforces this:
+The API requires private RFC 1918 address ranges for the VPC and the service range (EKS itself requires an RFC 1918 service range); pod ranges may also use `100.64.0.0/10` (RFC 6598):
 
 ### Private Range Distribution
 
@@ -1060,7 +1062,9 @@ All EKS clusters **must** use private RFC 1918 address ranges. Our implementatio
 | **172.16.0.0/12** | 1.0M | Pod CIDR (172.24.0.0/13 for Hyperscale, clear of 172.17.0.0/16) |
 | **192.168.0.0/16** | 65.5K | Service CIDR (192.168.0.0/18 for Hyperscale, 192.168.0.0/20 otherwise) |
 
-Pods and services always go in the two RFC 1918 blocks the VPC does not use, and never overlap `172.17.0.0/16` (Docker's default bridge; AWS also reserves it for Cloud9 and SageMaker). For a VPC in `172.16.0.0/12` the API uses `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VPC in `192.168.0.0/16` it uses `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range.
+Generated pods and services go in RFC 1918 blocks the VPC does not use, and never overlap `172.17.0.0/16` (Docker's default bridge; AWS also reserves it for Cloud9 and SageMaker). For a VPC in `172.16.0.0/12` the API uses `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VPC in `192.168.0.0/16` it uses `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range. Generated pods also skip the RFC 1918 block of a `servicesCidr` you pass, and fall back to `100.64.0.0/10` (RFC 6598) when no RFC 1918 block has room, for example hyperscale pods with a VPC in `10.0.0.0/8` and a `servicesCidr` in `172.16.0.0/12`.
+
+The VPC itself must be `/16` or smaller: AWS VPC CIDR blocks are `/16` to `/28` ([AWS: VPC CIDR blocks](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html)), so the API rejects a larger EKS `vpcCidr`.
 
 ### Allocation Strategy
 
@@ -1205,7 +1209,7 @@ For automated deployments:
 ### Priority 1 (Ready to Implement)
 
 1. **Add EKS-Specific Formulas to Documentation**
-   - Primary subnet sizing: `2^(32-prefix) - 4`
+   - Primary subnet sizing: `2^(32-prefix) - 5`
    - IP prefix allocation impact on pod density
    - Service CIDR over-provisioning rationale
 
@@ -1298,12 +1302,14 @@ For automated deployments:
 
 ### Test Coverage
 
-**Unit Tests**: All 323 unit tests passing (6 files; `npm run test -- --run` runs all 503)
+`npm run test -- --run` runs every unit and integration test; per-file counts are in the [test inventory](../test-suite-analysis.md#test-inventory).
+
+**Unit Tests** (`tests/unit/`):
 - Subnet calculation verification
 - CIDR allocation correctness
 - Formula validation
 
-**Integration Tests**: All 218 integration tests passing (8 files)
+**Integration Tests** (`tests/integration/`):
 - Multi-AZ configurations
 - RFC 1918 compliance
 - Tier scaling characteristics

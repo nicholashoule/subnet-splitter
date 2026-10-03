@@ -67,7 +67,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 
 **What This Does:**
 - Generates a complete network topology for a 1-3 node Kubernetes cluster
-- Auto-allocates a random `/18` VPC inside one RFC 1918 block (10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16), clear of `172.17.0.0/16`, when `vpcCidr` is omitted
+- Auto-allocates a random `/18` VPC inside one RFC 1918 block (10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16), clear of `172.17.0.0/16` (and for AKS of `172.30.0.0/16` and `172.31.0.0/16`), when `vpcCidr` is omitted
 - Provides separate, non-overlapping ranges for nodes, the control plane, pods, and services (see [Address Space Separation](#address-space-separation))
 - Ready to use with Terraform, Pulumi, or cloud CLI tools
 
@@ -84,7 +84,7 @@ curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
   }' > network-plan.yaml
 ```
 
-The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Error responses follow `?format=` too. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
+The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed or oversized bodies (400/413), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
 
 **Use Cases:**
 - Import into Terraform/Pulumi configurations
@@ -102,10 +102,10 @@ Every plan, for every tier and provider, separates four kinds of address space. 
 |-------|------------|-----------|
 | Nodes | `subnets.private` | Inside the VPC |
 | Control plane | `subnets.controlPlane` (type `control-plane`, names `control-plane-N`) | Inside the VPC: one network per cluster, always `/28` subnets (see below) |
-| Pods | `pods.cidr` | Outside the VPC, in an RFC 1918 block the VPC does not use (`10.0.0.0/8` preferred) |
-| Services (ClusterIP) | `services.cidr` | Outside the VPC, in a third RFC 1918 block (`192.168.0.0/16` preferred); `/20`, or `/18` for hyperscale |
+| Pods | `pods.cidr` | Outside the VPC, in an RFC 1918 block used by neither the VPC nor a `servicesCidr` you pass (`10.0.0.0/8` preferred); `100.64.0.0/10` when no RFC 1918 block has room |
+| Services (ClusterIP) | `services.cidr` | Outside the VPC, in an RFC 1918 block used by neither the VPC nor the pods (`192.168.0.0/16` preferred); `/20`, or `/18` for hyperscale |
 
-Load-balancer subnets are also inside the VPC: public subnets (`subnets.public`, for internet-facing load balancers and NAT) in the default `public` network mode, or internal load-balancer subnets (`subnets.loadBalancer`) in [private network mode](#private-network-mode). The VPC, pods, and services each sit in a different RFC 1918 block.
+Load-balancer subnets are also inside the VPC: public subnets (`subnets.public`, for internet-facing load balancers and NAT) in the default `public` network mode, or internal load-balancer subnets (`subnets.loadBalancer`) in [private network mode](#private-network-mode). Generated ranges keep the VPC, pods, and services in three different blocks. The `100.64.0.0/10` fallback (RFC 6598 shared address space, which EKS, GKE, and AKS overlay accept for pods) is needed for AKS hyperscale on a `10.x` VNet, and when the blocks left by the VPC and a `servicesCidr` you pass have no room (for example hyperscale pods with a `10.x` VPC and a `servicesCidr` in `172.16.0.0/12`). Ranges you pass as `podsCidr` and `servicesCidr` only have to stay clear of the VPC, each other, and the reserved ranges.
 
 **Layout inside the VPC (first-fit):** each subnet takes the lowest offset, aligned to its own size, that is still free. Load-balancer subnets (public, or internal in private mode) are placed first, then node subnets, then the control-plane network, which usually fills the alignment gap between the two. The control plane is placed as one aligned block and then split, so the two EKS `/28`s always form one contiguous `/27`. In the [example response](#response-json) below, the EKS control-plane subnets `10.100.1.0/28` and `10.100.1.16/28` (together `10.100.1.0/27`) sit between the public `/25`s and the first node `/23`.
 
@@ -118,7 +118,11 @@ Load-balancer subnets are also inside the VPC: public subnets (`subnets.public`,
 | AKS | 1 | API Server VNet Integration subnet |
 | Kubernetes | 1 | Self-hosted control-plane nodes. One subnet lets a floating API server address (keepalived, kube-vip) move between control-plane nodes |
 
-**Reserved range:** `172.17.0.0/16` is Docker's default bridge network, and AWS also reserves it for some services (Cloud9, SageMaker). Generated pod and service ranges never overlap it, so hyperscale pods for a VPC in `10.0.0.0/8` are `172.24.0.0/13` rather than `172.16.0.0/13`. A `vpcCidr` that overlaps it is accepted, and the plan carries a non-fatal `warnings` array (omitted when there are no warnings). For `{"deploymentSize":"micro","vpcCidr":"172.17.0.0/24"}`:
+**Reserved ranges:** `172.17.0.0/16` is Docker's default bridge network, and AWS also reserves it for some services (Cloud9, SageMaker). Generated pod and service ranges never overlap it, so hyperscale pods for a VPC in `10.0.0.0/8` are `172.24.0.0/13` rather than `172.16.0.0/13`. A `vpcCidr` that overlaps it is accepted, and the plan carries a non-fatal `warnings` array (omitted when there are no warnings).
+
+For AKS, Microsoft also reserves `172.30.0.0/16` and `172.31.0.0/16` for the cluster's virtual network, pod, and service ranges, and AKS rejects ranges that overlap them ([Microsoft: AKS CNI networking prerequisites](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview#aks-cni-networking-prerequisites)). With `"provider": "aks"` the API rejects a `vpcCidr`, `podsCidr`, or `servicesCidr` that overlaps them (`NETWORK_GENERATION_ERROR`, not a warning), and never generates them. Every `/13` left in `172.16.0.0/12` then holds a reserved range, so AKS hyperscale pods for a VNet in `10.0.0.0/8` are `100.64.0.0/13`.
+
+For `{"deploymentSize":"micro","vpcCidr":"172.17.0.0/24"}`:
 
 ```json
 "warnings": [
@@ -154,7 +158,7 @@ Set `"networkMode": "private"` for a cluster with no internet-facing subnets. Th
 
 | Provider | Load-balancer subnets | Egress (no subnet allocated) | Notes |
 |----------|-----------------------|------------------------------|-------|
-| GKE | Exactly 1, regional (no zone) | Cloud NAT, configured per region on a Cloud Router; it serves GKE nodes without external IPs | Meant as the region's proxy-only subnet (`purpose` `REGIONAL_MANAGED_PROXY`), which powers regional internal and external Application Load Balancers, regional proxy Network Load Balancers, and cross-region internal Application Load Balancers. Only one `REGIONAL_MANAGED_PROXY` subnet can be active per region per VPC network, so clusters in the same region and network share it, and it can't be used for anything else (no VMs). Minimum `/26`; Google recommends starting with `/23`. Internal passthrough Network Load Balancers take IPs from the node subnet unless you choose another subnet |
+| GKE | Exactly 1, regional (no zone) | Cloud NAT, configured per region on a Cloud Router; it serves GKE nodes without external IPs | Meant as the region's proxy-only subnet (`purpose` `REGIONAL_MANAGED_PROXY`), which powers regional internal and external Application Load Balancers and regional internal and external proxy Network Load Balancers. Cross-region internal Application Load Balancers and cross-region internal proxy Network Load Balancers need a separate `GLOBAL_MANAGED_PROXY` subnet, which the plan does not include ([Google: proxy-only subnets](https://cloud.google.com/load-balancing/docs/proxy-only-subnets)). Only one `REGIONAL_MANAGED_PROXY` subnet can be active per region per VPC network, so clusters in the same region and network share it, and it can't be used for anything else (no VMs). Minimum `/26`; Google recommends starting with `/23`. Internal passthrough Network Load Balancers take IPs from the node subnet unless you choose another subnet |
 | AKS | Exactly 1, regional (no zone) | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` | For internal load balancer frontends: by default they take node-subnet IPs, so annotate services with `service.beta.kubernetes.io/azure-load-balancer-internal-subnet` |
 | EKS | One per AZ, at least 2 | A public NAT gateway must sit in a public subnet, and a private NAT gateway reaches only other VPCs or on-premises networks, not the internet. Reach the internet through a transit gateway to a shared egress VPC, or run without internet access using VPC endpoints | Tag them `kubernetes.io/role/internal-elb`: the AWS Load Balancer Controller uses that tag to find subnets for internal load balancers. ALBs need subnets in at least two AZs, and the controller skips subnets with fewer than 8 free IPs |
 | Kubernetes | One per zone (the tier's public subnet count) | Outside the plan | Internal load balancers or ingress |
@@ -263,9 +267,9 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
 | `deploymentSize` | string | **Yes** | N/A | Tier: `micro`, `standard`, `professional`, `enterprise`, `hyperscale` (case-sensitive) |
 | `provider` | string | No | `"kubernetes"` | Platform: `eks` (AWS), `gke` (Google), `aks` (Azure), `kubernetes` or `k8s` (generic) |
 | `region` | string | No | Provider default: `us-east-1` (eks), `us-central1` (gke), `eastus` (aks), `region-1` (kubernetes) | Echoed in the response and used to name EKS availability zones (`{region}{letter}`). Lowercase letters, digits, and hyphens only (e.g., `us-west-2`, `europe-west1`, `westeurope`); max 64 characters |
-| `vpcCidr` | string | No | Random `/18` aligned inside an RFC 1918 block, clear of `172.17.0.0/16` | VPC CIDR. The whole range must fall inside one RFC 1918 block (`10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`), so `10.0.0.0/7`, `172.16.0.0/11`, and `192.168.0.0/15` are rejected. Host bits are cleared (`10.1.2.3/16` becomes `10.1.0.0/16`). Must be at least the tier's `minVpcPrefix` for the provider. A VPC overlapping `172.17.0.0/16` is accepted with a `warnings` entry. Max 18 characters after trimming whitespace |
-| `podsCidr` | string | No | Generated outside the VPC | Pod range. RFC 1918 or `100.64.0.0/10`, `/8` to `/24`. Must not overlap the VPC, `servicesCidr`, or `172.17.0.0/16`; host bits are cleared. Use it to keep several clusters in one network from overlapping, or for a `/11` hyperscale pod range. Max 18 characters |
-| `servicesCidr` | string | No | Generated outside the VPC | Service (ClusterIP) range. RFC 1918 only, `/13` to `/24` (the intersection of EKS's `/12` to `/24` and AKS's "smaller than `/12`"). Must not overlap the VPC, `podsCidr`, or `172.17.0.0/16`; host bits are cleared. Pass an existing cluster's range to keep it, since it cannot change after creation. Max 18 characters |
+| `vpcCidr` | string | No | Random `/18` aligned inside an RFC 1918 block, clear of `172.17.0.0/16` (AKS: also of `172.30.0.0/16` and `172.31.0.0/16`) | VPC CIDR. The whole range must fall inside one RFC 1918 block (`10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`), so `10.0.0.0/7`, `172.16.0.0/11`, and `192.168.0.0/15` are rejected. Host bits are cleared (`10.1.2.3/16` becomes `10.1.0.0/16`). Must be at least the tier's `minVpcPrefix` for the provider, and no larger than `/16` for every provider (EKS: AWS VPC CIDR blocks are `/16` to `/28`; GKE, AKS, and generic Kubernetes: a project standard). AKS: must not overlap `172.30.0.0/16` or `172.31.0.0/16`. A VPC overlapping `172.17.0.0/16` is accepted with a `warnings` entry. Max 18 characters after trimming whitespace |
+| `podsCidr` | string | No | Generated outside the VPC | Pod range. RFC 1918 or `100.64.0.0/10`, `/8` to `/24`. Must not overlap the VPC, `servicesCidr`, or `172.17.0.0/16` (AKS: nor `172.30.0.0/16` or `172.31.0.0/16`); host bits are cleared. Use it to keep several clusters in one network from overlapping, or for a `/11` hyperscale pod range. Max 18 characters |
+| `servicesCidr` | string | No | Generated outside the VPC | Service (ClusterIP) range. RFC 1918 only, `/13` to `/24` (the intersection of EKS's `/12` to `/24` and AKS's "smaller than `/12`"); GKE `/16` to `/24`, since Google caps a user-managed Services range at `/16`. Must not overlap the VPC, `podsCidr`, or `172.17.0.0/16` (AKS: nor `172.30.0.0/16` or `172.31.0.0/16`); host bits are cleared. Pass an existing cluster's range to keep it, since it cannot change after creation. Max 18 characters |
 | `availabilityZones` | string[] | No | EKS: `{region}a`, `{region}b`, ...; generic: `zone-1`, `zone-2`, `zone-3` | 1 to 6 unique zone names (pattern `^[a-z0-9]+(-[a-z0-9]+)*$`, max 64 characters each), assigned to each subnet type round-robin. EKS and generic Kubernetes only: EKS requires at least 2, and GKE and AKS reject the field because their subnets are regional |
 | `networkMode` | string | No | `"public"` | `public`: public subnets for internet-facing load balancers and NAT, and an empty `subnets.loadBalancer`. `private`: no public subnets; internal load-balancer subnets in `subnets.loadBalancer` instead, with egress outside the layout (see [Private network mode](#private-network-mode)). Any other value returns `INVALID_REQUEST` |
 | `deploymentName` | string | No | Omitted | Optional cluster identifier, echoed in the response; max 128 characters |
@@ -353,15 +357,15 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
 - **Multi-AZ Support:** EKS subnets carry `{region}{letter}` zones, with every subnet type in at least two AZs (the control plane in exactly two); generic Kubernetes subnets carry `zone-N`; GKE and AKS subnets are regional and carry no zone
 - **Warnings:** a `warnings` array appears only when the request has a non-fatal issue (a VPC overlapping `172.17.0.0/16`)
 
-**Pod and Service Placement:** pods and services each go in an RFC 1918 block the VPC does not use, so the VPC, pod, and service ranges never overlap:
+**Pod and Service Placement:** generated pods and services each go in a block the VPC does not use, so the VPC, pod, and service ranges never overlap:
 
 | VPC inside | Pod CIDR | Service CIDR |
 |------------|----------|--------------|
-| `10.0.0.0/8` | `172.16.0.0/<podsPrefix>` (hyperscale: `172.24.0.0/13`) | `192.168.0.0/<servicesPrefix>` |
+| `10.0.0.0/8` | `172.16.0.0/<podsPrefix>` (hyperscale: `172.24.0.0/13`; AKS hyperscale: `100.64.0.0/13`) | `192.168.0.0/<servicesPrefix>` |
 | `172.16.0.0/12` | `10.0.0.0/<podsPrefix>` | `192.168.0.0/<servicesPrefix>` |
 | `192.168.0.0/16` | `10.0.0.0/<podsPrefix>` | `172.16.0.0/<servicesPrefix>` |
 
-`podsPrefix` and `servicesPrefix` come from the deployment tier (see [Deployment Tiers](#deployment-tiers)). Hyperscale pods for a VPC in `10.0.0.0/8` skip to `172.24.0.0/13` because `172.16.0.0/13` contains the reserved `172.17.0.0/16`. A `podsCidr` or `servicesCidr` override replaces the generated range.
+`podsPrefix` and `servicesPrefix` come from the deployment tier (see [Deployment Tiers](#deployment-tiers)). Hyperscale pods for a VPC in `10.0.0.0/8` skip to `172.24.0.0/13` because `172.16.0.0/13` contains the reserved `172.17.0.0/16`; for AKS, `172.24.0.0/13` contains the AKS-reserved `172.30.0.0/16` and `172.31.0.0/16`, so the pods fall back to `100.64.0.0/13`. A `podsCidr` or `servicesCidr` override replaces the generated range, and generated pods also skip the RFC 1918 block of a `servicesCidr` you pass.
 
 ---
 
@@ -1124,6 +1128,8 @@ All three plans use `pods.cidr` `172.16.0.0/16` and `services.cidr` `192.168.0.0
 | **Class B Private** | `172.16.0.0/12` | 1,048,576 | Medium networks (172.16.0.0 - 172.31.255.255) |
 | **Class C Private** | `192.168.0.0/16` | 65,536 | Small networks, development environments |
 
+A `vpcCidr` must lie inside one of these blocks and be a `/16` or smaller, so `10.0.0.0/8` and `172.16.0.0/12` themselves are rejected (see [Validation Rules](#validation-rules)).
+
 **Examples of Accepted CIDRs:**
 ```bash
 # Class A private range
@@ -1134,7 +1140,7 @@ All three plans use `pods.cidr` `172.16.0.0/16` and `services.cidr` `192.168.0.0
 # Class B private range (172.16-31 only)
 "vpcCidr": "172.16.0.0/16"
 "vpcCidr": "172.20.0.0/16"
-"vpcCidr": "172.31.0.0/16"
+"vpcCidr": "172.31.0.0/16"   # not for AKS, which reserves 172.30.0.0/16 and 172.31.0.0/16
 
 # Class C private range
 "vpcCidr": "192.168.0.0/16"
@@ -1153,6 +1159,8 @@ The API **rejects all public IP ranges** with HTTP 400 and security guidance. Th
 - Reserved Class E: 240-255 (e.g., `240.0.0.0/4`)
 - Ranges that start in private space but extend past it (e.g., `10.0.0.0/7`, `172.16.0.0/11`, `192.168.0.0/15`)
 
+Private ranges larger than `/16` (e.g., `10.0.0.0/8`, `172.16.0.0/12`) are rejected too, with a size error rather than this security message.
+
 **Example Error Response:**
 ```bash
 # Request with public IP
@@ -1169,7 +1177,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ### Auto-Generated VPCs (Always Private)
 
-If you don't provide a `vpcCidr`, the API picks a random RFC 1918 block and generates a random `/18` (16,384 addresses, enough for every tier and provider) aligned to a `/18` boundary inside it and clear of `172.17.0.0/16`. Pods and services are then placed in the other two RFC 1918 blocks, as in any other request:
+If you don't provide a `vpcCidr`, the API picks a random RFC 1918 block and generates a random `/18` (16,384 addresses, enough for every tier and provider) aligned to a `/18` boundary inside it and clear of `172.17.0.0/16` (for AKS, also of `172.30.0.0/16` and `172.31.0.0/16`). Pods and services are then placed as in any other request (see [Pod and Service Placement](#what-you-get)):
 
 ```bash
 # Request without vpcCidr
@@ -1196,25 +1204,27 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 
 **VPC CIDR:**
 - Optional. If omitted, a random `/18` aligned inside an RFC 1918 block is generated
-- If provided, the **entire range** must fall inside one RFC 1918 block (enforced): `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`
+- If provided, the **entire range** must fall inside one RFC 1918 block (enforced): `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, and be a `/16` or smaller (below)
 - Ranges that extend past a private block are rejected (e.g., `10.0.0.0/7`, `172.16.0.0/11`, `192.168.0.0/15`), as are public IPs (see Security section above)
 - Host bits are cleared (e.g., `10.1.2.3/16` → `10.1.0.0/16`)
 - Max 18 characters after surrounding whitespace is trimmed
 - Must be large enough for the tier and provider (see `minVpcPrefix` in [Deployment Tiers](#deployment-tiers), or `GET /api/k8s/tiers?provider=...`); a VPC that is too small returns `NETWORK_GENERATION_ERROR` naming the minimum
+- No larger than `/16`, for every provider. For EKS this is AWS's own limit (VPC CIDR blocks are `/16` to `/28`; [AWS: VPC CIDR blocks](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html)); for GKE, AKS, and generic Kubernetes it is a project standard, since GCP subnets and Azure VNets may be larger. `10.0.0.0/8` and `172.16.0.0/12` are therefore rejected as `vpcCidr`
+- AKS: must not overlap `172.30.0.0/16` or `172.31.0.0/16`, which AKS reserves (see [Reserved ranges](#address-space-separation))
 - May overlap `172.17.0.0/16`, but the plan then includes a `warnings` entry
 
 **Pods CIDR (`podsCidr`):**
-- Optional. If omitted, a range of the tier's `podsPrefix` is generated outside the VPC
+- Optional. If omitted, a range of the tier's `podsPrefix` is generated outside the VPC, in an RFC 1918 block used by neither the VPC nor `servicesCidr`, or in `100.64.0.0/10` when none has room
 - Must fall entirely within `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, or `100.64.0.0/10`
 - Prefix `/8` to `/24`; host bits are cleared
-- Must not overlap the VPC, `servicesCidr`, or `172.17.0.0/16`
+- Must not overlap the VPC, `servicesCidr`, or `172.17.0.0/16` (AKS: nor `172.30.0.0/16` or `172.31.0.0/16`)
 - Max 18 characters after trimming
 
 **Services CIDR (`servicesCidr`):**
 - Optional. If omitted, a range of the tier's `servicesPrefix` (`/20`, or `/18` for hyperscale) is generated outside the VPC
 - Must fall entirely within `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16` (EKS requires RFC 1918 service ranges)
-- Prefix `/13` to `/24`: the intersection of EKS (`/12` to `/24`) and AKS (smaller than `/12`); host bits are cleared
-- Must not overlap the VPC, `podsCidr`, or `172.17.0.0/16`
+- Prefix `/13` to `/24`: the intersection of EKS (`/12` to `/24`) and AKS (smaller than `/12`); host bits are cleared. GKE: `/16` to `/24`, since a user-managed Services range can be no larger than `/16` ([Google: VPC-native clusters](https://cloud.google.com/kubernetes-engine/docs/concepts/alias-ips))
+- Must not overlap the VPC, `podsCidr`, or `172.17.0.0/16` (AKS: nor `172.30.0.0/16` or `172.31.0.0/16`)
 - Max 18 characters after trimming
 
 **Availability Zones (`availabilityZones`):**
@@ -1278,7 +1288,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 | Code | Status | Cause | Example |
 |------|--------|-------|---------|
 | `INVALID_REQUEST` | 400 / 413 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, or body is over 16 KB | `{ "error": "Invalid request: deploymentSize: Required", "code": "INVALID_REQUEST" }` |
-| `NETWORK_GENERATION_ERROR` | 400 | VPC CIDR is malformed, not entirely private RFC 1918 space, or too small for the tier; `podsCidr`/`servicesCidr` malformed, outside the allowed blocks or sizes, or overlapping the VPC, each other, or `172.17.0.0/16`; `availabilityZones` sent for GKE/AKS or with one zone for EKS | `{ "error": "Invalid VPC CIDR \"999.999.999.999/16\": Invalid IP octet: 999", "code": "NETWORK_GENERATION_ERROR" }` |
+| `NETWORK_GENERATION_ERROR` | 400 | VPC CIDR is malformed, not entirely private RFC 1918 space, too small for the tier, larger than `/16`, or overlapping `172.30.0.0/16` or `172.31.0.0/16` for AKS; `podsCidr`/`servicesCidr` malformed, outside the allowed blocks or sizes, or overlapping the VPC, each other, `172.17.0.0/16`, or (AKS) `172.30.0.0/16` or `172.31.0.0/16`; `availabilityZones` sent for GKE/AKS or with one zone for EKS | `{ "error": "Invalid VPC CIDR \"999.999.999.999/16\": Invalid IP octet: 999", "code": "NETWORK_GENERATION_ERROR" }` |
 | `NOT_FOUND` | 404 | No API route matches the path and method (for example `GET /api/k8s/plan`, which only accepts POST). Paths are case-sensitive. Unknown `/api` paths never fall back to the web app | `{ "error": "Not found", "code": "NOT_FOUND" }` |
 | `RATE_LIMITED` | 429 | More than 100 `/api` requests per minute from one IP | `{ "error": "Too many requests. Please wait a minute and try again.", "code": "RATE_LIMITED" }` |
 | `INTERNAL_ERROR` | 500 | Server-side error | `{ "error": "Failed to generate network plan", "code": "INTERNAL_ERROR" }` |
@@ -1352,6 +1362,11 @@ Response (400):
 | `"servicesCidr": "172.16.0.0/12"` | `servicesCidr "172.16.0.0/12" must be between /13 and /24; got /12.` |
 | `"provider": "gke", "availabilityZones": ["us-central1-a", "us-central1-b"]` | `availabilityZones applies to eks and kubernetes only: GKE subnets are regional, and node pools choose their zones.` |
 | `"provider": "eks", "availabilityZones": ["us-east-1a"]` (VPC `10.0.0.0/23`) | `EKS needs subnets in at least two availability zones; pass two or more availabilityZones.` |
+| `"provider": "aks", "podsCidr": "172.30.0.0/16"` | `podsCidr "172.30.0.0/16" overlaps 172.30.0.0/16 (reserved by AKS for service, pod, and cluster virtual network ranges).` |
+| `"provider": "gke", "servicesCidr": "172.16.0.0/15"` | `servicesCidr "172.16.0.0/15" must be between /16 and /24; got /15.` |
+| `"provider": "aks"` (VPC `172.31.0.0/24`) | `VPC 172.31.0.0/24 overlaps 172.31.0.0/16, reserved by AKS for service, pod, and cluster virtual network ranges, so AKS rejects it. Choose a VPC outside it.` |
+| `"provider": "eks"` (VPC `10.0.0.0/15`) | `VPC 10.0.0.0/15 is too large for EKS: AWS VPC CIDR blocks are /16 to /28. Use a /16 or smaller (larger prefix number).` |
+| `"provider": "aks"` (VPC `10.0.0.0/8`) | `VPC 10.0.0.0/8 is too large for AKS: plans are capped at a /16 VNet. Use a /16 or smaller (larger prefix number).` (GKE and generic Kubernetes: `plans are capped at a /16 VPC`) |
 
 **Malformed JSON:**
 
@@ -1361,8 +1376,8 @@ A body that is not valid JSON returns 400 with code `INVALID_REQUEST` and the JS
 
 - All `/api` routes are limited to **100 requests per minute per client IP**.
 - Health endpoints are exempt so load balancer and Kubernetes probes are never throttled: `/api/v1/health`, `/api/v1/health/ready`, `/api/v1/health/live`, and the unprefixed `/health`, `/health/ready`, `/health/live`.
-- Responses include the standard `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers (legacy `X-RateLimit-*` headers are not sent).
-- Exceeding the limit returns `429`:
+- Responses include the `RateLimit-Policy` (`100;w=60`), `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers from the IETF draft (express-rate-limit `standardHeaders`, draft 6); legacy `X-RateLimit-*` headers are not sent.
+- Exceeding the limit returns `429` with a `Retry-After` header (seconds until the window resets) and this JSON body:
   ```json
   {
     "error": "Too many requests. Please wait a minute and try again.",
@@ -1450,7 +1465,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   }'
 ```
 
-Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ranges, because generated placement depends only on which RFC 1918 block the VPC is in. That is fine for independent clusters. If pod or service ranges must be unique across connected clusters, pass `podsCidr` and `servicesCidr` for each cluster (for example `172.16.0.0/18` and `192.168.0.0/20` for the first, `172.16.64.0/18` and `192.168.16.0/20` for the second); see [Address Space Separation](#address-space-separation).
+Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ranges, because generated placement depends only on the provider, the tier, the VPC's RFC 1918 block, and any `podsCidr` or `servicesCidr` you pass. That is fine for independent clusters. If pod or service ranges must be unique across connected clusters, pass `podsCidr` and `servicesCidr` for each cluster (for example `172.16.0.0/18` and `192.168.0.0/20` for the first, `172.16.64.0/18` and `192.168.16.0/20` for the second); see [Address Space Separation](#address-space-separation).
 
 ---
 
@@ -1476,7 +1491,7 @@ Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ran
 - `pods.cidr` is an **overlay** range: use it as the IP pool of an overlay CNI (Calico or Cilium in VXLAN/IP-in-IP mode)
 - **Our API generates configurations for this model**
 
-WARNING: `pods.cidr` cannot be added to the VPC as a secondary CIDR. The API always places it in a different RFC 1918 block than the VPC, and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges; secondary blocks must also be /16 to /28 ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, use a secondary block from `100.64.0.0/10` that you choose (Option B below).
+WARNING: A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR. The API places it in a different RFC 1918 block than the VPC, and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges; secondary blocks must also be /16 to /28, which also rules out the hyperscale `/13` even when it falls back to `100.64.0.0/10` ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, use a secondary block from `100.64.0.0/10` that you choose (Option B below); `198.19.0.0/16` is refused for RFC 1918 VPCs.
 
 **Recommended Settings:**
 - Use `professional` or `enterprise` tier for production
@@ -1529,9 +1544,9 @@ resource "null_resource" "install_calico" {
 }
 
 # Option B: VPC CNI custom networking with a secondary VPC CIDR
-# Do NOT use local.network_plan.pods.cidr here: AWS refuses to associate a CIDR
-# from a different RFC 1918 block than the VPC's, and secondary blocks must be
-# /16 to /28. Use a block from 100.64.0.0/10 instead (not generated by this API).
+# Do NOT use a generated local.network_plan.pods.cidr here: AWS refuses to associate
+# a CIDR from a different RFC 1918 block than the VPC's, and secondary blocks must be
+# /16 to /28. Use a /16 or smaller block from 100.64.0.0/10 that you choose.
 resource "aws_vpc_ipv4_cidr_block_association" "pods" {
   vpc_id     = aws_vpc.main.id
   cidr_block = "100.64.0.0/16"
@@ -1665,7 +1680,7 @@ variable "service_ipv4_cidr" {
 - Use `professional` or `enterprise` tier for production
 - GKE automatically manages pod CIDR (alias ranges)
 - Pod CIDR `/13` supports up to 200,000 pods per cluster (2,048 nodes at 65-128 max pods per node, since each node then takes a `/24`; 5,000 nodes needs 32 or fewer max pods per node, or a `/11` `podsCidr`)
-- Subnets are regional: one node subnet (`subnets.private[0]`) serves every zone
+- Subnets are regional: one node subnet (`subnets.private[0]`) serves every zone. A cluster's nodes, pods, and services come from its one default subnet, so hyperscale's `/20` gives 4,092 node addresses (GCP reserves 4 per subnet); for more, add subnets to the cluster for new node pools (GKE 1.30.3-gke.1211000 or later, up to eight, each with its own pod secondary range, which this plan does not generate; [Google: add subnets to clusters](https://cloud.google.com/kubernetes-engine/docs/how-to/multi-subnet-cluster))
 
 **Terraform Integration:**
 ```hcl
@@ -1768,6 +1783,8 @@ gcloud container clusters create prod-cluster \
 - Use `professional` or `enterprise` tier for production
 - Use Azure CNI Overlay (`network_plugin_mode = "overlay"`): `pods.cidr` is an overlay range outside the VNet
 - CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250 pods per node, 5,000 nodes), so the hyperscale `/13` holds 2,048 nodes; for 5,000 nodes pass a `/11` `podsCidr`
+- AKS reserves `172.30.0.0/16` and `172.31.0.0/16` for the VNet, pod, and service ranges, so the API keeps every range clear of them. Hyperscale on a `10.x` VNet therefore gets `pods.cidr` `100.64.0.0/13`; Microsoft supports pod CIDRs in RFC 1918 or RFC 6598 (`100.64.0.0/10`) space ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#ip-address-planning))
+- Subnet sizing: Azure reserves 5 addresses in every subnet (the first four and the last), so a `/20` node subnet holds 4,091 nodes
 - Subnets are regional: node pools choose zones, and the plan carries no `availabilityZone`
 
 **Terraform Integration:**
@@ -2024,7 +2041,8 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 ## Changelog
 
 ### Version 2.0 (Current)
-- Four separated address spaces in every plan: nodes and new `/28` control-plane subnets (`subnets.controlPlane`) inside the VPC; pods and services outside it, each in its own RFC 1918 block
+- Four separated address spaces in every plan: nodes and new `/28` control-plane subnets (`subnets.controlPlane`) inside the VPC; pods and services outside it, each generated in a block of its own (pods fall back to `100.64.0.0/10` when no RFC 1918 block has room, and skip the block of a caller's `servicesCidr`)
+- AKS: `172.30.0.0/16` and `172.31.0.0/16` are rejected in `vpcCidr`, `podsCidr`, and `servicesCidr` and never generated (AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`). Every provider: `vpcCidr` no larger than `/16`. GKE: `servicesCidr` `/16` to `/24`
 - The control plane is one network: one `/28` for GKE, AKS, and generic Kubernetes in every tier; for EKS exactly two `/28`s in two AZs, forming one contiguous `/27`
 - First-fit subnet layout; existing public and private positions are unchanged
 - New optional request field `networkMode` (`public` by default, or `private`: no public subnets, internal load-balancer subnets instead); every plan now includes `networkMode` and `subnets.loadBalancer` (empty in public mode), and subnet `type` adds `load-balancer`
@@ -2043,11 +2061,11 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 -  Support for EKS, GKE, AKS, and generic Kubernetes
 -  All 5 deployment tiers (Micro → Hyperscale)
 -  RFC 1918 private address support
--  214+ integration and unit tests
+-  Unit and integration tests
 
 ---
 
 **Last Updated:** October 2, 2026  
 **API Status:**  Production Ready  
-**Tests:** 503 passing (`npm test -- --run`); no coverage tool is configured  
+**Tests:** all passing (`npm test -- --run`; counts in the [test inventory](test-suite-analysis.md#test-inventory)); no coverage tool is configured  
 **Vulnerabilities:** 0

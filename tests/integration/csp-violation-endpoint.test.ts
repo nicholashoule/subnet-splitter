@@ -5,23 +5,41 @@
  * 
  * This endpoint is development-only and helps catch CSP configuration issues
  * before they reach production. Tests verify:
- * - Valid CSP violation report handling via real HTTP requests
+ * - Valid CSP violation report handling via real HTTP requests, including the
+ *   application/csp-report content type browsers send
  * - Invalid payload rejection with appropriate responses
- * - 204 No Content response (per W3C CSP spec)
+ * - An empty 204 No Content for every report (browsers ignore the response); malformed
+ *   JSON is rejected by the body parser first (400)
  * - Rate limiting to prevent log flooding DoS attacks
  * - Proper error handling without schema exposure
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { registerCspViolationEndpoint } from "../../server/csp-report";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
+import { createApp, errorHandler } from "../../server/app";
 import { logger } from "../../server/logger";
-import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
+import { closeTestServer, type TestServer } from "../helpers/test-server";
+
+/**
+ * Serves the development app from server/app.ts, which registers the endpoint behind
+ * the server's own body parser and limiter, followed by the error handler, as
+ * server/index.ts does
+ */
+async function startDevServer(): Promise<TestServer> {
+  const app = createApp({ isDevelopment: true });
+  app.use(errorHandler);
+  const httpServer = createServer(app);
+  await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+  const { port } = httpServer.address() as AddressInfo;
+  return { app, httpServer, port, baseUrl: `http://127.0.0.1:${port}` };
+}
 
 /**
  * CSP Violation Report Integration Test Suite
- * 
- * These tests register the production endpoint (server/csp-report.ts) on a test
- * server and make real HTTP requests to it.
+ *
+ * These tests make real HTTP requests to the production endpoint
+ * (server/csp-report.ts) in the development app.
  */
 describe("CSP Violation Endpoint Integration", () => {
   let server: TestServer;
@@ -36,12 +54,7 @@ describe("CSP Violation Endpoint Integration", () => {
       loggedViolations.push({ message, data });
     });
 
-    // The production endpoint and limiter (server/csp-report.ts), behind the same
-    // body parser types the server uses (browsers send application/csp-report)
-    server = await createTestServer({
-      jsonOptions: { type: ['application/json', 'application/csp-report'] },
-      setup: (app) => registerCspViolationEndpoint(app),
-    });
+    server = await startDevServer();
     baseUrl = server.baseUrl;
   });
 
@@ -71,11 +84,8 @@ describe("CSP Violation Endpoint Integration", () => {
       });
 
       expect(response.status).toBe(204);
-      // Content-length may be "0" or null depending on Express version
-      const contentLength = response.headers.get("content-length");
-      if (contentLength !== null) {
-        expect(contentLength).toBe("0");
-      }
+      // A 204 carries no Content-Length (RFC 9110, section 8.6)
+      expect(response.headers.get("content-length")).toBeNull();
       expect(loggedViolations).toHaveLength(1);
       expect(loggedViolations[0].message).toBe('CSP Violation Detected in Development');
       expect(loggedViolations[0].data.blockedUri).toBe("https://malicious.com/script.js");
@@ -132,17 +142,21 @@ describe("CSP Violation Endpoint Integration", () => {
     it("should accept CSP violation report with all optional fields", async () => {
       loggedViolations = [];
 
+      // Every field of the report-uri serialization, as Chrome and Firefox send it
       const completeViolation = {
         "csp-report": {
-          "blocked-uri": "https://bad-script.js",
-          "violated-directive": "script-src 'self'",
-          "original-policy": "script-src 'self' https://cdn.example.com; style-src 'unsafe-inline'",
+          "document-uri": "https://localhost:5000/api/docs",
+          referrer: "",
+          "blocked-uri": "inline",
+          "effective-directive": "script-src-elem",
+          "violated-directive": "script-src-elem",
+          "original-policy": "script-src 'self' 'report-sample'; report-uri /__csp-violation",
+          disposition: "enforce",
+          "status-code": 200,
+          "script-sample": "alert(1)",
           "source-file": "https://localhost:5000/api/docs",
           "line-number": 123,
           "column-number": 45,
-          "document-uri": "https://localhost:5000/api/docs",
-          disposition: "enforce",
-          status: 200,
         }
       };
 
@@ -154,8 +168,13 @@ describe("CSP Violation Endpoint Integration", () => {
 
       expect(response.status).toBe(204);
       expect(loggedViolations).toHaveLength(1);
-      expect(loggedViolations[0].data.lineNumber).toBe(123);
-      expect(loggedViolations[0].data.columnNumber).toBe(45);
+      expect(loggedViolations[0].message).toBe('CSP Violation Detected in Development');
+      expect(loggedViolations[0].data).toMatchObject({
+        effectiveDirective: "script-src-elem",
+        scriptSample: "alert(1)",
+        lineNumber: 123,
+        columnNumber: 45,
+      });
     });
   });
 
@@ -176,7 +195,7 @@ describe("CSP Violation Endpoint Integration", () => {
         body: JSON.stringify(invalidReport),
       });
 
-      // Still returns 204 per W3C spec (don't leak schema details)
+      // Still answers 204 (don't leak schema details)
       expect(response.status).toBe(204);
       expect(loggedViolations).toHaveLength(1);
       expect(loggedViolations[0].message).toBe('Invalid CSP violation report received');
@@ -217,7 +236,7 @@ describe("CSP Violation Endpoint Integration", () => {
         body: JSON.stringify(emptyReport),
       });
 
-      // Should return 204 per W3C spec, even for invalid reports
+      // Answers 204 even for invalid reports
       expect(response.status).toBe(204);
       // The csp-report wrapper is optional, so {} is a valid but empty report:
       // no warning, just a debug entry
@@ -271,7 +290,7 @@ describe("CSP Violation Endpoint Integration", () => {
     it("should have rate limiting configured to prevent log flooding", async () => {
       // Rate limiter should be configured with:
       // - windowMs: 15 * 60 * 1000 (15 minutes)
-      // - max: 100 (100 reports per window per IP)
+      // - limit: 100 (100 reports per window per IP)
 
       // Make a few requests to verify rate limiting is active
       const promises = Array.from({ length: 5 }, () =>
@@ -298,7 +317,7 @@ describe("CSP Violation Endpoint Integration", () => {
   });
 
   describe("CSP Spec Compliance", () => {
-    it("should always return 204 No Content per W3C CSP spec", async () => {
+    it("should answer a report with an empty 204 No Content", async () => {
       const validReport = {
         "csp-report": {
           "blocked-uri": "https://malicious.com/script.js",
@@ -311,14 +330,14 @@ describe("CSP Violation Endpoint Integration", () => {
         body: JSON.stringify(validReport),
       });
 
-      // Per W3C CSP spec: https://w3c.github.io/webappsec-csp/#violation-reports
+      // The CSP spec defines no response (browsers ignore it); the endpoint sends an empty 204
       expect(response.status).toBe(204);
       expect(response.statusText).toBe("No Content");
       expect(await response.text()).toBe("");
     });
 
-    it("should handle W3C csp-report wrapper structure", async () => {
-      // W3C spec requires reports be wrapped in "csp-report" key
+    it("should handle the csp-report wrapper structure", async () => {
+      // The report-uri serialization (CSP spec) wraps each report in a "csp-report" key
       const wrappedReport = {
         "csp-report": {
           "blocked-uri": "https://evil.com/malware.js",
@@ -351,5 +370,66 @@ describe("CSP Violation Endpoint Integration", () => {
       expect(loggedViolations).toHaveLength(1);
       expect(loggedViolations[0].message).toBe('Invalid CSP violation report received');
     });
+
+    it("should parse application/csp-report bodies, the type browsers send", async () => {
+      loggedViolations = [];
+
+      const response = await fetch(`${baseUrl}/__csp-violation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/csp-report" },
+        body: JSON.stringify({ "csp-report": { "blocked-uri": "inline", "effective-directive": "script-src-elem" } }),
+      });
+
+      expect(response.status).toBe(204);
+      expect(loggedViolations).toHaveLength(1);
+      expect(loggedViolations[0].message).toBe('CSP Violation Detected in Development');
+      expect(loggedViolations[0].data).toMatchObject({ blockedUri: "inline", effectiveDirective: "script-src-elem" });
+    });
+
+    it("should leave malformed JSON to the body parser: 400 with the JSON error body", async () => {
+      loggedViolations = [];
+
+      // express.json() rejects it before the endpoint runs, so it is not a 204
+      const response = await fetch(`${baseUrl}/__csp-violation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/csp-report" },
+        body: "{not json",
+      });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).code).toBe("INVALID_REQUEST");
+      expect(loggedViolations.map((entry) => entry.message)).toEqual(["Request rejected"]);
+    });
+  });
+});
+
+describe("CSP Violation Endpoint Rate Limit", () => {
+  it("should acknowledge reports past the limit with 204 but not log them", async () => {
+    // A server of its own, so the reports above don't count toward this limiter
+    const server = await startDevServer();
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const report = () => fetch(`${server.baseUrl}/__csp-violation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/csp-report" },
+      body: JSON.stringify({ "csp-report": { "blocked-uri": "https://flood.example/x.js", "effective-directive": "script-src-elem" } }),
+    });
+
+    try {
+      for (let i = 0; i < 100; i++) {
+        expect((await report()).status).toBe(204);
+      }
+      expect(warn).toHaveBeenCalledTimes(100);
+      // Parsed as JSON (application/csp-report) and logged as real violations
+      expect(warn).toHaveBeenLastCalledWith('CSP Violation Detected in Development', expect.objectContaining({ blockedUri: "https://flood.example/x.js" }));
+
+      const limited = await report();
+      expect(limited.status).toBe(204);
+      expect(await limited.text()).toBe("");
+      expect(limited.headers.get("ratelimit-remaining")).toBe("0");
+      expect(warn).toHaveBeenCalledTimes(100);
+    } finally {
+      warn.mockRestore();
+      await closeTestServer(server);
+    }
   });
 });

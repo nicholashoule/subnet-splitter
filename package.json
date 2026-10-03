@@ -21,7 +21,7 @@
     "test": "vitest",
     "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist",
     "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist -sub",
-    "prepare": "node scripts/install-hooks.mjs",
+    "prepare": "node scripts/install-hooks.mjs || exit 0",
     "audit": "npm audit",
     "audit:fix": "npm audit fix"
   },

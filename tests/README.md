@@ -4,7 +4,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Test Count**: 503 tests in 14 files (unit: 323 in 6 files; integration: 180 in 8 files)  
+**Test Count**: see the [test inventory](../docs/test-suite-analysis.md#test-inventory) for per-file and total counts  
 **Pass Rate**: 100% passing  
 **Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
@@ -12,7 +12,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 The project uses two types of tests:
 
-1. **Unit Tests** (`tests/unit/`) - Pure function tests, no I/O, no servers
+1. **Unit Tests** (`tests/unit/`) - Functions tested in isolation, no servers. Most are pure; `ui-styles.test.ts` and `config.test.ts` read project files, and `config.test.ts` also runs git and runs the pre-commit hook in temporary repositories
 2. **Integration Tests** (`tests/integration/`) - Self-contained tests with their own test servers
 
 **Note**: Integration tests that need HTTP start their own in-process servers, so no test requires the webapp to be running.
@@ -21,7 +21,7 @@ The project uses two types of tests:
 
 ```
 tests/
-├── unit/                          # Unit tests - Pure functions, no I/O
+├── unit/                          # Unit tests - No servers
 │   ├── subnet-utils.test.ts      # Subnet calculation utilities
 │   ├── kubernetes-network-generator.test.ts  # K8s network generation
 │   ├── network-separation.test.ts  # Address space separation invariants (every tier x provider)
@@ -40,10 +40,10 @@ tests/
 ├── helpers/                       # Shared test utilities
 │   └── test-server.ts            # HTTP server lifecycle for integration tests
 ├── manual/                        # Manual testing scripts
-│   ├── test-api-endpoints.ps1    # PowerShell API validation
-│   ├── test-api.ps1              # PowerShell private IP validation
-│   ├── test-network-comparison.ts  # TypeScript network comparison utility
-│   └── test-network-validation.ts  # TypeScript network validation utility
+│   ├── test-api-endpoints.ps1    # PowerShell: 3 private VPCs planned, 2 public rejected
+│   ├── test-api.ps1              # PowerShell: 1 private VPC planned, 1 public rejected
+│   ├── test-network-comparison.ts  # Prints EKS hyperscale ranges for three VPC blocks
+│   └── test-network-validation.ts  # Prints one EKS hyperscale plan and checks its pod/service blocks
 └── README.md                      # This file
 ```
 
@@ -95,13 +95,14 @@ Unit tests verify individual functions and utilities in isolation.
 - Network plan generation for all deployment tiers
 - RFC 1918 private IP enforcement
 - Subnet allocation algorithms
-- Provider support (EKS, GKE, AKS, Kubernetes)
+- Provider support: EKS, GKE, generic Kubernetes, and the default provider (no AKS plans here; AKS is covered in `network-separation.test.ts` and `ip-calculation-compliance.test.ts`)
 
 **network-separation.test.ts:**
-- Property tests for every tier, provider, and `networkMode` (`public`, `private`): nodes, control-plane, and public or load-balancer subnets inside the VPC; pods and services outside it, each in its own RFC 1918 block; no two ranges overlap; every CIDR canonical; subnet counts match the published tier layout
+- Property tests for every tier, provider, and `networkMode` (`public`, `private`): nodes, control-plane, and public or load-balancer subnets inside the VPC; pods and services outside it, each in a block of its own (RFC 1918, or `100.64.0.0/10` for pods when no RFC 1918 block has room); no two ranges overlap; every CIDR canonical; subnet counts match the published tier layout
 - Control plane is one network: GKE, AKS, and generic Kubernetes get a single `/28`; EKS gets exactly two `/28`s in two AZs, starting on a `/27` boundary and contiguous
 - Private network mode: no public subnets for any provider or tier; `subnets.loadBalancer` holds `load-balancer` subnets (GKE: one regional proxy-only-sized subnet, `/26` to `/23`; AKS: one regional subnet; EKS: at least two AZs); `subnets.loadBalancer` is empty in public mode; private tier layouts; an unknown `networkMode` is rejected
 - Generated pod and service ranges avoid `172.17.0.0/16`; a VPC overlapping it yields a `warnings` entry (omitted otherwise)
+- Provider address rules: AKS rejects a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16`, and AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`; GKE `servicesCidr` is capped at `/16`; a VPC larger than `/16` is rejected; generated pods stay out of a caller `servicesCidr`'s block
 - EKS puts every subnet type in at least two AZs; GKE and AKS subnets carry no zone
 - `podsCidr`, `servicesCidr`, and `availabilityZones` overrides and their rejections
 - Provider-specific tier layouts and `minVpcPrefix` ("VPC too small" errors name the minimum)
@@ -149,7 +150,7 @@ Integration tests verify system-wide features and API behavior.
 - RFC 1918 private IP enforcement
 - Public IP rejection
 - All deployment tiers (micro -> hyperscale); for each, an EKS plan in each RFC 1918 block has canonical, non-overlapping subnets inside the VPC
-- Provider support (EKS, GKE, AKS, Kubernetes)
+- Provider support: EKS, GKE, and generic Kubernetes plans; AKS appears only in the JSON round-trip test
 
 **rate-limiting.test.ts**:
 - Rate limiter configuration (SPA fallback: 30 requests per 15 minutes; API: 100 per minute, health probes exempt)
@@ -182,46 +183,47 @@ Integration tests verify system-wide features and API behavior.
 
 **Calculator Logic Tests (No Server)**:
 
-**calculator-ui.test.ts** (calls the real functions in `client/src/lib/subnet-utils.ts`, chained the way `calculator.tsx` uses them; no React is rendered, so markup, clipboard, toasts, and the CSV download itself are not covered):
-- Form validation before calculation (required value, format hint, host bits set rejected)
-- Subnet splitting and the tree size limit
-- Visible rows: expansion, depth-first order, Hide Parents, and selecting and exporting only visible rows
+**calculator-ui.test.ts** (calls the real functions in `client/src/lib/subnet-utils.ts` in the order `calculator.tsx` calls them; no React is rendered, so markup, focus, clipboard, toasts, and the file download itself are not covered):
+- Form validation before calculation (`validateCidrInput`, then `calculateSubnet`)
+- Split and remove-split tree updates, and the tree size limit
+- Table rows: expansion, Hide Parents, depth, and parent CIDR
+- CSV export: the CSV text for selected rows that are visible
 - Network class badge
 - Depth indicator visual hierarchy
 
 ### Manual Testing Scripts (`tests/manual/`)
 
-Scripts for manual API validation and testing.
+Scripts for manual checks against a running dev server (the PowerShell scripts) or the generator itself (the TypeScript scripts). They print results; they are not part of `npm test`.
 
 **test-api-endpoints.ps1:**
-- Comprehensive API endpoint validation
-- Tests all deployment tiers (micro, standard, professional, enterprise, hyperscale)
-- Validates JSON and YAML output formats
-- Tests all providers (eks, gke, aks, kubernetes, k8s)
-- Colored PowerShell output with error handling
+- Sends 5 JSON requests to `POST /api/k8s/plan` with no `provider` (so generic Kubernetes): `professional` VPCs `10.0.0.0/16` and `172.16.0.0/16` and a `standard` VPC `192.168.0.0/16`, which should return 200, and `professional` VPCs `8.8.8.0/16` and `200.0.0.0/16`, which should return 400
+- Checks private versus public VPC handling only: no other tiers or providers, and no YAML. Exits 1 if any check fails
 
 **test-api.ps1:**
-- RFC 1918 private IP enforcement validation
-- Tests Class A (10.0.0.0/8), Class B (172.16.0.0/12), Class C (192.168.0.0/16)
-- Public IP rejection testing (8.8.8.0/16)
-- Security compliance verification
+- A quicker version of the same check: 2 requests, `10.0.0.0/16` (200) and `8.8.8.0/16` (400). Exits 1 if either check fails
+
+Both take `-BaseUrl` (default `http://127.0.0.1:5000`).
 
 **test-network-comparison.ts:**
-- TypeScript utility for comparing network plan outputs
-- Cross-provider network configuration analysis
+- Generates an EKS hyperscale plan for each of three VPCs (`10.42.192.0/18`, `172.20.0.0/18`, `192.168.0.0/18`) and prints the VPC, pod, and service ranges
+- Reports whether the three ranges sit in three different RFC 1918 blocks and whether pods landed in `10.0.0.0/8`
 
 **test-network-validation.ts:**
-- TypeScript utility for validating network plan correctness
-- Subnet overlap detection and CIDR validation
+- Generates one EKS hyperscale plan (VPC `10.42.192.0/18`) and prints it
+- Checks that the pod and service ranges are not inside the VPC and are in a different RFC 1918 block from it; it does not check subnets against each other (the unit tests do)
 
 **Running Manual Tests:**
 ```powershell
-# From project root
+# The PowerShell scripts call the dev server at 127.0.0.1:5000; start it first
+npm run dev
+
+# Then, from the project root in another terminal
 .\tests\manual\test-api-endpoints.ps1
 .\tests\manual\test-api.ps1
 
-# Requires dev server running
-npm run dev
+# The TypeScript scripts call the generator directly (no server)
+npx tsx tests/manual/test-network-comparison.ts
+npx tsx tests/manual/test-network-validation.ts
 ```
 
 ## Writing New Tests
@@ -278,7 +280,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 
 **For detailed analysis of test suite health, see [test-suite-analysis.md](../docs/test-suite-analysis.md)**
 
-**Current Assessment** (February 14, 2026):
+**Assessment** (grade from the February 8, 2026 audit in [test-suite-analysis.md](../docs/test-suite-analysis.md), whose inventory is kept current):
 - **Grade**: A (Comprehensive coverage with proper organization)
 - **Pass Rate**: 100%
 - **Test Files**: unit + integration

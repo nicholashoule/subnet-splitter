@@ -99,7 +99,7 @@ const STYLES = `
       --foreground: hsl(222, 47%, 11%);
       --card: hsl(0, 0%, 100%);
       --border: hsl(214, 20%, 88%);
-      --input: hsl(214, 20%, 85%);
+      --input: hsl(214, 20%, 57%);
       --muted: hsl(210, 20%, 96%);
       --muted-foreground: hsl(215, 16%, 45%);
       --primary: hsl(221, 83%, 53%);
@@ -126,7 +126,7 @@ const STYLES = `
       --foreground: hsl(210, 20%, 98%);
       --card: hsl(222, 47%, 11%);
       --border: hsl(217, 33%, 17%);
-      --input: hsl(217, 33%, 25%);
+      --input: hsl(217, 33%, 45%);
       --muted: hsl(217, 33%, 17%);
       --muted-foreground: hsl(215, 20%, 65%);
       --primary: hsl(217, 91%, 60%);

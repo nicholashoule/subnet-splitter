@@ -16,10 +16,13 @@ const Checkbox = React.forwardRef<
     )}
     {...props}
   >
+    {/* The icon follows the indicator's data-state, which Radix sets for controlled and
+        uncontrolled use alike (props.checked is undefined when uncontrolled) */}
     <CheckboxPrimitive.Indicator
-      className={cn("flex items-center justify-center text-current")}
+      className={cn("group/indicator flex items-center justify-center text-current")}
     >
-      {props.checked === "indeterminate" ? <Minus className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+      <Check className="h-4 w-4 group-data-[state=indeterminate]/indicator:hidden" />
+      <Minus className="hidden h-4 w-4 group-data-[state=indeterminate]/indicator:block" />
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 ))

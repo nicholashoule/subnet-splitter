@@ -12,11 +12,13 @@
  * - 429 Too Many Requests response after limit exceeded (RFC 6585)
  * - RateLimit-* headers (IETF draft-ietf-httpapi-ratelimit-headers) present in all responses
  * - X-RateLimit-* headers (legacy) NOT present
- * - Per-IP rate limiting (separate quota per client IP)
+ * - Per-IP rate limiting (separate quota per client IP, told apart via X-Forwarded-For
+ *   behind a trusted proxy)
  * - Message guidance when rate limited
  *
  * Also covers the API limiter (100 requests per minute, health checks exempt) and
- * request logging of rejected requests (429, 400).
+ * request logging of rejected requests (429, 400), using the production app from
+ * server/app.ts.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -27,8 +29,8 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import os from "os";
 import { serveStatic } from "../../server/static";
-import { createApiRateLimiter } from "../../server/routes";
-import { logger, requestLogger } from "../../server/logger";
+import { createApp, errorHandler } from "../../server/app";
+import { logger } from "../../server/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -158,20 +160,24 @@ describe("Rate Limiting - SPA Fallback (Production Configuration)", () => {
 
   describe("Per-IP Rate Limiting", () => {
     it("should enforce rate limits per client IP", async () => {
-      // Note: supertest doesn't provide a way to simulate multiple distinct client IPs.
-      // This test verifies that the rate limiter is configured with default key generation
-      // (which uses req.ip), ensuring the foundation for per-IP limiting is in place.
-      // Actual per-IP behavior in production depends on proper trust proxy configuration.
+      // Every supertest request comes from 127.0.0.1, so two clients are told apart the
+      // way they are behind a proxy: trust one hop (TRUST_PROXY=1) and let
+      // X-Forwarded-For carry the client address that becomes req.ip
+      app.set("trust proxy", 1);
+      const first = "203.0.113.10";
+      const second = "203.0.113.20";
 
-      // Exhaust rate limit for the test client IP
+      // Exhaust the first client's quota
       for (let i = 0; i < 30; i++) {
-        const response = await request(app).get("/route-" + i);
+        const response = await request(app).get("/route-" + i).set("X-Forwarded-For", first);
         expect(response.status).toBe(200);
       }
+      expect((await request(app).get("/over-limit").set("X-Forwarded-For", first)).status).toBe(429);
 
-      // Verify this IP is now rate limited
-      const rejectedResponse = await request(app).get("/over-limit");
-      expect(rejectedResponse.status).toBe(429);
+      // The second client still has its own full quota
+      const other = await request(app).get("/over-limit").set("X-Forwarded-For", second);
+      expect(other.status).toBe(200);
+      expect(other.headers["ratelimit-remaining"]).toBe("29");
     });
   });
 
@@ -339,9 +345,9 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
   let app: Express;
 
   beforeEach(() => {
-    // Mirror server/index.ts: limiter mounted on /api ahead of the routes
-    app = express();
-    app.use("/api", createApiRateLimiter());
+    // The production app from server/app.ts: the limiter is mounted on /api ahead of
+    // the routes
+    app = createApp({ isDevelopment: false });
     app.get("/api/k8s/tiers", (_req, res) => { res.json({ ok: true }); });
     app.get("/api/v1/health", (_req, res) => { res.json({ status: "healthy" }); });
   });
@@ -378,15 +384,16 @@ describe("Request logging of rejected requests", () => {
 
   it("should log rate-limited (429) and malformed-body (400) requests", async () => {
     const logged = vi.spyOn(logger, "request").mockImplementation(() => {});
-    // Mirror server/index.ts: request logging, then body parsing, then the limiter
-    const app = express();
-    app.use(requestLogger);
-    app.use(express.json({ limit: "16kb" }));
-    app.use("/api", createApiRateLimiter());
+    vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
+    // The production app from server/app.ts (request logging, then body parsing, then
+    // the limiter), a route, and the error handler, as server/index.ts assembles them
+    const app = createApp({ isDevelopment: false });
     app.post("/api/k8s/plan", (_req, res) => { res.json({ ok: true }); });
+    app.use(errorHandler);
 
     const malformed = await request(app).post("/api/k8s/plan").set("Content-Type", "application/json").send("{bad");
     expect(malformed.status).toBe(400);
+    expect(malformed.body.code).toBe("INVALID_REQUEST");
     for (let i = 0; i < 100; i++) {
       await request(app).post("/api/k8s/plan").send({});
     }
@@ -399,11 +406,11 @@ describe("Request logging of rejected requests", () => {
     expect(statuses).toContain(429);
   });
 
-  it("should register request logging before body parsing and rate limiting in server/index.ts", () => {
+  it("should build the server from createApp() and end with errorHandler in server/index.ts", () => {
+    // The tests above exercise createApp(); this ties it to the server that ships
     const source = fs.readFileSync(path.resolve(__dirname, "../../server/index.ts"), "utf8");
-    const loggerAt = source.indexOf("app.use(requestLogger)");
-    expect(loggerAt).toBeGreaterThan(-1);
-    expect(loggerAt).toBeLessThan(source.indexOf("app.use(express.json("));
-    expect(loggerAt).toBeLessThan(source.indexOf('app.use("/api", createApiRateLimiter())'));
+    expect(source).toContain("const app = createApp({ isDevelopment });");
+    expect(source).toContain("app.use(errorHandler);");
+    expect(source).not.toMatch(/express\(\)|express\.json\(|app\.use\(requestLogger\)/);
   });
 });

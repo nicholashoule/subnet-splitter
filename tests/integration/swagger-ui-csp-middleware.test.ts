@@ -13,6 +13,8 @@
  *   environment (in development server/index.ts adds 'unsafe-inline', ws: and
  *   report-uri for Vite HMR).
  * - Every other route keeps the global policy: no CDN and no inline scripts
+ * - The docs policy keeps every directive the global header actually sends, Helmet's
+ *   defaults included, and neither sends upgrade-insecure-requests
  *
  * Headers are parsed into directives and compared source token by source token.
  */
@@ -85,11 +87,25 @@ describe("Swagger UI CSP Middleware Integration", () => {
       expect(docsHeader).not.toBe(globalHeader);
     });
 
-    it("should keep every source of the global policy", async () => {
+    it("should keep every directive and source of the global policy actually sent", async () => {
+      // Compared with the header Helmet sends, defaults included (form-action,
+      // script-src-attr), not with baseCSPDirectives alone
       const docs = parseCsp(await cspOf("/api/docs/ui"));
+      const global = parseCsp(await cspOf("/api/version"));
 
-      for (const [key, sources] of Object.entries(baseCSPDirectives)) {
-        expect(docs.get(toDirectiveName(key))).toEqual(expect.arrayContaining(sources));
+      expect([...docs.keys()].sort()).toEqual([...global.keys()].sort());
+      for (const [name, sources] of global) {
+        expect(docs.get(name), name).toEqual(expect.arrayContaining(sources));
+      }
+      expect(global.get("form-action")).toEqual(["'self'"]);
+      expect(global.get("script-src-attr")).toEqual(["'none'"]);
+    });
+
+    it("should not upgrade requests to https (the server speaks plain HTTP)", async () => {
+      // Over http on a LAN address, upgrade-insecure-requests would make the browser
+      // fetch the page's own assets over https, and they would fail to load
+      for (const path of ["/api/docs/ui", "/api/version"]) {
+        expect(parseCsp(await cspOf(path)).has("upgrade-insecure-requests"), path).toBe(false);
       }
     });
 
@@ -182,5 +198,17 @@ describe("Global security headers by environment", () => {
     expect(csp.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
     expect(csp.get("connect-src")).toEqual(expect.arrayContaining(["ws://127.0.0.1:*", "ws://localhost:*"]));
     expect(csp.get("report-uri")).toEqual(["/__csp-violation"]);
+  });
+
+  it("should not send Helmet's upgrade-insecure-requests in either environment", async () => {
+    for (const isDevelopment of [false, true]) {
+      expect((await cspFor(isDevelopment)).has("upgrade-insecure-requests"), `isDevelopment=${isDevelopment}`).toBe(false);
+    }
+  });
+
+  it("should list every directive Helmet sends in baseCSPDirectives (production)", async () => {
+    // So buildSwaggerUICSP(), which starts from baseCSPDirectives, keeps them all
+    const csp = await cspFor(false);
+    expect([...csp.keys()].sort()).toEqual(Object.keys(baseCSPDirectives).map(toDirectiveName).sort());
   });
 });

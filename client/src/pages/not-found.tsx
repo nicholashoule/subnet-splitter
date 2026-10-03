@@ -12,7 +12,7 @@ export default function NotFound() {
           </div>
 
           <p className="mt-4 text-sm text-muted-foreground">
-            This page doesn't exist. <a href="/" className="text-primary hover:underline font-medium">Go to the subnet calculator</a>.
+            This page doesn't exist. <a href="/" className="text-primary underline underline-offset-2 hover:decoration-2 font-medium">Go to the subnet calculator</a>.
           </p>
         </CardContent>
       </Card>

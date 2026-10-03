@@ -18,7 +18,7 @@ With `?networkMode=private` the public subnets become internal load-balancer sub
 
 ### Address Space Separation
 
-Every plan keeps four address spaces apart: nodes (`subnets.private`) and control plane (`subnets.controlPlane`: one network, a `/28`, or for EKS a `/27` split into two `/28`s) inside the VPC; pods and services outside it, each in a different RFC 1918 block (pods prefer `10.0.0.0/8`, services `192.168.0.0/16`). Public subnets, or internal load-balancer subnets (`subnets.loadBalancer`) in private network mode, are also inside the VPC. Subnets are placed first-fit (lowest free offset aligned to the subnet's size: public or load-balancer, then private, then control plane). Generated pod and service ranges never overlap `172.17.0.0/16`. See [api.md](../api.md#address-space-separation).
+Every plan keeps four address spaces apart: nodes (`subnets.private`) and control plane (`subnets.controlPlane`: one network, a `/28`, or for EKS a `/27` split into two `/28`s) inside the VPC; pods and services outside it. Generated services go in an RFC 1918 block used by neither the VPC nor the pods (`192.168.0.0/16` preferred); generated pods go in an RFC 1918 block used by neither the VPC nor a caller's `servicesCidr` (`10.0.0.0/8` preferred), or in `100.64.0.0/10` (RFC 6598) when none has room. Public subnets, or internal load-balancer subnets (`subnets.loadBalancer`) in private network mode, are also inside the VPC. Subnets are placed first-fit (lowest free offset aligned to the subnet's size: public or load-balancer, then private, then control plane). Generated pod and service ranges never overlap `172.17.0.0/16`, and for AKS never overlap `172.30.0.0/16` or `172.31.0.0/16`, which AKS reserves (a VNet, `podsCidr`, or `servicesCidr` overlapping those is rejected; AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`). Every `vpcCidr` must be `/16` or smaller (EKS: AWS's VPC limit; other providers: a project standard), and a GKE `servicesCidr` must be `/16` to `/24`. See [api.md](../api.md#address-space-separation).
 
 ## GKE Compliance & IP Formulas
 
@@ -43,10 +43,13 @@ Example (Hyperscale, 110 pods/node):
 ### Node Primary Subnet Formula
 
 ```
-N = 2^(32-S) - 4    (S = primary subnet prefix)
+N = 2^(32-S) - 4    (S = primary subnet prefix; GCP reserves 4 addresses per subnet)
 
-For 5,000 nodes: S = /20, N = 4,092 per subnet, 3 subnets = 12,276 capacity
+Hyperscale: S = /20, N = 4,092 nodes
+For 5,000 nodes: S = /19, N = 8,188
 ```
+
+A GKE cluster takes its nodes, pods, and services from one default subnet, so the plan's other `/20` private subnets add no node capacity on their own. Past 4,092 nodes, use a `/19` node subnet (not generated) or [add subnets to the cluster](https://cloud.google.com/kubernetes-engine/docs/how-to/multi-subnet-cluster) for new node pools (GKE 1.30.3-gke.1211000 or later, up to eight, each with its own pod secondary range).
 
 ### GKE Compliance Matrix
 
@@ -54,7 +57,7 @@ For 5,000 nodes: S = /20, N = 4,092 per subnet, 3 subnets = 12,276 capacity
 |--------|------------|--------|
 | VPC-native | Yes, secondary ranges | [PASS] |
 | RFC 1918 | All tiers | [PASS] |
-| Max cluster | 5,000 nodes | [PASS] |
+| Max cluster | 5,000 nodes | WARNING - one `/20` node subnet holds 4,092 |
 | Pod limits | 200,000 max | [PASS] |
 | Service range | /20 recommended | /20 provided (/18 hyperscale) |
 | Control-plane range | /28 `master_ipv4_cidr_block` | [PASS] 1 x /28 |
@@ -95,13 +98,15 @@ Without prefix delegation:
 
 ### EKS Tier Compliance
 
+Node capacity per private subnet is `2^(32 - prefix) - 5`: AWS reserves 5 addresses in every subnet ([AWS: subnet CIDR blocks](https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html)).
+
 | Tier | Private | Pod CIDR | Node Cap | Actual Nodes |
 |------|---------|----------|----------|--------------|
-| Micro | /25 | /20 | 124 | 1 |
-| Standard | /24 | /16 | 252 | 1-3 |
-| Professional | /23 | /18 | 508 | 3-10 |
-| Enterprise | /21 | /16 | 2,044 | 10-50 |
-| Hyperscale | /20 | /13 | 4,092 | 50-5000 |
+| Micro | /25 | /20 | 123 | 1 |
+| Standard | /24 | /16 | 251 | 1-3 |
+| Professional | /23 | /18 | 507 | 3-10 |
+| Enterprise | /21 | /16 | 2,043 | 10-50 |
+| Hyperscale | /20 | /13 | 4,091 | 50-5000 |
 
 ### Prefix Delegation Notes
 
@@ -117,7 +122,7 @@ Without prefix delegation:
 - Nodes from primary VNet subnet
 - Pods from overlay CIDR (Azure CNI Overlay) or VNet (direct CNI)
 - Token bucket API throttling
-- RFC 1918 required
+- Pod CIDR in RFC 1918 or RFC 6598 (`100.64.0.0/10`) space; `172.30.0.0/16` and `172.31.0.0/16` reserved for the VNet, pod, and service ranges ([Microsoft: AKS CNI networking prerequisites](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview#aks-cni-networking-prerequisites))
 
 ### Pod CIDR Capacity (Overlay)
 
@@ -142,13 +147,15 @@ Node capacity: every node gets a fixed /24, whatever its max pods
 
 ### AKS Tier Compliance
 
+Node capacity per private subnet is `2^(32 - prefix) - 5`: Azure reserves the first four addresses and the last in every subnet ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#cluster-nodes)).
+
 | Tier | Private | Pod CIDR | Node Cap | Node Pools |
 |------|---------|----------|----------|------------|
-| Micro | /25 | /20 | 124 | 1 |
-| Standard | /24 | /16 | 252 | 1 |
-| Professional | /23 | /18 | 508 | 1 |
-| Enterprise | /21 | /16 | 2,044 | 1-2 |
-| Hyperscale | /20 | /13 | 4,092 | 5-10 |
+| Micro | /25 | /20 | 123 | 1 |
+| Standard | /24 | /16 | 251 | 1 |
+| Professional | /23 | /18 | 507 | 1 |
+| Enterprise | /21 | /16 | 2,043 | 1-2 |
+| Hyperscale | /20 | /13 (`100.64.0.0/13` for a `10.x` VNet) | 4,091 | 5-10 |
 
 ### API Throttling (Token Bucket)
 
@@ -191,7 +198,7 @@ Private network mode (`"networkMode": "private"`): no public subnets; internal l
 | Provider | Load-balancer subnets | Egress (no subnet allocated) |
 |----------|-----------------------|------------------------------|
 | EKS | One per AZ (at least 2), tagged `kubernetes.io/role/internal-elb` | Transit gateway to a shared egress VPC, or no internet with VPC endpoints (a public NAT gateway needs a public subnet; a private NAT gateway cannot reach the internet) |
-| GKE | 1 regional, the region's proxy-only subnet (`REGIONAL_MANAGED_PROXY`, one active per region and network, shared by clusters there) | Cloud NAT on a Cloud Router |
+| GKE | 1 regional, the region's proxy-only subnet (`REGIONAL_MANAGED_PROXY`, one active per region and network, shared by clusters there; cross-region internal load balancers need a separate `GLOBAL_MANAGED_PROXY` subnet, not in the plan) | Cloud NAT on a Cloud Router |
 | AKS | 1 regional, for internal load balancer frontends | `outbound_type` `managedNATGateway`, `userAssignedNATGateway`, or `userDefinedRouting` |
 | Kubernetes | One per zone | Outside the plan |
 
@@ -202,8 +209,10 @@ Private network mode (`"networkMode": "private"`): no public subnets; internal l
 | `shared/kubernetes-schema.ts` | Zod schemas and TypeScript types |
 | `client/src/lib/kubernetes-network-generator.ts` | Generation logic |
 | `server/routes.ts` | API endpoints |
-| `tests/unit/kubernetes-network-generator.test.ts` | Unit tests (57 tests) |
-| `tests/unit/network-separation.test.ts` | Separation invariants for every tier, provider, and network mode; one-network control plane; private mode; overrides, zones, warnings (68 tests) |
-| `tests/integration/kubernetes-network-api.test.ts` | Integration tests (48 tests) |
+| `tests/unit/kubernetes-network-generator.test.ts` | Unit tests |
+| `tests/unit/network-separation.test.ts` | Separation invariants for every tier, provider, and network mode; one-network control plane; private mode; overrides, zones, warnings; provider address rules |
+| `tests/integration/kubernetes-network-api.test.ts` | Plan generation called directly, no HTTP |
+
+Test counts per file are in the [test inventory](../test-suite-analysis.md#test-inventory).
 
 Key features: deterministic generation, random RFC 1918 CIDR, automatic normalization, Zod validation, provider-agnostic.

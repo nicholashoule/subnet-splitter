@@ -50,7 +50,7 @@
   --color-success: hsl(var(--success));
 
   --font-sans: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 /* LIGHT MODE */
@@ -87,7 +87,8 @@
   --destructive-soft: 0 86% 97%;
   --destructive-soft-foreground: 359 69% 30%;
   --success: 163 94% 24%;
-  --input: 214 20% 85%;
+  /* Input borders: 3:1 against --card and --background (WCAG 1.4.11 non-text contrast) */
+  --input: 214 20% 57%;
   --ring: 221 83% 53%;
 
   /* Automatically computed borders (intensity set by --opaque-button-border-intensity).
@@ -131,8 +132,8 @@
   --destructive-soft: 359 80% 15%;
   --destructive-soft-foreground: 0 100% 94%;
   --success: 160 70% 50%;
-  /* Input borders need more contrast than --border on a --card background */
-  --input: 217 33% 25%;
+  /* Input borders: 3:1 against --card and --background (WCAG 1.4.11 non-text contrast) */
+  --input: 217 33% 45%;
   --ring: 217 91% 60%;
 }
 

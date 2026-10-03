@@ -4,9 +4,11 @@
  * Property tests for the allocation rules every plan must satisfy, for every tier
  * and provider:
  * - Nodes, control plane, and public subnets inside the VPC; pods and services
- *   outside it, each in its own RFC 1918 block
+ *   outside it, each in its own block (RFC 1918, or 100.64.0.0/10 for pods when no
+ *   RFC 1918 block has room)
  * - No two ranges overlap, and every CIDR is canonical
- * - Generated pod and service ranges avoid reserved ranges (172.17.0.0/16)
+ * - Generated pod and service ranges avoid reserved ranges (172.17.0.0/16, and for
+ *   AKS 172.30.0.0/16 and 172.31.0.0/16, which AKS also refuses for the VNet)
  * - EKS spreads every subnet type across at least two AZs; GKE and AKS subnets
  *   are regional (no zone)
  * - The control plane is one network (EKS: one /27 split across two AZs)
@@ -14,7 +16,7 @@
  * Plus caller overrides (podsCidr, servicesCidr, availabilityZones) and warnings.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildKubernetesNetworkPlan,
   getDeploymentTierInfo,
@@ -28,6 +30,10 @@ const TIERS = ["micro", "standard", "professional", "enterprise", "hyperscale"] 
 const PROVIDERS = ["eks", "gke", "aks", "kubernetes"] as const;
 const MODES = ["public", "private"] as const;
 const RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
+const RFC6598 = "100.64.0.0/10";
+// Microsoft, "CNI networking prerequisites": AKS rejects pod, service, and cluster
+// virtual network ranges overlapping these
+const AKS_RESERVED = ["172.30.0.0/16", "172.31.0.0/16"];
 
 const range = (cidr: string) => {
   const { network, prefix } = parseCidr(cidr);
@@ -41,7 +47,7 @@ const within = (outer: string, inner: string) => {
   const o = range(outer), i = range(inner);
   return i.start >= o.start && i.end <= o.end;
 };
-const blockOf = (cidr: string) => RFC1918.find((b) => within(b, cidr));
+const blockOf = (cidr: string) => [...RFC1918, RFC6598].find((b) => within(b, cidr));
 const canonical = (cidr: string) => {
   const { network, prefix } = parseCidr(cidr);
   return `${numberToIp(network)}/${prefix}` === cidr;
@@ -57,6 +63,11 @@ function assertSeparated(plan: KubernetesNetworkPlan) {
   for (const r of [plan.pods.cidr, plan.services.cidr]) {
     expect(overlaps(plan.vpc.cidr, r), `${r} outside VPC`).toBe(false);
     expect(overlaps("172.17.0.0/16", r), `${r} avoids 172.17.0.0/16`).toBe(false);
+  }
+  if (plan.provider === "aks") {
+    for (const r of [plan.vpc.cidr, plan.pods.cidr, plan.services.cidr]) {
+      for (const reserved of AKS_RESERVED) expect(overlaps(reserved, r), `${r} avoids ${reserved} (AKS)`).toBe(false);
+    }
   }
   for (let i = 0; i < all.length; i++) {
     for (let j = i + 1; j < all.length; j++) {
@@ -81,7 +92,7 @@ describe("Network separation (every tier x provider)", () => {
             expect(plan.networkMode).toBe(networkMode);
             assertSeparated(plan);
 
-            // VPC, pods, and services each occupy a different RFC 1918 block
+            // VPC, pods, and services each occupy a different block
             const blocks = [blockOf(plan.vpc.cidr), blockOf(plan.pods.cidr), blockOf(plan.services.cidr)];
             expect(new Set(blocks).size).toBe(3);
 
@@ -99,6 +110,29 @@ describe("Network separation (every tier x provider)", () => {
     }
   }
 
+  it("generates only private /18 VPCs clear of reserved ranges, at the edges of every block", () => {
+    // Drive randomVpc's two Math.random calls (block, then slot) through the first,
+    // middle and last slot of each RFC 1918 block, for every provider
+    const spy = vi.spyOn(Math, "random");
+    try {
+      for (const provider of PROVIDERS) {
+        for (let block = 0; block < 3; block++) {
+          for (const slot of [0, 0.5, 0.999999]) {
+            spy.mockReturnValueOnce((block + 0.5) / 3).mockReturnValueOnce(slot);
+            const plan = buildKubernetesNetworkPlan({ deploymentSize: "micro", provider });
+            expect(plan.vpc.cidr.endsWith("/18")).toBe(true);
+            expect(RFC1918.some((b) => within(b, plan.vpc.cidr)), `${provider} ${plan.vpc.cidr} is RFC 1918`).toBe(true);
+            expect(blockOf(plan.vpc.cidr)).toBe(RFC1918[block]);
+            assertSeparated(plan);
+            expect(plan.warnings, plan.vpc.cidr).toBeUndefined();
+          }
+        }
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("holds for 2,000 random auto-generated VPCs", () => {
     for (let i = 0; i < 2000; i++) {
       const plan = buildKubernetesNetworkPlan({
@@ -108,6 +142,7 @@ describe("Network separation (every tier x provider)", () => {
       });
       assertSeparated(plan);
       expect(plan.vpc.cidr.endsWith("/18")).toBe(true);
+      expect(RFC1918.some((block) => within(block, plan.vpc.cidr)), plan.vpc.cidr).toBe(true);
       expect(overlaps(plan.vpc.cidr, "172.17.0.0/16")).toBe(false);
       expect(plan.warnings).toBeUndefined();
     }
@@ -350,5 +385,55 @@ describe("VPC sizing", () => {
     const generic = getDeploymentTierInfo() as Record<string, { publicSubnets: number; minVpcPrefix: number }>;
     expect(generic.micro.publicSubnets).toBe(1);
     expect(generic.micro.minVpcPrefix).toBe(24);
+  });
+});
+
+describe("Provider address rules", () => {
+  it("gives AKS hyperscale on a 10.x VNet pods from 100.64.0.0/10, clear of the AKS-reserved ranges", () => {
+    // Every /13 left in 172.16.0.0/12 holds 172.17.0.0/16 or 172.30-31.0.0/16
+    const aks = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "aks", vpcCidr: "10.0.0.0/16" });
+    expect(aks.pods.cidr).toBe("100.64.0.0/13");
+    assertSeparated(aks);
+
+    // Other providers keep the RFC 1918 range
+    const eks = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "eks", vpcCidr: "10.0.0.0/16" });
+    expect(eks.pods.cidr).toBe("172.24.0.0/13");
+  });
+
+  it("rejects AKS VNets, pod and service ranges in 172.30.0.0/16 or 172.31.0.0/16", () => {
+    const aks = { deploymentSize: "micro", provider: "aks" } as const;
+    expect(() => buildKubernetesNetworkPlan({ ...aks, vpcCidr: "172.31.0.0/16" })).toThrow(/172\.31\.0\.0\/16.*AKS rejects it/);
+    expect(() => buildKubernetesNetworkPlan({ ...aks, vpcCidr: "172.30.128.0/17" })).toThrow(/172\.30\.0\.0\/16.*AKS rejects it/);
+    expect(() => buildKubernetesNetworkPlan({ ...aks, vpcCidr: "10.0.0.0/16", podsCidr: "172.30.0.0/16" })).toThrow(/overlaps 172\.30\.0\.0\/16/);
+    expect(() => buildKubernetesNetworkPlan({ ...aks, vpcCidr: "10.0.0.0/16", servicesCidr: "172.31.0.0/20" })).toThrow(/overlaps 172\.31\.0\.0\/16/);
+
+    // The rule is AKS-specific
+    expect(buildKubernetesNetworkPlan({ deploymentSize: "micro", provider: "eks", vpcCidr: "172.31.0.0/16" }).vpc.cidr).toBe("172.31.0.0/16");
+  });
+
+  it("caps GKE servicesCidr at /16, Google's largest user-managed Services range", () => {
+    const base = { deploymentSize: "micro", vpcCidr: "10.0.0.0/16" } as const;
+    expect(() => buildKubernetesNetworkPlan({ ...base, provider: "gke", servicesCidr: "172.24.0.0/13" })).toThrow(/between \/16 and \/24; got \/13/);
+    expect(buildKubernetesNetworkPlan({ ...base, provider: "gke", servicesCidr: "172.20.0.0/16" }).services.cidr).toBe("172.20.0.0/16");
+    expect(buildKubernetesNetworkPlan({ ...base, provider: "eks", servicesCidr: "172.24.0.0/13" }).services.cidr).toBe("172.24.0.0/13");
+  });
+
+  it("caps every provider's VPC at /16 (AWS's limit for EKS, the project standard elsewhere)", () => {
+    for (const provider of PROVIDERS) {
+      for (const vpcCidr of ["10.0.0.0/8", "172.16.0.0/12", "10.0.0.0/15"]) {
+        expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", provider, vpcCidr }), `${provider} ${vpcCidr}`)
+          .toThrow(new RegExp(`too large for ${provider.toUpperCase()}.*/16 or smaller`));
+      }
+      expect(buildKubernetesNetworkPlan({ deploymentSize: "micro", provider, vpcCidr: "10.0.0.0/16" }).vpc.cidr).toBe("10.0.0.0/16");
+    }
+    expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", provider: "eks", vpcCidr: "10.0.0.0/8" })).toThrow(/AWS VPC CIDR blocks are \/16 to \/28/);
+    expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", provider: "aks", vpcCidr: "10.0.0.0/8" })).toThrow(/plans are capped at a \/16 VNet/);
+  });
+
+  it("keeps generated pods out of a caller servicesCidr's RFC 1918 block", () => {
+    const plan = buildKubernetesNetworkPlan({ deploymentSize: "enterprise", provider: "eks", vpcCidr: "10.0.0.0/16", servicesCidr: "172.20.0.0/16" });
+    expect(blockOf(plan.pods.cidr)).not.toBe(blockOf(plan.services.cidr));
+    expect(blockOf(plan.pods.cidr)).not.toBe(blockOf(plan.vpc.cidr));
+    assertSeparated(plan);
   });
 });

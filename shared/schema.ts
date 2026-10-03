@@ -1,8 +1,9 @@
 // shared/schema.ts
 //
-// Shared types and limits for the subnet calculator.
-// Used by both client and server code. Intentionally dependency-free so the
-// client bundle does not pull in a validation library.
+// Shared types and limits for the subnet calculator, used by the client
+// (subnet-utils.ts, the calculator page) and its tests; the server does not
+// import it. Intentionally dependency-free so the client bundle does not pull
+// in a validation library.
 //
 
 // Subnet Calculator Types

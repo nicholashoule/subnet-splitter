@@ -145,16 +145,19 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?networkMode=isolated" # 400 INV
 - GKE and AKS subnets have no `availabilityZone`; EKS subnets span at least two AZs
 - Control plane is one network: one `/28` for GKE, AKS, and generic; exactly two contiguous `/28`s (one `/27`) in two AZs for EKS
 - Public mode: `subnets.loadBalancer` is `[]`. Private mode: `subnets.public` is `[]` and `subnets.loadBalancer` holds `load-balancer` subnets (GKE and AKS: exactly one; EKS: one per AZ, at least two)
-- Error responses use requested format
+- Validation and planning errors (400) use the requested format; malformed or oversized bodies (400/413), unknown API paths (404), and rate limiting (429) are always JSON
+- AKS: a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16` is rejected; hyperscale on a `10.x` VNet gives pods `100.64.0.0/13`
+- A `vpcCidr` larger than `/16` is rejected for every provider
 
 ## Running Specific Test Subsets
 
 ```bash
-# All API tests (48 tests)
+# Kubernetes network API integration tests (per-file counts: docs/test-suite-analysis.md, Test Inventory)
 npm run test -- tests/integration/kubernetes-network-api.test.ts --run
 
 # Filter by test name
-npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Output Format" --run
+npm run test -- tests/integration/kubernetes-network-api.test.ts -t "Serializable Output" --run
+npm run test -- tests/integration/api-endpoints.test.ts -t "Response Format Support" --run  # JSON and YAML over HTTP
 
 # Control-plane and private-mode invariants
 npm run test -- tests/unit/network-separation.test.ts -t "Control plane is one network" --run

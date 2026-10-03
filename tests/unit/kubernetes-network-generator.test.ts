@@ -12,6 +12,17 @@ import {
   KubernetesNetworkGenerationError,
   PLAN_FORMAT_VERSION
 } from "@/lib/kubernetes-network-generator";
+import { parseCidr } from "@/lib/subnet-utils";
+
+/** True when the CIDR lies entirely inside one RFC 1918 block */
+function isRfc1918(cidr: string): boolean {
+  const { network, prefix } = parseCidr(cidr);
+  const last = network + 2 ** (32 - prefix) - 1;
+  return ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].some((block) => {
+    const b = parseCidr(block);
+    return network >= b.network && last <= b.network + 2 ** (32 - b.prefix) - 1;
+  });
+}
 
 describe("Kubernetes Network Generator", () => {
   describe("generateKubernetesNetworkPlan", () => {
@@ -64,11 +75,8 @@ describe("Kubernetes Network Generator", () => {
           deploymentSize: "standard"
         });
 
-        const vpc = plan.vpc.cidr;
-        const firstOctet = parseInt(vpc.split(".")[0], 10);
-
-        // Should be RFC 1918: 10, 172, or 192
-        expect([10, 172, 192]).toContain(firstOctet);
+        // Entirely inside an RFC 1918 block (not just a matching first octet)
+        expect(isRfc1918(plan.vpc.cidr), plan.vpc.cidr).toBe(true);
       });
 
       it("should accept custom VPC CIDR", async () => {
@@ -772,8 +780,7 @@ describe("Kubernetes Network Generator", () => {
         ]);
 
         for (const plan of plans) {
-          const firstOctet = parseInt(plan.vpc.cidr.split(".")[0], 10);
-          expect([10, 172, 192]).toContain(firstOctet);
+          expect(isRfc1918(plan.vpc.cidr), plan.vpc.cidr).toBe(true);
         }
       });
     });

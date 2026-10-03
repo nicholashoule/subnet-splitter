@@ -11,6 +11,9 @@
  * - validateCidrInput: Form validation for the calculator input
  * - ipToNumber / numberToIp: IP address conversion
  * - prefixToMask / maskToPrefix: Prefix/mask conversion
+ * - collectVisibleRows: the calculator table's rows (with depth and parent CIDR)
+ * - splitSubnetInTree / removeSplitInTree: immutable tree updates for the table
+ * - selectedVisibleSubnets / subnetsToCsv: the CSV export
  *
  * Validation:
  * - Memory limits to prevent tree explosion
@@ -238,26 +241,141 @@ export function collectAllSubnets(subnet: SubnetInfo): SubnetInfo[] {
   return result;
 }
 
+/** A row of the calculator's subnet table */
+export interface VisibleRow {
+  subnet: SubnetInfo;
+  /** Depth in the tree (0 = the calculated range), also when Hide Parents skips ancestors */
+  depth: number;
+  /** CIDR of the subnet this row was split from; undefined for the root */
+  parentCidr?: string;
+}
+
+/**
+ * The rows the subnet table shows, depth-first in address order. A split row's
+ * children show while it is expanded; with hideParents, rows that have children
+ * are left out and their descendants show instead. The table, "select all" and
+ * the CSV export all read this list, so they always agree on what is visible.
+ */
+export function collectVisibleRows(root: SubnetInfo, hideParents: boolean): VisibleRow[] {
+  const rows: VisibleRow[] = [];
+  const visit = (subnet: SubnetInfo, depth: number, parentCidr: string | undefined) => {
+    const children = subnet.children ?? [];
+    const hasChildren = children.length > 0;
+    if (!(hideParents && hasChildren)) rows.push({ subnet, depth, parentCidr });
+    if (hasChildren && (hideParents || subnet.isExpanded)) {
+      for (const child of children) visit(child, depth + 1, subnet.cidr);
+    }
+  };
+  visit(root, 0, undefined);
+  return rows;
+}
+
 export function collectVisibleSubnets(subnet: SubnetInfo, hideParents: boolean): SubnetInfo[] {
-  const hasChildren = subnet.children && subnet.children.length > 0;
-  
-  // If hiding parents and this subnet has children, skip it and collect children
-  if (hideParents && hasChildren && subnet.children) {
-    const result: SubnetInfo[] = [];
-    for (const child of subnet.children) {
-      result.push(...collectVisibleSubnets(child, hideParents));
-    }
-    return result;
+  return collectVisibleRows(subnet, hideParents).map((row) => row.subnet);
+}
+
+export function findSubnetById(subnet: SubnetInfo, targetId: string): SubnetInfo | null {
+  if (subnet.id === targetId) return subnet;
+  for (const child of subnet.children ?? []) {
+    const found = findSubnetById(child, targetId);
+    if (found) return found;
   }
-  
-  // Otherwise, include this subnet
-  const result: SubnetInfo[] = [subnet];
-  if (hasChildren && subnet.isExpanded && subnet.children) {
-    for (const child of subnet.children) {
-      result.push(...collectVisibleSubnets(child, hideParents));
-    }
+  return null;
+}
+
+export function findParentOf(subnet: SubnetInfo, childId: string): SubnetInfo | null {
+  for (const child of subnet.children ?? []) {
+    if (child.id === childId) return subnet;
+    const found = findParentOf(child, childId);
+    if (found) return found;
   }
-  return result;
+  return null;
+}
+
+/**
+ * Replaces one node, copying only the nodes on the path from the root to it.
+ * Every other subtree keeps its object identity, so memoized table rows for
+ * them skip re-rendering. Returns the same root when targetId is not found.
+ */
+export function updateSubnetInTree(
+  subnet: SubnetInfo,
+  targetId: string,
+  updateFn: (s: SubnetInfo) => SubnetInfo
+): SubnetInfo {
+  if (subnet.id === targetId) return updateFn(subnet);
+  if (!subnet.children) return subnet;
+  let changed = false;
+  const children = subnet.children.map((child) => {
+    const next = updateSubnetInTree(child, targetId, updateFn);
+    if (next !== child) changed = true;
+    return next;
+  });
+  return changed ? { ...subnet, children } : subnet;
+}
+
+/**
+ * Splits one leaf of the tree into its two halves and expands it, without
+ * mutating the tree. Returns null when the node is missing, already split, or a
+ * /32. Throws SubnetCalculationError when the whole tree (every node, collapsed
+ * or hidden ones included) would grow past MAX_TREE_NODES.
+ */
+export function splitSubnetInTree(
+  root: SubnetInfo,
+  id: string
+): { root: SubnetInfo; children: SubnetInfo[] } | null {
+  const target = findSubnetById(root, id);
+  if (!target || !target.canSplit || target.children?.length) return null;
+
+  const children = splitSubnet(target, countSubnetNodes(root));
+  return {
+    root: updateSubnetInTree(root, id, (subnet) => ({ ...subnet, children, isExpanded: true })),
+    children,
+  };
+}
+
+/**
+ * Removes the split that produced childId: its parent loses both halves and
+ * everything below them. Returns null for the root or an unknown id.
+ */
+export function removeSplitInTree(
+  root: SubnetInfo,
+  childId: string
+): { root: SubnetInfo; parent: SubnetInfo } | null {
+  const parent = findParentOf(root, childId);
+  if (!parent) return null;
+
+  const restored: SubnetInfo = { ...parent, children: undefined, isExpanded: false };
+  return { root: updateSubnetInTree(root, parent.id, () => restored), parent: restored };
+}
+
+/**
+ * The rows the CSV export writes: selected rows among the visible ones, in table
+ * order. A selected id whose row is gone (split removed, Hide Parents on) is skipped.
+ */
+export function selectedVisibleSubnets(visible: SubnetInfo[], selectedIds: ReadonlySet<string>): SubnetInfo[] {
+  return visible.filter((subnet) => selectedIds.has(subnet.id));
+}
+
+export const CSV_HEADERS = ["CIDR", "Network Address", "Broadcast Address", "First Host", "Last Host", "Usable Hosts", "Total Hosts", "Subnet Mask", "Wildcard Mask", "Prefix"];
+
+/** CSV text for the export: a header line, then one quoted line per subnet */
+export function subnetsToCsv(subnets: SubnetInfo[]): string {
+  const rows = subnets.map((s) => [
+    s.cidr,
+    s.networkAddress,
+    s.broadcastAddress,
+    s.firstHost,
+    s.lastHost,
+    s.usableHosts.toString(),
+    s.totalHosts.toString(),
+    s.subnetMask,
+    s.wildcardMask,
+    `/${s.prefix}`,
+  ]);
+  return [
+    CSV_HEADERS.join(","),
+    ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+  ].join("\n");
 }
 
 /**

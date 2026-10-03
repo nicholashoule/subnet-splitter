@@ -1,17 +1,23 @@
 #!/bin/sh
-# Pre-commit hook: the same emoji audit CI runs (npm run emoji:check, demojify).
+# Pre-commit hook: the emoji audit CI runs (npm run emoji:check, demojify), applied to
+# exactly what is being committed. The index is exported to a temporary directory and
+# scanned there, so unstaged edits and untracked or ignored files never block a commit.
 # Installed by `npm install` (scripts/install-hooks.mjs sets core.hooksPath to .githooks).
 # POSIX sh, so it runs on Windows (Git for Windows ships sh), macOS and Linux.
+#
+# Exits 1 only when demojify reports findings. When the check cannot run (no Go 1.24+,
+# demojify cannot be downloaded or built, the index cannot be exported) it says why
+# and lets the commit through; CI still runs the check.
 
 MIN_GO_MINOR=24 # demojify needs Go 1.24 or newer
 
 skip() {
   echo "pre-commit: $1" >&2
-  echo "pre-commit: skipping the emoji check; install Go 1.$MIN_GO_MINOR or newer (https://go.dev/dl/). CI still runs it." >&2
+  echo "pre-commit: skipping the emoji check; CI still runs it." >&2
   exit 0
 }
 
-command -v go >/dev/null 2>&1 || skip "Go is not installed."
+command -v go >/dev/null 2>&1 || skip "Go is not installed; install Go 1.$MIN_GO_MINOR or newer (https://go.dev/dl/)."
 
 # go env GOVERSION prints e.g. go1.25.7 (empty on very old releases)
 version=$(go env GOVERSION 2>/dev/null)
@@ -19,10 +25,25 @@ version=${version#go}
 major=${version%%.*}
 minor=$(printf '%s' "${version#*.}" | sed 's/[^0-9].*//')
 if [ "$major" != "1" ] || [ -z "$minor" ] || [ "$minor" -lt "$MIN_GO_MINOR" ]; then
-  skip "found Go ${version:-of unknown version}."
+  skip "found Go ${version:-of unknown version}; install Go 1.$MIN_GO_MINOR or newer (https://go.dev/dl/)."
 fi
 
-if ! npm run --silent emoji:check; then
-  echo "pre-commit: emoji found. Run npm run emoji:fix, review with git diff, stage the result and commit again." >&2
+# Download and build the pinned demojify first (package.json holds its only version
+# pin), so a failure here, such as no network, is not mistaken for emoji findings.
+if ! output=$(npm run --silent emoji:check -- -version 2>&1); then
+  printf '%s\n' "$output" >&2
+  skip "could not run demojify (npm run emoji:check -- -version failed)."
+fi
+
+tmp=$(mktemp -d) || skip "could not create a temporary directory."
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+
+# The index as this commit will record it (git commit sets GIT_INDEX_FILE when needed)
+git checkout-index --all --prefix="$tmp/" || skip "could not export the staged files."
+
+# demojify keeps the last -root given, so this scans the export, not the working tree
+if ! npm run --silent emoji:check -- -root "$tmp"; then
+  echo "pre-commit: emoji found in the staged files. Run npm run emoji:fix, review with git diff, stage the result and commit again." >&2
   exit 1
 fi

@@ -16,8 +16,8 @@ applyTo: "tests/**"
 
 ```
 tests/
-  unit/              # Individual function tests (6 files, 323 tests)
-  integration/       # System-wide feature tests (8 files, 180 tests)
+  unit/              # Individual function tests, no servers
+  integration/       # System-wide feature tests
   manual/            # Manual testing scripts
   README.md          # Testing documentation
 ```
@@ -69,20 +69,19 @@ See [docs/test-templates.md](../../docs/test-templates.md) for full templates an
 
 ## Current Coverage
 
-| Category | Tests | Files |
-|----------|-------|-------|
-| **Unit** | 323 | 6 (subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config) |
-| **Integration** | 180 | 8 (API, calculator-ui, k8s-api, rate-limiting, CSP, Swagger, static-serving) |
-| **Total** | 503 | 14 |
-| **Pass Rate** | 100% | |
+| Category | Files |
+|----------|-------|
+| **Unit** | subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config |
+| **Integration** | API, calculator-ui, k8s-api, rate-limiting, CSP middleware, CSP violation endpoint, Swagger theming, static-serving |
+| **Pass Rate** | 100% |
 
-See [docs/test-suite-analysis.md](../../docs/test-suite-analysis.md) for detailed analysis.
+Test counts, per file and in total, are kept only in the [test inventory](../../docs/test-suite-analysis.md#test-inventory); see that file for the detailed analysis.
 
 ## Quality Gates
 
 All must pass before committing:
 
-- [ ] All 503 tests pass
+- [ ] All tests pass (`npm run test -- --run`)
 - [ ] No skipped or pending tests (except during development)
 - [ ] WCAG accessibility standards maintained (ui-styles tests)
 - [ ] Security endpoints fully tested (CSP, rate limiting)
@@ -113,17 +112,17 @@ See [docs/test-templates.md](../../docs/test-templates.md) for manual API testin
 ### Unit Tests
 - `subnet-utils.test.ts` -- IP conversion, prefix/mask, subnet calculation, splitting, edge cases
 - `kubernetes-network-generator.test.ts` -- network generation, tier configs, CIDR normalization
-- `network-separation.test.ts` -- every tier x provider x `networkMode` keeps nodes, control plane, pods, and services separated; one-network control plane (GKE/AKS/generic: one `/28`; EKS: two `/28`s in two AZs on a `/27` boundary); private mode (no public subnets; `subnets.loadBalancer`: GKE one `/26`-`/23` regional subnet, AKS one, EKS two or more AZs; empty in public mode; private tier layouts; unknown mode rejected); EKS two-AZ rule; GKE/AKS regional subnets; `podsCidr`/`servicesCidr`/`availabilityZones` overrides; `172.17.0.0/16` warnings; provider-specific `minVpcPrefix`
+- `network-separation.test.ts` -- every tier x provider x `networkMode` keeps nodes, control plane, pods, and services separated; one-network control plane (GKE/AKS/generic: one `/28`; EKS: two `/28`s in two AZs on a `/27` boundary); private mode (no public subnets; `subnets.loadBalancer`: GKE one `/26`-`/23` regional subnet, AKS one, EKS two or more AZs; empty in public mode; private tier layouts; unknown mode rejected); EKS two-AZ rule; GKE/AKS regional subnets; `podsCidr`/`servicesCidr`/`availabilityZones` overrides; `172.17.0.0/16` warnings; provider-specific `minVpcPrefix`; provider address rules (AKS-reserved `172.30.0.0/16` and `172.31.0.0/16`, the `100.64.0.0/10` pod fallback, GKE `servicesCidr` `/16` cap, `/16` VPC cap)
 - `ip-calculation-compliance.test.ts` -- provider-specific IP allocation formulas
 - `ui-styles.test.ts` -- WCAG contrast for every text pair the app renders (light and dark, tokens read from `index.css`), a guard against Tailwind palette colors, page semantics
-- `config.test.ts` -- configuration validation
+- `config.test.ts` -- configuration validation (reads project files; runs git and the pre-commit hook in temporary repositories)
 
 ### Integration Tests
-- `api-endpoints.test.ts` -- API infrastructure, JSON 404s, formats, docs page (47 tests)
-- `calculator-ui.test.ts` -- calculator logic through the real subnet-utils functions (28 tests)
-- `kubernetes-network-api.test.ts` -- K8s plan generation called directly (44 tests)
-- `rate-limiting.test.ts` -- rate limiters and logging of rejected requests (27 tests)
-- `swagger-ui-csp-middleware.test.ts` -- production and docs-page CSP headers (10 tests)
-- `swagger-ui-theming.test.ts` -- docs page theme scripts, run in a node:vm sandbox (7 tests)
-- `csp-violation-endpoint.test.ts` -- the real CSP violation endpoint (12 tests)
-- `static-serving.test.ts` -- production static file serving (5 tests)
+- `api-endpoints.test.ts` -- API infrastructure, JSON 404s, formats, docs page
+- `calculator-ui.test.ts` -- calculator logic through the real subnet-utils functions (no React rendered)
+- `kubernetes-network-api.test.ts` -- K8s plan generation called directly
+- `rate-limiting.test.ts` -- rate limiters and logging of rejected requests
+- `swagger-ui-csp-middleware.test.ts` -- production and docs-page CSP headers
+- `swagger-ui-theming.test.ts` -- docs page theme scripts, run in a node:vm sandbox
+- `csp-violation-endpoint.test.ts` -- the real CSP violation endpoint
+- `static-serving.test.ts` -- production static file serving

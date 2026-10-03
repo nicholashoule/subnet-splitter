@@ -4,14 +4,17 @@
  * Centralized Content Security Policy (CSP) configuration.
  *
  * This module defines CSP directives used across the application to prevent drift
- * between global and route-specific policies. Both server/index.ts (global Helmet CSP)
- * and server/routes.ts (Swagger UI override) reference these shared directives.
+ * between global and route-specific policies. createSecurityHeaders() (the global
+ * Helmet CSP, applied by server/app.ts) and buildSwaggerUICSP() (the /api/docs/ui
+ * override, applied by server/routes.ts) both start from these shared directives.
  *
  * Design:
  * - Global CSP: Applied to all endpoints via Helmet middleware
  * - Swagger UI CSP: Extends global CSP with the jsDelivr CDN and 'unsafe-inline'
  *   for scripts (required by SwaggerUIBundle)
- * - Shared directives: Base set that both policies inherit from
+ * - Shared directives: Base set that both policies inherit from. It lists every
+ *   directive of the production global policy, Helmet's defaults included, so the
+ *   Swagger UI policy loses none of them (tests compare the two headers)
  */
 
 import helmet from "helmet";
@@ -45,6 +48,11 @@ export const baseCSPDirectives: CSPDirectives = {
   baseUri: ["'self'"],
   frameAncestors: ["'self'"],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  // Helmet defaults, listed so the Swagger UI policy keeps them too: forms submit only
+  // to this origin, and inline event handler attributes (onclick="...") never run.
+  // Neither page uses them; React and Swagger UI attach their handlers from script.
+  formAction: ["'self'"],
+  scriptSrcAttr: ["'none'"],
 };
 
 /**
@@ -76,15 +84,25 @@ export function createSecurityHeaders(isDevelopment: boolean): ReturnType<typeof
   if (isDevelopment) {
     // Vite injects inline scripts for Fast Refresh and HMR
     directives.scriptSrc = [...(directives.scriptSrc || []), ...developmentCSPAdditions.scriptSrc];
-    // Enable CSP violation reporting so we catch issues before production
+    // Vite's HMR websocket
     directives.connectSrc = [...(directives.connectSrc || []), ...developmentCSPAdditions.connectSrc];
+    // Enable CSP violation reporting so we catch issues before production
     directives.reportUri = developmentCSPAdditions.reportUri;
   }
 
   // crossOriginEmbedderPolicy is disabled to allow embedding external resources needed by the SPA
   // X-Content-Type-Options: nosniff is set by default in Helmet v8
   return helmet({
-    contentSecurityPolicy: { directives },
+    contentSecurityPolicy: {
+      directives: {
+        ...directives,
+        // Drop Helmet's default upgrade-insecure-requests. The server speaks plain
+        // HTTP (TLS, where used, is terminated in front of it), and over plain HTTP on
+        // a LAN address the directive makes browsers fetch the app's own /assets over
+        // https, so the page loads blank.
+        upgradeInsecureRequests: null,
+      },
+    },
     crossOriginEmbedderPolicy: false,
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   });
@@ -94,10 +112,11 @@ export function createSecurityHeaders(isDevelopment: boolean): ReturnType<typeof
  * Swagger UI-specific CSP overrides
  *
  * Builds the CSP for /api/docs/ui by:
- * 1. Starting with baseCSPDirectives (ensures consistency with global policy)
+ * 1. Starting with baseCSPDirectives, the directives of the production global policy
+ *    (so, like it, no upgrade-insecure-requests)
  * 2. Adding 'unsafe-inline' to script-src for SwaggerUIBundle initialization scripts
  * 3. Adding 'https://cdn.jsdelivr.net' to script-src/style-src (Swagger UI assets, pinned
- *    with Subresource Integrity in routes.ts) and connect-src (source maps)
+ *    with Subresource Integrity in server/swagger-ui.ts) and connect-src (source maps)
  *
  * Security Rationale - Route-Specific CSP:
  * - Only /api/docs/ui gets cdn.jsdelivr.net and inline scripts (NOT in base policy)
@@ -157,16 +176,22 @@ export function buildSwaggerUICSP(): string {
  *
  * Reference: https://w3c.github.io/webappsec-csp/#violation-reports
  */
+// Every field of the report-uri (application/csp-report) serialization; browsers send
+// all of these (script-sample, source-file and the positions only when they apply).
+// Strict, so anything else is logged as an invalid report.
 const cspViolationFields = z.object({
+  'document-uri': z.string().optional(),
+  referrer: z.string().optional(),
   'blocked-uri': z.string().optional(),
-  'violated-directive': z.string().optional(),
+  'effective-directive': z.string().optional(),
+  'violated-directive': z.string().optional(), // historic name; same value as effective-directive
   'original-policy': z.string().optional(),
+  disposition: z.enum(['enforce', 'report']).optional(),
+  'status-code': z.number().optional(),
+  'script-sample': z.string().optional(),
   'source-file': z.string().optional(),
   'line-number': z.number().optional(),
   'column-number': z.number().optional(),
-  'document-uri': z.string().optional(),
-  disposition: z.enum(['enforce', 'report']).optional(),
-  status: z.number().optional(),
 }).strict().optional();
 
 // Wrapper schema for the actual browser payload

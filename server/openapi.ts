@@ -55,7 +55,9 @@ const PLAN_EXAMPLES: Record<string, { summary: string; request: Record<string, u
 const exampleEntries = <T>(build: (example: { summary: string; request: Record<string, unknown> }) => T) =>
   Object.fromEntries(Object.entries(PLAN_EXAMPLES).map(([key, example]) => [key, { summary: example.summary, value: build(example) }]));
 
-// Error bodies follow the request's ?format= (JSON by default, YAML with format=yaml)
+// Validation and planning errors from the plan and tiers routes follow ?format= (JSON by
+// default, YAML with format=yaml). Malformed or oversized bodies (400, 413), unknown API
+// paths (404) and rate limiting (429) are always JSON.
 const errorContent = {
   "application/json": { schema: { $ref: "#/components/schemas/Error" } },
   "application/yaml": { schema: { $ref: "#/components/schemas/Error" } },
@@ -68,12 +70,23 @@ const rateLimitedResponse = {
     "RateLimit-Limit": { description: "Requests allowed per window", schema: { type: "integer", example: 100 } },
     "RateLimit-Remaining": { description: "Requests left in the current window", schema: { type: "integer", example: 0 } },
     "RateLimit-Reset": { description: "Seconds until the window resets", schema: { type: "integer", example: 42 } },
+    "RateLimit-Policy": { description: "The limit and window in seconds", schema: { type: "string", example: "100;w=60" } },
     "Retry-After": { description: "Seconds to wait before retrying", schema: { type: "integer", example: 42 } },
   },
   content: {
     "application/json": {
       schema: { $ref: "#/components/schemas/Error" },
       example: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
+    },
+  },
+};
+
+const payloadTooLargeResponse = {
+  description: "Request body larger than 16 KB (always JSON)",
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/Error" },
+      example: { error: "request entity too large", code: "INVALID_REQUEST" },
     },
   },
 };
@@ -181,7 +194,7 @@ export const openApiSpec = {
         tags: ["Kubernetes"],
         operationId: "generateNetworkPlan",
         summary: "Generate Kubernetes network plan",
-        description: "Generate a VPC layout for a Kubernetes cluster with nodes, control plane, pods, and services each in separate, non-overlapping ranges. Load-balancer (public, or internal in private mode), node, and control-plane subnets sit inside the VPC; pods and services sit outside it, each in its own RFC 1918 block, clear of 172.17.0.0/16. EKS plans spread every subnet type across at least two AZs; GKE and AKS subnets are regional (no zone). Supports tiers from micro (1 node) to hyperscale. The VPC must be private RFC 1918 space.",
+        description: "Generate a VPC layout for a Kubernetes cluster with nodes, control plane, pods, and services each in separate, non-overlapping ranges. Load-balancer (public, or internal in private mode), node, and control-plane subnets sit inside the VPC; generated pods and services sit outside it, each in its own block (RFC 1918, or 100.64.0.0/10 for pods when no RFC 1918 block has room), clear of 172.17.0.0/16 and, for AKS, of 172.30.0.0/16 and 172.31.0.0/16. EKS plans spread every subnet type across at least two AZs; GKE and AKS subnets are regional (no zone). Supports tiers from micro (1 node) to hyperscale. The VPC must be private RFC 1918 space, /16 or smaller (for AKS also clear of 172.30.0.0/16 and 172.31.0.0/16).",
         requestBody: {
           required: true,
           content: {
@@ -213,21 +226,21 @@ export const openApiSpec = {
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "10.100.0.0/18",
-                    description: "Private RFC 1918 CIDR. The entire range must fall within 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16; host bits are cleared. A random /18 is generated if omitted."
+                    description: "Private RFC 1918 CIDR. The entire range must fall within 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16; host bits are cleared. /16 or smaller for every provider (AWS limits VPCs to /16 to /28; for GKE, AKS and generic Kubernetes the /16 cap is this project's standard). AKS: clear of 172.30.0.0/16 and 172.31.0.0/16, which AKS reserves. A random /18 is generated if omitted."
                   },
                   podsCidr: {
                     type: "string",
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "172.16.64.0/18",
-                    description: "Optional pod range, e.g. so several clusters in one network don't overlap. RFC 1918 or 100.64.0.0/10, /8 to /24; must not overlap the VPC, servicesCidr, or 172.17.0.0/16. Generated if omitted."
+                    description: "Optional pod range, e.g. so several clusters in one network don't overlap. RFC 1918 or 100.64.0.0/10, /8 to /24; must not overlap the VPC, servicesCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted."
                   },
                   servicesCidr: {
                     type: "string",
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "192.168.16.0/20",
-                    description: "Optional service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12); must not overlap the VPC, podsCidr, or 172.17.0.0/16. Generated if omitted. Pass your current range to keep it stable: it cannot change after cluster creation."
+                    description: "Optional service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12); for GKE /16 to /24 (Google caps user-managed Services ranges at /16). Must not overlap the VPC, podsCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted. Pass your current range to keep it stable: it cannot change after cluster creation."
                   },
                   availabilityZones: {
                     type: "array",
@@ -286,9 +299,10 @@ export const openApiSpec = {
             }
           },
           "400": {
-            description: "Invalid request parameters",
+            description: "Invalid request parameters (follows ?format=), or a malformed JSON body (always JSON)",
             content: errorContent
           },
+          "413": payloadTooLargeResponse,
           "429": rateLimitedResponse,
           "500": {
             description: "Internal server error",
@@ -348,7 +362,7 @@ export const openApiSpec = {
                 },
                 examples: {
                   generic: { summary: "Generic Kubernetes (default)", value: getDeploymentTierInfo() },
-                  eks: { summary: "EKS (?provider=eks): two AZs for node and load-balancer subnets, a two-subnet control plane", value: getDeploymentTierInfo(undefined, "eks") },
+                  eks: { summary: "EKS (?provider=eks): public and node subnets in at least two AZs, a two-subnet control plane", value: getDeploymentTierInfo(undefined, "eks") },
                   gke_private: { summary: "GKE private (?provider=gke&networkMode=private)", value: getDeploymentTierInfo(undefined, "gke", "private") }
                 }
               }
@@ -371,7 +385,7 @@ export const openApiSpec = {
     schemas: {
       NetworkPlan: {
         type: "object",
-        description: "Complete Kubernetes network layout. Public, node (private), and control-plane subnets sit inside the VPC; pods and services sit outside it, each in its own RFC 1918 block. No two ranges overlap.",
+        description: "Complete Kubernetes network layout. Public or internal load-balancer, node (private), and control-plane subnets sit inside the VPC; pods and services sit outside it. No two ranges overlap.",
         properties: {
           deploymentSize: { type: "string", enum: ["micro", "standard", "professional", "enterprise", "hyperscale"], example: "enterprise" },
           provider: { type: "string", enum: ["eks", "gke", "aks", "kubernetes"], example: "eks" },
@@ -413,12 +427,12 @@ export const openApiSpec = {
           },
           pods: {
             type: "object",
-            description: "Pod network, outside the VPC. GKE: the pod secondary range. AKS: the CNI Overlay pod_cidr (each node takes a fixed /24). EKS: an overlay CNI pool (Calico, Cilium); it cannot be a VPC secondary CIDR, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's.",
+            description: "Pod network, outside the VPC. GKE: the pod secondary range. AKS: the CNI Overlay pod_cidr (each node takes a fixed /24). EKS: an overlay CNI pool (Calico, Cilium); a generated range in another RFC 1918 block cannot be a VPC secondary CIDR, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's (VPC CNI custom networking needs a 100.64.0.0/10 podsCidr).",
             properties: {
               cidr: {
                 type: "string",
                 example: "172.16.0.0/16",
-                description: "Pod CIDR. Generated in an RFC 1918 block the VPC does not use (preferring 10.0.0.0/8), clear of 172.17.0.0/16, unless podsCidr was supplied."
+                description: "Pod CIDR. Unless podsCidr was supplied, generated in an RFC 1918 block used by neither the VPC nor a supplied servicesCidr (preferring 10.0.0.0/8), or in 100.64.0.0/10 when none has room (AKS hyperscale on a 10.x VNet), clear of 172.17.0.0/16 and, for AKS, 172.30.0.0/16 and 172.31.0.0/16."
               }
             }
           },
@@ -429,7 +443,7 @@ export const openApiSpec = {
               cidr: {
                 type: "string",
                 example: "192.168.0.0/20",
-                description: "Service CIDR: /20 (4,096 ClusterIPs), /18 for hyperscale. Generated in an RFC 1918 block used by neither the VPC nor the pods (preferring 192.168.0.0/16), unless servicesCidr was supplied. Meets EKS (RFC 1918, /12-/24) and AKS (smaller than /12) rules.",
+                description: "Service CIDR: /20 (4,096 ClusterIPs), /18 for hyperscale. Generated in an RFC 1918 block used by neither the VPC nor the pods (preferring 192.168.0.0/16), unless servicesCidr was supplied. Meets EKS (RFC 1918, /12-/24), AKS (smaller than /12) and GKE (/16 or smaller) rules.",
                 pattern: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+/(1[3-9]|2[0-4])$"
               }
             }

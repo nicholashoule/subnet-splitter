@@ -64,8 +64,9 @@ The application is a stateless calculator. It has no database, no user accounts,
 - No `X-Powered-By` header
 
 [PASS] **Content Security Policy** (`server/csp-config.ts`)
-- Production: `script-src 'self'`, `script-src-attr 'none'`, `object-src 'none'`, `connect-src 'self'`; no third-party script origins
-- Only the Swagger UI page (`/api/docs/ui`) adds `cdn.jsdelivr.net` and inline scripts, and it renders nothing but the server's own OpenAPI document
+- Production: `script-src 'self'`, `script-src-attr 'none'`, `object-src 'none'`, `connect-src 'self'`, `form-action 'self'`; no third-party script origins
+- No `upgrade-insecure-requests`: the server speaks plain HTTP (TLS is terminated in front of it), and over plain HTTP that directive would make browsers fetch the app's own assets over https and show a blank page
+- Only the Swagger UI page (`/api/docs/ui`) adds `cdn.jsdelivr.net` and inline scripts, and it renders nothing but the server's own OpenAPI document; it keeps every other directive of the global policy
 - Swagger UI assets are pinned to an exact version and loaded with sha384 Subresource Integrity, so a modified CDN file is refused
 - Development adds only what Vite HMR needs, plus a rate-limited CSP violation report endpoint
 
@@ -76,12 +77,14 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Client IPs come from the socket unless `TRUST_PROXY` is set, so `X-Forwarded-For` cannot be spoofed by default
 
 [PASS] **Error Handling**
-- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); unknown `/api` paths get a JSON 404, never the web app
+- Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); unknown `/api` paths, in any letter case, get a JSON 404, never the web app
+- Validation and planning errors from the plan and tiers routes follow `?format=` (JSON or YAML); malformed or oversized bodies (`400`/`413`), unknown API paths (`404`) and rate limiting (`429`) are always JSON
 - 5xx responses never include internal error messages or stack traces
 - Validation errors name the offending field without echoing internals
 
 [PASS] **Server Hardening**
-- `requestTimeout` 30 s, `headersTimeout` 66 s, `keepAliveTimeout` 65 s against slow-client attacks
+- `requestTimeout` 30 s and `headersTimeout` 20 s against slow clients (Node checks them every 30 s)
+- `keepAliveTimeout` 65 s, longer than common load-balancer idle timeouts (AWS ALB: 60 s), so the load balancer closes idle connections first
 - Graceful shutdown on `SIGTERM`/`SIGINT`, with a 10 s forced exit
 - Production serves only the compiled assets in `dist/public`; source files never fall through to `index.html`
 - Development binds `127.0.0.1` only, and the Vite dev server keeps its DNS-rebinding (Host header) protection

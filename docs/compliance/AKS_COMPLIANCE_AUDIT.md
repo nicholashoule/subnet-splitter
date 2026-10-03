@@ -2,7 +2,7 @@
 
 > **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [api.md](../api.md) for current tier values.
 >
-> **Updated**: October 2, 2026 (plan format 2.0). AKS plans now carry no `availabilityZone` (Azure subnets are regional; node pools choose zones 1, 2, 3), include one `/28` subnet (`subnets.controlPlane[0]`) for API Server VNet Integration, and use a `/20` service range (`/18` for hyperscale). Generated ranges avoid `172.17.0.0/16`. CNI Overlay gives every node a fixed `/24`, so 5,000 nodes needs a `/11` `podsCidr`. `"networkMode": "private"` replaces the public subnets with one internal load-balancer subnet (see [Private Network Mode](#private-network-mode)). See [api.md](../api.md#address-space-separation).
+> **Updated**: October 2, 2026 (plan format 2.0). AKS plans now carry no `availabilityZone` (Azure subnets are regional; node pools choose zones 1, 2, 3), include one `/28` subnet (`subnets.controlPlane[0]`) for API Server VNet Integration, and use a `/20` service range (`/18` for hyperscale). Generated ranges avoid `172.17.0.0/16`, and for AKS also `172.30.0.0/16` and `172.31.0.0/16`, which AKS reserves; a VNet, `podsCidr`, or `servicesCidr` overlapping those two is rejected, and hyperscale pods for a VNet in `10.0.0.0/8` are `100.64.0.0/13` (see [RFC 1918 Private Address Space Compliance](#8-rfc-1918-private-address-space-compliance)). A `vpcCidr` larger than `/16` is rejected (a project standard for every provider; Azure VNets may be larger). CNI Overlay gives every node a fixed `/24`, so 5,000 nodes needs a `/11` `podsCidr`. `"networkMode": "private"` replaces the public subnets with one internal load-balancer subnet (see [Private Network Mode](#private-network-mode)). See [api.md](../api.md#address-space-separation).
 
 **Date**: February 1, 2026  
 **Scope**: Azure Kubernetes Service (AKS)  
@@ -185,14 +185,16 @@ Azure Kubernetes Service uses **Azure CNI Overlay** mode for pod networking, whi
 **Calculation**: Same as EKS/GKE - simple node count
 
 ```
-Node_Capacity = 2^(32 - subnet_prefix) - 4
-Example: /20 subnet = 2^12 - 4 = 4,092 nodes capacity
+Node_Capacity = 2^(32 - subnet_prefix) - 5
+Example: /20 subnet = 2^12 - 5 = 4,091 nodes capacity
 ```
 
+Azure reserves 5 addresses in every subnet, the first four and the last ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#cluster-nodes): a `/24` leaves 251 usable addresses).
+
 **For Hyperscale Tier**:
-- Primary subnets: 3 × `/20` = 12,288 IPs (one per zone)
+- Primary subnets: 3 × `/20` = 12,288 IPs (node pools can each use their own subnet)
 - Actual nodes: 5,000 (supports AKS 5,000-node limit)
-- Node capacity: 3 × 4,092 = 12,276 nodes (sufficient for all tiers)
+- Node capacity: 3 × 4,091 = 12,273 nodes (sufficient for all tiers)
 
 #### 2. Pod IP Allocation (Overlay CIDR)
 
@@ -254,13 +256,13 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 - If AKS used EKS's model: `/24` subnet (256 IPs) exhausted by 10 Nodes + 1,100 Pods = 1,110 IPs needed -> FAIL
 
 **AKS Reality (Overlay CIDR)**:
-- Node subnet: `/24` = 252 usable IPs for Nodes
+- Node subnet: `/24` = 251 usable IPs for Nodes
 - Pod overlay: `/16` = 65,536 IPs for Pods (separate CIDR)
 - **No competition**: Nodes and Pods use different IP spaces
 - **Result**: `/24` Node subnet + `/16` Pod CIDR = 10 Nodes + 27,720 Pods -> SUCCESS
 
 **Hyperscale Tier IP Exhaustion Risk (AKS)**:
-- Node subnets: 3 × `/20` = 12,276 usable IPs for Nodes
+- Node subnets: 3 × `/20` = 12,273 usable IPs for Nodes
 - Pod overlay: `/13` = 524,288 IPs for Pods (AKS limit: 200,000)
 - CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250), so `/13` covers 2,048 nodes. Lowering max pods per node does not help on AKS; 5,000 nodes needs a larger pod CIDR, such as a `/11` passed as `podsCidr`
 - Pod overlay can scale independently of VNet
@@ -294,7 +296,7 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 
 ### Non-Overlapping Subnet Guarantee
 
- **VALIDATED** - The API guarantees that public, private (node), and API server (control-plane) subnets never overlap within the VNet CIDR, and that the pod and service ranges sit outside the VNet in two other RFC 1918 blocks.
+ **VALIDATED** - The API guarantees that public, private (node), and API server (control-plane) subnets never overlap within the VNet CIDR, and that the pod and service ranges sit outside the VNet, clear of the AKS-reserved `172.30.0.0/16` and `172.31.0.0/16`: services in another RFC 1918 block, pods in another RFC 1918 block or, when none has room, in `100.64.0.0/10`.
 
 **Implementation** (first-fit):
 - Each subnet takes the lowest offset, aligned to its own size, that is still free
@@ -316,7 +318,9 @@ Private subnets (lowest free /20 slots):
 API server subnet (fills the gap after the public subnets):
   control-plane-1: 10.0.6.0/28  (10.0.6.0 - 10.0.6.15)  [16 IPs] [PASS] No overlap
 
-Pod overlay: 172.24.0.0/13   Service CIDR: 192.168.0.0/18   (outside the VNet)
+Pod overlay: 100.64.0.0/13   Service CIDR: 192.168.0.0/18   (outside the VNet)
+(Every /13 left in 172.16.0.0/12 holds 172.17.0.0/16 or the AKS-reserved
+172.30.0.0/16 and 172.31.0.0/16, so the pods fall back to RFC 6598 space.)
 ```
 
 **Test Coverage**:
@@ -598,7 +602,7 @@ Header: Retry-After: <delay-seconds>
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 1-3
 - Node Pools: 1
-- Pod Limit: ~330-440
+- Pod Limit: ~110-330 (110 pods per node)
 
 **AKS Compliance**:
 -  Standard Tier recommended (auto-scaling control plane)
@@ -624,7 +628,7 @@ Header: Retry-After: <delay-seconds>
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 3-10
 - Node Pools: 1-2 (recommended 1 for 3-10 nodes)
-- Pod Limit: ~1,100-3,300
+- Pod Limit: ~330-1,100 (110 pods per node)
 
 **AKS Compliance**:
 -  Standard Tier recommended for production
@@ -655,13 +659,13 @@ Header: Retry-After: <delay-seconds>
 - Service CIDR: `/20` (4,096 addresses)
 - Nodes: 10-50
 - Node Pools: 1-2 (recommended 1)
-- Pod Limit: ~3,300-16,500
+- Pod Limit: ~1,100-5,500 (110 pods per node)
 
 **AKS Compliance**:
 -  Standard Tier with control plane auto-scaling
 -  `/21` primary supports up to 50 nodes per pool
 -  Single node pool sufficient (< 1000 nodes)
--  Pod CIDR overlay supports full 16.5K pod capacity
+-  Pod CIDR overlay holds 256 nodes at a `/24` each, well above the tier's 50 nodes (~5,500 pods)
 -  Multi-AZ deployment recommended (3+ zones)
 -  Full production support
 
@@ -697,7 +701,7 @@ Header: Retry-After: <delay-seconds>
 
 **AKS Compliance**:
 -  Standard or Premium Tier control plane
--  3 × `/20` primaries (12,276 node IPs) support a full 5,000-node cluster
+-  3 × `/20` primaries (12,273 node IPs) support a full 5,000-node cluster
 -  Multiple node pools required (5-10 pools for 5K nodes)
 -  Azure CNI Overlay mandatory for 200K pods
 -  Pod CIDR `/13` supports 200K+ pod addresses, but CNI Overlay gives every node a fixed `/24` whatever its max pods, so `/13` covers 2,048 nodes. A 5,000-node cluster needs a larger pod CIDR: pass a `/11` `podsCidr` (lowering max pods per node does not shrink the per-node `/24`)
@@ -720,7 +724,7 @@ Total: 5,002 nodes
 - **MANDATORY** for 200K+ pods
 - Reduces VNet IP pressure
 - Enables true cluster-level pod scaling
-- Configuration: `--network-plugin azure --network-plugin-mode overlay --pod-cidr 172.24.0.0/13 --service-cidr 192.168.0.0/18 --dns-service-ip 192.168.0.10` (the API's `pods.cidr` and `services.cidr` for a hyperscale VNet in `10.0.0.0/8`; `--dns-service-ip` must be inside the service CIDR and not its first address). Without `--network-plugin-mode overlay`, `--network-plugin azure` uses node-subnet mode, not the overlay
+- Configuration: `--network-plugin azure --network-plugin-mode overlay --pod-cidr 100.64.0.0/13 --service-cidr 192.168.0.0/18 --dns-service-ip 192.168.0.10` (the API's `pods.cidr` and `services.cidr` for a hyperscale VNet in `10.0.0.0/8`; `--dns-service-ip` must be inside the service CIDR and not its first address). Without `--network-plugin-mode overlay`, `--network-plugin azure` uses node-subnet mode, not the overlay
 - API Server VNet Integration: `--enable-apiserver-vnet-integration --apiserver-subnet-id <subnet id>` with the plan's `/28` `subnets.controlPlane[0]`, delegated to `Microsoft.ContainerService/managedClusters`; nodes use `--vnet-subnet-id <subnet id>` from `subnets.private`
 
 **Scaling Thresholds**:
@@ -753,7 +757,7 @@ Primary VNet: 10.0.0.0/16 (65,536 addresses)
 ├─ API Server Subnet:
 │  └─ 10.0.6.0/28   (16 addresses, API Server VNet Integration)
 ├─ Outside the VNet:
-│  ├─ Pod CIDR:     172.24.0.0/13   (524,288 addresses; overlay, clear of 172.17.0.0/16)
+│  ├─ Pod CIDR:     100.64.0.0/13   (524,288 addresses; overlay, RFC 6598, clear of the AKS-reserved 172.30-31.0.0/16)
 │  └─ Service CIDR: 192.168.0.0/18  (16,384 addresses)
 └─ Managed Infrastructure:
    ├─ Public IPs (NAT Gateway)
@@ -800,7 +804,7 @@ Primary VNet: 10.0.0.0/16 (65,536 addresses)
 - Nodes get IPs directly from VNet subnet
 - ENIs attached to primary VNet subnet
 - Requires contiguous IP space
-- Formula: `2^(32-prefix) - 4 reserved IPs`
+- Formula: `2^(32-prefix) - 5` (Azure reserves the first four addresses and the last)
 
 **Secondary Ranges** (Pod/Service IPs):
 - Defined in AKS cluster configuration
@@ -813,10 +817,10 @@ Primary VNet: 10.0.0.0/16 (65,536 addresses)
 **Architecture**:
 ```
 VNet Subnet: 10.0.0.0/24 (256 addresses)
-└─ Node IPs: 10.0.0.0-10.0.0.254 (254 usable)
+└─ Node IPs: 10.0.0.4-10.0.0.254 (251 usable; Azure reserves .0-.3 and .255)
 
 Secondary Ranges (overlay, hyperscale values for a VNet in 10.0.0.0/8):
-├─ Pod CIDR:     172.24.0.0/13   (managed by Azure CNI, not from VNet; a fixed /24 per node)
+├─ Pod CIDR:     100.64.0.0/13   (managed by Azure CNI, not from VNet; a fixed /24 per node)
 └─ Service CIDR: 192.168.0.0/18  (managed by Kubernetes, not from VNet)
 ```
 
@@ -876,17 +880,20 @@ Secondary Ranges (overlay, hyperscale values for a VNet in 10.0.0.0/8):
 
 ## 8. RFC 1918 Private Address Space Compliance
 
-All AKS clusters **must** use RFC 1918 address ranges:
+The API puts the VNet and the service range in RFC 1918 space, and the pod range in RFC 1918 or RFC 6598 (`100.64.0.0/10`) space, the two kinds of pod CIDR Microsoft supports ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#ip-address-planning)).
 
-### Supported Private Ranges
+AKS also reserves `169.254.0.0/16`, `192.0.2.0/24`, `172.30.0.0/16`, and `172.31.0.0/16` for the cluster's service, pod, and virtual network ranges, and rejects ranges that overlap them ([Microsoft: AKS CNI networking prerequisites](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview#aks-cni-networking-prerequisites)). The first two are outside every range the API accepts. The last two are inside `172.16.0.0/12`, so with `"provider": "aks"` the API rejects a VNet, `podsCidr`, or `servicesCidr` that overlaps them, and never generates or randomly picks them.
 
-| RFC Range | Size | Our Primary Usage |
+### Supported Ranges
+
+| Range | Size | Our Primary Usage |
 |-----------|------|------------------|
-| **10.0.0.0/8** | 16.7M | Primary VNet (e.g., 10.0.0.0/18) |
-| **172.16.0.0/12** | 1.0M | Pod overlay CIDR (172.24.0.0/13 for Hyperscale, clear of 172.17.0.0/16) |
+| **10.0.0.0/8** | 16.7M | Primary VNet (e.g., 10.0.0.0/18), or pods when the VNet is in another block |
+| **172.16.0.0/12** | 1.0M | Pods for a VNet in 10.0.0.0/8 below hyperscale (e.g., 172.16.0.0/16 for enterprise), clear of 172.17.0.0/16, 172.30.0.0/16, and 172.31.0.0/16 |
 | **192.168.0.0/16** | 65.5K | Service CIDR (192.168.0.0/18 for Hyperscale, 192.168.0.0/20 otherwise) |
+| **100.64.0.0/10** (RFC 6598) | 4.2M | Hyperscale pods for a VNet in 10.0.0.0/8 (100.64.0.0/13): every /13 left in 172.16.0.0/12 holds a reserved range |
 
-Pods and services always go in the two RFC 1918 blocks the VNet does not use, and never overlap `172.17.0.0/16` (Docker's default bridge network). For a VNet in `172.16.0.0/12` the API uses `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VNet in `192.168.0.0/16` it uses `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range (for example, a `/11` `podsCidr` for 5,000 nodes, or an existing cluster's service CIDR).
+Generated pods and services go in blocks the VNet does not use, and never overlap `172.17.0.0/16` (Docker's default bridge network) or the AKS-reserved ranges. For a VNet in `10.0.0.0/8` the API uses `172.16.0.0/<podsPrefix>` (hyperscale: `100.64.0.0/13`) and `192.168.0.0/<servicesPrefix>`; for a VNet in `172.16.0.0/12`, `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VNet in `192.168.0.0/16`, `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range (for example, a `/11` `podsCidr` for 5,000 nodes, or an existing cluster's service CIDR).
 
 ### Allocation Strategy (Example)
 
@@ -896,16 +903,16 @@ VNet: 10.0.0.0/18 (16,384 addresses)
 ├─ Public Subnets: 3 × /23 (1,536 total for LBs, NAT gateways)
 ├─ Node Subnets: 3 × /20 (12,288 total for 5,000 nodes across 3 AZs)
 ├─ API Server Subnet: 10.0.6.0/28 (API Server VNet Integration)
-├─ Pod Overlay: 172.24.0.0/13 (524,288 addresses, outside the VNet)
+├─ Pod Overlay: 100.64.0.0/13 (524,288 addresses, RFC 6598, outside the VNet)
 └─ Service CIDR: 192.168.0.0/18 (16,384 addresses, outside the VNet)
 ```
 
 ### Azure Compliance
 
--  VNet must use RFC 1918 (enforced)
--  Secondary ranges must use RFC 1918 (enforced)
--  No public IP addresses for pod/service CIDRs (enforced)
--  No overlap between ranges (enforced by Azure)
+-  VNet must use RFC 1918 and stay clear of `172.30.0.0/16` and `172.31.0.0/16` (enforced by the API)
+-  Pod range in RFC 1918 or `100.64.0.0/10`; service range in RFC 1918; both clear of the AKS-reserved ranges (enforced by the API)
+-  No public IP addresses for pod/service CIDRs (enforced by the API)
+-  No overlap between ranges (enforced by the API and by Azure)
 
 ---
 
@@ -1048,7 +1055,7 @@ Total: 5,002-5,003 nodes across 3 zones
 
 ### All Tiers
 
-- [x] RFC 1918 private addressing only
+- [x] RFC 1918 private addressing (pods may also use RFC 6598 `100.64.0.0/10`); AKS-reserved `172.30.0.0/16` and `172.31.0.0/16` avoided
 - [x] Azure CNI compatible
 - [x] Service CIDR defined (/20; /18 for hyperscale)
 - [x] API Server VNet Integration subnet defined (/28)
@@ -1110,15 +1117,15 @@ on_tick(time):
 
 **Formula**:
 ```
-Node_Capacity = 2^(32 - subnet_prefix) - 4
+Node_Capacity = 2^(32 - subnet_prefix) - 5   (Azure reserves 5 addresses per subnet)
 
 Examples:
-/26 = 2^6 - 4 = 60 nodes (micro public)
-/25 = 2^7 - 4 = 124 nodes (micro private)
-/24 = 2^8 - 4 = 252 nodes (standard private)
-/23 = 2^9 - 4 = 508 nodes (professional private)
-/21 = 2^11 - 4 = 2,044 nodes (enterprise private)
-/20 = 2^12 - 4 = 4,092 nodes (hyperscale private)
+/26 = 2^6 - 5 = 59 nodes (micro public)
+/25 = 2^7 - 5 = 123 nodes (micro private)
+/24 = 2^8 - 5 = 251 nodes (standard private)
+/23 = 2^9 - 5 = 507 nodes (professional private)
+/21 = 2^11 - 5 = 2,043 nodes (enterprise private)
+/20 = 2^12 - 5 = 4,091 nodes (hyperscale private)
 ```
 
 ### 3. Pod CIDR Space (Overlay Model)
@@ -1156,7 +1163,7 @@ AKS requires a service CIDR smaller than /12
 
 1. **Add AKS-Specific Algorithms to Docs**
    - Token bucket explanation with examples
-   - Node IP formula: `2^(32-prefix) - 4`
+   - Node IP formula: `2^(32-prefix) - 5`
    - Pod CIDR overlay calculations
    - Service CIDR allocation
 
@@ -1221,13 +1228,14 @@ AKS requires a service CIDR smaller than /12
 
 ### Test Coverage
 
-**Unit Tests**: All 323 unit tests passing (6 files; `npm run test -- --run` runs all 503)
-- Subnet calculation verification
-- CIDR allocation correctness
-- Multi-pool node distribution
+`npm run test -- --run` runs every unit and integration test; per-file counts are in the [test inventory](../test-suite-analysis.md#test-inventory).
 
-**Integration Tests**: All 218 integration tests passing (8 files)
-- AZ configurations
+**Unit Tests** (`tests/unit/`):
+- Subnet calculation verification
+- CIDR allocation correctness, including the AKS-reserved ranges and the `100.64.0.0/10` pod fallback (`network-separation.test.ts`)
+- Provider formulas (`ip-calculation-compliance.test.ts`)
+
+**Integration Tests** (`tests/integration/`):
 - RFC 1918 compliance
 - Tier scaling characteristics
 

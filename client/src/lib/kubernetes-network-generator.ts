@@ -12,9 +12,12 @@
  *   subnets, then the control-plane network, which usually fills the alignment gap.
  * - The control plane is one network: a /28, or for EKS one /27 split into the two
  *   /28 subnets (two AZs) that EKS requires.
- * - Pods and services sit outside the VPC, each in its own RFC 1918 block: pods prefer
- *   10.0.0.0/8 (most space), services prefer 192.168.0.0/16.
- * - Generated pod and service ranges never touch RESERVED_RANGES.
+ * - Generated pods and services sit outside the VPC, each in its own RFC 1918 block:
+ *   pods prefer 10.0.0.0/8 (most space), services prefer 192.168.0.0/16. Pods also keep
+ *   out of a caller-supplied servicesCidr's block, and fall back to 100.64.0.0/10
+ *   (RFC 6598, accepted for pods by EKS, GKE and AKS) when no RFC 1918 block has room.
+ * - Generated ranges never touch RESERVED_RANGES or the provider's
+ *   PROVIDER_RESERVED_RANGES; caller-supplied ranges overlapping the latter are rejected.
  * - Every range in the finished plan is checked to be canonical and disjoint.
  */
 
@@ -34,9 +37,13 @@ import {
   KubernetesNetworkPlanSchema,
   KubernetesNetworkPlanRequestSchema,
   RESERVED_RANGES,
+  PROVIDER_RESERVED_RANGES,
   CONTROL_PLANE_SUBNET_PREFIX,
   PODS_PREFIX_LIMITS,
   SERVICES_PREFIX_LIMITS,
+  PROVIDER_SERVICES_PREFIX_LIMITS,
+  LARGEST_VPC_PREFIX,
+  LARGEST_VPC_REASON,
   normalizeProvider
 } from "@shared/kubernetes-schema";
 import { numberToIp, parseCidr, prefixToMask } from "./subnet-utils";
@@ -77,10 +84,22 @@ const RFC1918_BLOCKS = {
 type Rfc1918Name = keyof typeof RFC1918_BLOCKS;
 const RFC1918_NAMES = [10, 172, 192] as const;
 
-/** RFC 6598 shared address space, accepted for caller-supplied pod ranges */
+/** RFC 6598 shared address space: caller-supplied pods, and generated pods when RFC 1918 is full */
 const RFC6598_BLOCK: Block = { network: 0x64400000, prefix: 10 }; // 100.64.0.0/10
 
-const RESERVED = RESERVED_RANGES.map((r) => ({ ...parseCidr(r.cidr), cidr: r.cidr, reason: r.reason }));
+interface ReservedRange extends Block {
+  cidr: string;
+  reason: string;
+}
+const toReserved = (r: { cidr: string; reason: string }): ReservedRange => ({ ...parseCidr(r.cidr), cidr: r.cidr, reason: r.reason });
+
+/** Reserved for every provider: avoided, and a VPC overlapping them gets a warning */
+const RESERVED: ReservedRange[] = RESERVED_RANGES.map(toReserved);
+/** Refused by one provider: avoided, and caller ranges overlapping them are rejected */
+const providerReserved = (provider: CanonicalProvider): ReservedRange[] =>
+  (PROVIDER_RESERVED_RANGES[provider] ?? []).map(toReserved);
+/** Everything the generator must not allocate for this provider */
+const reservedFor = (provider: CanonicalProvider): ReservedRange[] => [...RESERVED, ...providerReserved(provider)];
 
 /** Pods prefer the largest block; services the smallest, keeping them compact */
 const PODS_BLOCK_ORDER: Rfc1918Name[] = [10, 172, 192];
@@ -255,14 +274,14 @@ function parseVpc(vpcCidr: string): Block {
 
 /**
  * Random /18 (16,384 addresses, enough for every tier and provider) inside a
- * randomly chosen RFC 1918 block, aligned and clear of reserved ranges.
+ * randomly chosen RFC 1918 block, aligned and clear of the provider's reserved ranges.
  */
-function randomVpc(): Block {
+function randomVpc(reserved: ReservedRange[]): Block {
   const block = RFC1918_BLOCKS[RFC1918_NAMES[Math.floor(Math.random() * RFC1918_NAMES.length)]];
   const slots = Array.from({ length: Math.pow(2, 18 - block.prefix) }, (_, i) => ({
     network: block.network + i * blockSize(18),
     prefix: 18,
-  })).filter((slot) => !RESERVED.some((r) => overlaps(r, slot)));
+  })).filter((slot) => !reserved.some((r) => overlaps(r, slot)));
   return slots[Math.floor(Math.random() * slots.length)];
 }
 
@@ -272,7 +291,8 @@ function parseOverride(
   cidr: string,
   allowed: Block[],
   allowedText: string,
-  limits: { largest: number; smallest: number }
+  limits: { largest: number; smallest: number },
+  reserved: ReservedRange[]
 ): Block {
   const range = parseRange(field, cidr);
   if (!allowed.some((a) => contains(a, range))) {
@@ -283,21 +303,21 @@ function parseOverride(
       `${field} "${cidr}" must be between /${limits.largest} and /${limits.smallest}; got /${range.prefix}.`
     );
   }
-  const reserved = RESERVED.find((r) => overlaps(r, range));
-  if (reserved) {
-    throw new KubernetesNetworkGenerationError(`${field} "${cidr}" overlaps ${reserved.cidr} (${reserved.reason}).`);
+  const clash = reserved.find((r) => overlaps(r, range));
+  if (clash) {
+    throw new KubernetesNetworkGenerationError(`${field} "${cidr}" overlaps ${clash.cidr} (${clash.reason}).`);
   }
   return range;
 }
 
-/** First free slot of the given size across the blocks, in order */
-function allocateRange(kind: string, prefix: number, blocks: Rfc1918Name[], avoid: Block[]): Block {
-  for (const name of blocks) {
-    const slot = firstFreeSlot(RFC1918_BLOCKS[name], prefix, avoid);
+/** First free slot of the given size across the candidate blocks, in order */
+function allocateRange(kind: string, prefix: number, candidates: Block[], avoid: Block[]): Block {
+  for (const block of candidates) {
+    const slot = firstFreeSlot(block, prefix, avoid);
     if (slot) return slot;
   }
   throw new KubernetesNetworkGenerationError(
-    `No free /${prefix} ${kind} range is left in the private blocks outside the VPC. Pass ${kind}Cidr explicitly.`
+    `No free /${prefix} ${kind} range is left outside the VPC in ${candidates.map(toCidr).join(", ")}. Pass ${kind}Cidr explicitly.`
   );
 }
 
@@ -305,7 +325,7 @@ function allocateRange(kind: string, prefix: number, blocks: Rfc1918Name[], avoi
  * Guard: subnets inside the VPC, pods and services outside it and clear of reserved
  * ranges, and no two ranges overlapping. A failure here is a bug, not bad input.
  */
-function assertSeparated(vpc: Block, subnets: SubnetConfig[], pods: Block, services: Block): void {
+function assertSeparated(vpc: Block, subnets: SubnetConfig[], pods: Block, services: Block, reserved: ReservedRange[]): void {
   const ranges = [
     ...subnets.map((s) => ({ name: `subnet ${s.name}`, block: parseCidr(s.cidr), insideVpc: true })),
     { name: "pods", block: pods, insideVpc: false },
@@ -315,7 +335,7 @@ function assertSeparated(vpc: Block, subnets: SubnetConfig[], pods: Block, servi
     if (r.insideVpc ? !contains(vpc, r.block) : overlaps(vpc, r.block)) {
       throw new Error(`Allocation bug: ${r.name} ${toCidr(r.block)} is ${r.insideVpc ? "outside" : "inside"} the VPC ${toCidr(vpc)}`);
     }
-    if (!r.insideVpc && RESERVED.some((reserved) => overlaps(reserved, r.block))) {
+    if (!r.insideVpc && reserved.some((range) => overlaps(range, r.block))) {
       throw new Error(`Allocation bug: ${r.name} ${toCidr(r.block)} overlaps a reserved range`);
     }
   }
@@ -350,8 +370,20 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   }
 
   // VPC: caller's (must be private) or a random /18
-  const vpc = req.vpcCidr ? parseVpc(req.vpcCidr) : randomVpc();
+  const reserved = reservedFor(provider);
+  const vpc = req.vpcCidr ? parseVpc(req.vpcCidr) : randomVpc(reserved);
   const vpcBlock = rfc1918BlockOf(vpc)!;
+  if (vpc.prefix < LARGEST_VPC_PREFIX) {
+    throw new KubernetesNetworkGenerationError(
+      `VPC ${toCidr(vpc)} is too large for ${provider.toUpperCase()}: ${LARGEST_VPC_REASON[provider]}. Use a /${LARGEST_VPC_PREFIX} or smaller (larger prefix number).`
+    );
+  }
+  const refused = providerReserved(provider).find((r) => overlaps(r, vpc));
+  if (refused) {
+    throw new KubernetesNetworkGenerationError(
+      `VPC ${toCidr(vpc)} overlaps ${refused.cidr}, ${refused.reason}, so ${provider.toUpperCase()} rejects it. Choose a VPC outside it.`
+    );
+  }
 
   // Nodes, control plane, and public subnets inside the VPC
   const layout = layoutSubnets(tier);
@@ -376,14 +408,15 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   const loadBalancerSubnets = makeSubnets("load-balancer", tier.loadBalancerSubnetSize, layout.loadBalancer);
   const controlPlaneSubnets = makeSubnets("control-plane", tier.controlPlaneSubnetSize, layout.controlPlane);
 
-  // Pods and services: outside the VPC, each in its own RFC 1918 block unless overridden
+  // Pods and services: outside the VPC, each in its own block unless overridden
   const podsOverride = req.podsCidr
     ? parseOverride("podsCidr", req.podsCidr, [...Object.values(RFC1918_BLOCKS), RFC6598_BLOCK],
-      "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 100.64.0.0/10", PODS_PREFIX_LIMITS)
+      "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 100.64.0.0/10", PODS_PREFIX_LIMITS, reserved)
     : undefined;
   const servicesOverride = req.servicesCidr
     ? parseOverride("servicesCidr", req.servicesCidr, Object.values(RFC1918_BLOCKS),
-      "10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16", SERVICES_PREFIX_LIMITS)
+      "10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16",
+      PROVIDER_SERVICES_PREFIX_LIMITS[provider] ?? SERVICES_PREFIX_LIMITS, reserved)
     : undefined;
   for (const [field, range] of [["podsCidr", podsOverride], ["servicesCidr", servicesOverride]] as const) {
     if (range && overlaps(range, vpc)) {
@@ -396,23 +429,28 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
     );
   }
 
+  // Generated pods: an RFC 1918 block other than the VPC's and the caller's services
+  // block, then RFC 6598 (AKS hyperscale on a 10.x VNet needs it: every /13 left in
+  // 172.16.0.0/12 holds 172.17.0.0/16 or the AKS-reserved 172.30-31.0.0/16)
+  const servicesBlock = servicesOverride ? rfc1918BlockOf(servicesOverride) : undefined;
   const pods = podsOverride ?? allocateRange(
     "pods",
     tier.podsPrefix,
-    PODS_BLOCK_ORDER.filter((b) => b !== vpcBlock),
-    [vpc, ...RESERVED, ...(servicesOverride ? [servicesOverride] : [])]
+    [...PODS_BLOCK_ORDER.filter((b) => b !== vpcBlock && b !== servicesBlock).map((b) => RFC1918_BLOCKS[b]), RFC6598_BLOCK],
+    [vpc, ...reserved, ...(servicesOverride ? [servicesOverride] : [])]
   );
   const podsBlock = rfc1918BlockOf(pods);
   const services = servicesOverride ?? allocateRange(
     "services",
     tier.servicesPrefix,
-    SERVICES_BLOCK_ORDER.filter((b) => b !== vpcBlock && b !== podsBlock),
-    [vpc, pods, ...RESERVED]
+    SERVICES_BLOCK_ORDER.filter((b) => b !== vpcBlock && b !== podsBlock).map((b) => RFC1918_BLOCKS[b]),
+    [vpc, pods, ...reserved]
   );
 
-  assertSeparated(vpc, [...publicSubnets, ...loadBalancerSubnets, ...privateSubnets, ...controlPlaneSubnets], pods, services);
+  assertSeparated(vpc, [...publicSubnets, ...loadBalancerSubnets, ...privateSubnets, ...controlPlaneSubnets], pods, services, reserved);
 
-  // A caller's VPC may overlap a reserved range; that is allowed but flagged
+  // A caller's VPC may overlap a range reserved for every provider; allowed but flagged
+  // (provider-reserved overlaps were rejected above)
   const warnings = RESERVED.filter((r) => overlaps(r, vpc)).map((r) =>
     `VPC ${toCidr(vpc)} overlaps ${r.cidr} (${r.reason}). Prefer a VPC outside it.`
   );

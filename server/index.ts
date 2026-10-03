@@ -1,14 +1,12 @@
 /**
  * server/index.ts
  *
- * Main Express server entry point. Handles:
- * - HTTP server creation with security middleware (helmet)
- * - JSON/URL-encoded request parsing
- * - API rate limiting and route registration
- * - Vite development server integration
- * - Static file serving in production
- * - Request/response logging
- * - Error handling
+ * Main Express server entry point. Builds the app with server/app.ts (security
+ * headers, compression, request logging, JSON body parsing, API rate limiting), then:
+ * - Registers the API routes
+ * - Serves the built client (production) or the Vite dev server (development)
+ * - Adds the JSON error handler
+ * - Starts the HTTP server with request timeouts and graceful shutdown
  *
  * Environment:
  * - PORT (default 5000): serves both the API and the client
@@ -16,33 +14,32 @@
  * - TRUST_PROXY: see below
  */
 
-import express, { type Request, Response, NextFunction } from "express";
-import compression from "compression";
-import { registerCspViolationEndpoint } from "./csp-report";
-import { registerRoutes, createApiRateLimiter } from "./routes";
-import { serveStatic } from "./static";
 import { createServer } from "http";
-import { logger, requestLogger } from "./logger";
-import { createSecurityHeaders } from "./csp-config";
+import { createApp, errorHandler } from "./app";
+import { registerRoutes } from "./routes";
+import { serveStatic } from "./static";
+import { logger } from "./logger";
 
-const app = express();
-
-// Match routes case-sensitively, as the rate limiter, its health-check exemption and
-// request logging do (/API/K8S/PLAN is not an API path)
-app.set("case sensitive routing", true);
-
-// Security headers with environment-aware CSP configuration
-// Development mode needs relaxed CSP for Vite HMR
-// Production mode uses strict CSP for maximum security
+// Development relaxes the CSP for Vite HMR and adds the CSP violation endpoint.
+// Production (NODE_ENV=production, inlined into dist/index.cjs by scripts/build.ts)
+// uses the strict CSP.
 const isDevelopment = process.env.NODE_ENV !== "production";
 
-// Security headers, with a CSP built from server/csp-config.ts
-app.use(createSecurityHeaders(isDevelopment));
+const app = createApp({ isDevelopment });
 
-// Compress responses (gzip/brotli) to speed up first load of the JS/CSS bundle.
-app.use(compression());
-
-const httpServer = createServer(app);
+// Timeouts against slow or stalled clients, passed to the constructor so Node checks
+// them at startup (headersTimeout must not exceed requestTimeout):
+// - requestTimeout: a whole request, headers and body, must arrive within 30 s
+// - headersTimeout: its headers within 20 s
+// - keepAliveTimeout: an idle keep-alive connection is kept for 65 s, longer than
+//   common load-balancer idle timeouts (AWS ALB: 60 s), so the load balancer closes
+//   idle connections first and never sends a request on one this server just closed
+// Node enforces the first two on a 30 s timer (connectionsCheckingInterval), so a
+// request is cut off up to 30 s after its limit.
+const httpServer = createServer(
+  { requestTimeout: 30_000, headersTimeout: 20_000, keepAliveTimeout: 65_000 },
+  app,
+);
 
 // Configure trust proxy for accurate client IP detection in rate limiting
 // WARNING: Only trust proxies you control. Trusting untrusted proxies allows X-Forwarded-For spoofing
@@ -78,26 +75,6 @@ try {
   process.exit(1);
 }
 
-// Request logging for API calls. Registered before the body parsers and the rate
-// limiter, so requests they reject (400, 413, 429) are logged too.
-app.use(requestLogger);
-
-// Parse JSON bodies for application/json and application/csp-report
-// Browsers send CSP violation reports with Content-Type: application/csp-report per W3C spec
-// API payloads are a few hundred bytes, so cap bodies well below Express's 100kb default.
-app.use(express.json({ type: ['application/json', 'application/csp-report'], limit: "16kb" }));
-
-app.use(express.urlencoded({ extended: false, limit: "16kb" }));
-
-// Per-IP rate limit for the API (health checks are exempt so probes never fail)
-app.use("/api", createApiRateLimiter());
-
-// CSP violation reporting endpoint (development only): browsers report blocked
-// content here, so CSP problems show up before they reach production
-if (isDevelopment) {
-  registerCspViolationEndpoint(app);
-}
-
 (async () => {
   const { routes } = await registerRoutes(httpServer, app);
 
@@ -117,26 +94,7 @@ if (isDevelopment) {
   }
 
   // Error handler last, so it also catches errors from static serving and Vite
-  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    // Client errors (malformed JSON, oversized body) are expected; only log 5xx as errors
-    if (status >= 500) {
-      logger.error("Internal Server Error", { status, path: req.path, method: req.method }, err);
-    } else {
-      logger.warn("Request rejected", { status, path: req.path, method: req.method, message: err.message });
-    }
-
-    // Never echo internal error details to clients
-    return res.status(status).json({
-      error: status < 500 ? err.message || "Bad Request" : "Internal Server Error",
-      code: status < 500 ? "INVALID_REQUEST" : "INTERNAL_ERROR",
-    });
-  });
+  app.use(errorHandler);
 
   // Serve the app on PORT (default 5000); this serves both the API and the client.
   // Production binds all interfaces so the server is reachable inside containers;
@@ -148,13 +106,6 @@ if (isDevelopment) {
     process.exit(1);
   }
   const host = process.env.HOST || (isDevelopment ? "127.0.0.1" : "0.0.0.0");
-
-  // Harden the HTTP server against slow-client and hung-socket attacks.
-  // keepAliveTimeout < headersTimeout avoids race conditions on keep-alive
-  // connections; requestTimeout caps total time for a single request.
-  httpServer.keepAliveTimeout = 65_000;
-  httpServer.headersTimeout = 66_000;
-  httpServer.requestTimeout = 30_000;
 
   // Graceful shutdown so in-flight requests can drain on redeploys/signals.
   let shuttingDown = false;

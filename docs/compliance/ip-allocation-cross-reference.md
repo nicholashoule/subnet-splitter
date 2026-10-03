@@ -85,7 +85,7 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
 - **Available**: 256 IPs
 - **Result**:  IP EXHAUSTION - Cluster cannot scale
 
-**Solution**: Our Hyperscale tier uses `/20` private subnets (4,092 IPs per subnet, 3 subnets × 3 AZs) with `/13` pod CIDR
+**Solution**: Our Hyperscale tier uses `/20` private subnets (4,091 usable IPs per subnet, since AWS reserves 5 per subnet; 3 subnets across 3 AZs) with `/13` pod CIDR
 
 #### IP Prefix Delegation (EKS-Specific)
 
@@ -112,7 +112,7 @@ This document provides a detailed cross-reference of IPv4 address allocation pat
 Total IPs Needed = (Max Pods per Node × Max Nodes) + Buffer
 ```
 
-**Standard Practice**: Use non-RFC 1918 ranges such as 100.64.0.0/10 (RFC 6598 shared address space, "CG-NAT") or 198.19.0.0/16 (part of the RFC 2544 benchmarking block 198.18.0.0/15) to avoid conflicts with corporate RFC 1918 networks (10.x, 172.16.x, 192.168.x).
+**Standard Practice**: Use 100.64.0.0/10 (RFC 6598 shared address space, "CG-NAT") to avoid conflicts with corporate RFC 1918 networks (10.x, 172.16.x, 192.168.x). EKS, GKE, and AKS overlay all accept it for pods. Do not use 198.19.0.0/16 (part of the RFC 2544 benchmarking block 198.18.0.0/15): AWS refuses to associate it with a VPC whose CIDRs are RFC 1918 ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)), and this API rejects it as `podsCidr`.
 
 **Minimums**: You typically need at least a /28 per subnet (16 IPs), but this is too small for practical Pod subnets.
 
@@ -176,17 +176,17 @@ Note: /13 (524,288 IPs) is smaller than 550,000, so it cannot hold
 
 **Solution**: Use **CG-NAT (Carrier-Grade NAT)** ranges for Pod networks:
 
-**Non-RFC 1918 Ranges**:
-- **100.64.0.0/10** (RFC 6598 shared address space, "CG-NAT"): 4,194,304 IPs (perfect for massive clusters)
-- **198.19.0.0/16** (RFC 2544 benchmarking space, not CG-NAT): 65,536 IPs (sufficient for most enterprise)
+**Non-RFC 1918 Range**:
+- **100.64.0.0/10** (RFC 6598 shared address space, "CG-NAT"): 4,194,304 IPs (perfect for massive clusters). Microsoft supports it for AKS overlay pod CIDRs, it is a valid GCP subnet range, and AWS lets a VPC add a secondary block from it
+- **198.19.0.0/16** (RFC 2544 benchmarking space): **not supported**. AWS refuses to associate it with an RFC 1918 VPC, and the API rejects it as `podsCidr` (pods must be RFC 1918 or `100.64.0.0/10`)
 
-**In this API**: pass a `100.64.0.0/10` range as `podsCidr` (`/8` to `/24`) to use it for pods. `servicesCidr` must stay RFC 1918, since EKS requires an RFC 1918 service range.
+**In this API**: pass a `100.64.0.0/10` range as `podsCidr` (`/8` to `/24`) to use it for pods. Generated pods also fall back to `100.64.0.0/10` when no RFC 1918 block outside the VPC (and outside a `servicesCidr` you pass) has room, as for AKS hyperscale on a `10.x` VNet (`100.64.0.0/13`). `servicesCidr` must stay RFC 1918, since EKS requires an RFC 1918 service range.
 
 **Benefits**:
 - No conflicts with corporate RFC 1918 networks
 - Large contiguous address space
-- Officially designated for private use
-- Kubernetes CNI plugins support these ranges
+- Reserved by RFC 6598 for shared (carrier-grade NAT) use, so it is not routed on the public internet
+- Kubernetes CNI plugins support it
 
 **Example**:
 ```yaml
@@ -208,7 +208,7 @@ spec:
 2. **Use /18 for mid-sized clusters** (16,384 IPs) - good balance
 3. **Use /20 for small dev/test** (4,096 IPs) - minimum practical size
 4. **Avoid /13 unless 5,000+ nodes** (524,288 IPs) - massive waste otherwise
-5. **Consider non-RFC 1918 ranges** (100.64.0.0/10 CG-NAT, 198.19.0.0/16 benchmarking space) to avoid RFC 1918 conflicts
+5. **Consider 100.64.0.0/10** (RFC 6598, CG-NAT) for pods to avoid RFC 1918 conflicts; not 198.19.0.0/16, which AWS refuses for RFC 1918 VPCs and this API rejects
 6. **Plan for 20-50% buffer** beyond current needs for growth
 7. **Use per-AZ /18 subnets** when distributing /16 across 3 availability zones
 - Enable via: `kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true`
@@ -365,8 +365,8 @@ With Azure CNI Overlay:
 **Problem**: Pods and Nodes share VPC CIDR space
 
 **Hyperscale Tier (5,000 nodes, 110 pods/node)**:
-- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet = 12,276 IPs total)
-- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Private Subnets**: 3 × `/20` (4,091 usable IPs per subnet = 12,273 IPs total; AWS reserves 5 per subnet)
+- **Public Subnets**: 3 × `/23` (507 usable IPs per subnet for load balancers)
 - **Why**: Private subnets for Nodes, public for ingress; `/20` provides ample Node + Pod headroom
 - **Distribution**: 3 subnets across 3 AZs
 - **Pod CIDR**: `/13` (524K IPs) - separate configuration for VPC CNI. This is less than the 550,000 pods of 5,000 nodes × 110, so plan fewer pods per node at full scale
@@ -378,8 +378,8 @@ With Azure CNI Overlay:
 **Advantage**: Node subnet only needs Node IPs
 
 **Hyperscale Tier (5,000 nodes)**:
-- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
-- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Private Subnets**: 3 × `/20` (4,092 usable IPs per subnet; GCP reserves 4) - for Nodes only. A cluster takes its nodes from one default subnet, so one `/20` holds 4,092 nodes; 5,000 needs a `/19` or [additional subnets](https://cloud.google.com/kubernetes-engine/docs/how-to/multi-subnet-cluster) for new node pools
+- **Public Subnets**: 3 × `/23` (508 usable IPs per subnet for load balancers)
 - **Why**: Google manages alias ranges automatically; smaller subnets are practical
 - **Pod CIDR**: `/13` (524K IPs via alias ranges). At 65-128 max pods GKE reserves a `/24` per node, so this covers 2,048 nodes; 5,000 nodes requires max pods per node <= 32 (`/26` per node) or a `/11` `podsCidr`
 - **Control plane**: one `/28` range for `master_ipv4_cidr_block`; subnets are regional (no zone)
@@ -390,8 +390,8 @@ With Azure CNI Overlay:
 **Advantage**: Overlay CIDR is completely decoupled
 
 **Hyperscale Tier (5,000 nodes)**:
-- **Private Subnets**: 3 × `/20` (4,092 IPs per subnet) - for Nodes only
-- **Public Subnets**: 3 × `/23` (510 IPs per subnet for load balancers)
+- **Private Subnets**: 3 × `/20` (4,091 usable IPs per subnet; Azure reserves 5) - for Nodes only
+- **Public Subnets**: 3 × `/23` (507 usable IPs per subnet for load balancers)
 - **Why**: Pods use overlay network (no VNet pressure); smaller subnets practical
 - **Overlay CIDR**: `/13` (524K IPs) - separate overlay network. CNI Overlay gives every node a fixed `/24` whatever its max pods, so this covers 2,048 nodes; 5,000 nodes requires a larger pod CIDR, such as a `/11` `podsCidr`
 - **Control plane**: one `/28` API Server VNet Integration subnet; subnets are regional (no zone)
@@ -586,9 +586,9 @@ External IPs needed = ((# of instances) × (Ports / Instance)) / Ports per IP
 
 | Provider | Private Subnets | Public Subnets | Rationale |
 |----------|----------------|----------------|-----------|
-| **EKS** | 3 × **/20** (4,092 IPs each) | 3 × **/23** (510 IPs each) | Private for Nodes + Pods, public for LBs<br>Pod secondary IPs from private subnet space |
-| **GKE** | 3 × **/20** (4,092 IPs each) | 3 × **/23** (510 IPs each) | Nodes only (Pods use alias ranges)<br>Smaller subnets practical with Google IP management |
-| **AKS** | 3 × **/20** (4,092 IPs each)<br>+ **/24** per App Gateway | 3 × **/23** (510 IPs each) | Nodes only (Pods use overlay)<br>Separate subnets for App Gateways |
+| **EKS** | 3 × **/20** (4,091 usable each) | 3 × **/23** (507 usable each) | Private for Nodes + Pods, public for LBs<br>Pod secondary IPs from private subnet space |
+| **GKE** | 3 × **/20** (4,092 usable each; nodes come from one) | 3 × **/23** (508 usable each) | Nodes only (Pods use alias ranges)<br>Smaller subnets practical with Google IP management |
+| **AKS** | 3 × **/20** (4,091 usable each)<br>+ **/24** per App Gateway | 3 × **/23** (507 usable each) | Nodes only (Pods use overlay)<br>Separate subnets for App Gateways |
 
 ---
 

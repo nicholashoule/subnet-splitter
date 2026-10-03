@@ -2,9 +2,12 @@
  * tests/unit/ui-styles.test.ts
  *
  * UI styling tests covering:
- * - WCAG 2.x contrast for the color pairs the app renders, in both themes
+ * - WCAG 2.x contrast for the color pairs the app renders, in both themes, and
+ *   non-text contrast (3:1) for input borders and the focus ring
  * - Design system consistency across themes
- * - Semantic structure of the calculator page
+ * - Focus indicators of the shared button, input and checkbox components
+ * - Semantic structure of the calculator and 404 pages (headings, names, live regions, links)
+ * - The saved theme applied before first paint (client/public/theme-init.js)
  *
  * Colors are read from client/src/index.css, so a palette change is checked
  * as soon as it is made.
@@ -18,7 +21,9 @@ type Rgb = [number, number, number];
 type Hsl = [number, number, number];
 
 const css = fs.readFileSync(path.resolve(__dirname, "../../client/src/index.css"), "utf8");
-const calculator = fs.readFileSync(path.resolve(__dirname, "../../client/src/pages/calculator.tsx"), "utf8");
+const read = (file: string) => fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
+const calculator = read("client/src/pages/calculator.tsx");
+const notFound = read("client/src/pages/not-found.tsx");
 
 // Reads "--name: H S% L%;" declarations from a selector block
 function readTokens(selector: string): Record<string, Hsl> {
@@ -62,7 +67,7 @@ function contrast(a: Rgb, b: Rgb): number {
 
 describe("UI Accessibility - WCAG Contrast", () => {
   it("reads the palette from index.css", () => {
-    for (const name of ["background", "foreground", "card", "popover", "popover-foreground", "primary", "muted", "muted-foreground", "destructive", "destructive-soft", "destructive-soft-foreground", "success"]) {
+    for (const name of ["background", "foreground", "card", "popover", "popover-foreground", "primary", "muted", "muted-foreground", "destructive", "destructive-soft", "destructive-soft-foreground", "success", "input", "ring"]) {
       expect(themes.light[name], `light --${name}`).toBeDefined();
       expect(readTokens(".dark")[name], `dark --${name}`).toBeDefined();
     }
@@ -109,9 +114,20 @@ describe("UI Accessibility - WCAG Contrast", () => {
       expect(contrast(color("foreground"), background)).toBeGreaterThanOrEqual(7);
     });
 
-    it("focus ring meets WCAG non-text contrast (3:1) on background and card", () => {
-      expect(contrast(color("ring"), background)).toBeGreaterThanOrEqual(3);
-      expect(contrast(color("ring"), color("card"))).toBeGreaterThanOrEqual(3);
+    // Non-text contrast (WCAG 1.4.11): component boundaries and focus indicators need 3:1
+    // against the colors next to them
+    const nonTextPairs: Array<[string, Rgb, Rgb]> = [
+      ["input border on card", color("input"), color("card")],
+      ["input border on background", color("input"), background],
+      ["focus ring on background", color("ring"), background],
+      ["focus ring on card", color("ring"), color("card")],
+      // The ring equals --primary, so on a primary button only the 2px ring-offset gap
+      // (ring-offset-background) separates them: the gap must contrast with the button fill
+      ["focus ring offset (background) against a primary button", background, color("primary")],
+    ];
+
+    it.each(nonTextPairs)("%s meets WCAG non-text contrast (3:1)", (_pair, fg, bg) => {
+      expect(contrast(fg, bg)).toBeGreaterThanOrEqual(3);
     });
 
     it("toast close icon (foreground/50) meets WCAG non-text contrast (3:1) on both toast variants", () => {
@@ -177,14 +193,67 @@ describe("Design System Consistency", () => {
   });
 });
 
+describe("Focus Indicators", () => {
+  // Class tokens of a component source, so "ring-2" is not satisfied by "ring-20"
+  const classTokens = (file: string) => new Set(read(`client/src/components/ui/${file}`).split(/[\s"'`]+/));
+
+  it.each(["button.tsx", "input.tsx", "checkbox.tsx"])("%s draws a 2px focus ring outside a 2px background-colored gap", (file) => {
+    const tokens = classTokens(file);
+    for (const token of ["focus-visible:ring-2", "focus-visible:ring-ring", "focus-visible:ring-offset-2", "ring-offset-background"]) {
+      expect(tokens, `${file}: ${token}`).toContain(token);
+    }
+    // A 1px ring with no gap is invisible on a primary button (the ring color is --primary)
+    expect(tokens).not.toContain("focus-visible:ring-1");
+  });
+});
+
 describe("Semantic Structure", () => {
-  it("names the header QR code link by its destination", () => {
-    expect(calculator).toContain('alt="nicholashoule on GitHub (QR code)"');
+  // Source of one top-level component, from its declaration to its closing brace at column 0
+  const component = (source: string, name: string) => {
+    const start = source.search(new RegExp(`^(export default )?function ${name}\\(`, "m"));
+    expect(start, name).toBeGreaterThanOrEqual(0);
+    return source.slice(start, source.indexOf("\n}\n", start));
+  };
+
+  // The heading level CardTitle renders, read from card.tsx (null if it is not a heading)
+  const cardTitleLevel = () => {
+    const card = read("client/src/components/ui/card.tsx");
+    const tag = card.slice(card.indexOf("const CardTitle")).match(/<(h[1-6]|div|p|span)\b/)?.[1] ?? "";
+    return /^h[1-6]$/.test(tag) ? Number(tag[1]) : null;
+  };
+
+  // Heading levels in the order the calculator renders them: its own JSX, with
+  // CardTitle and the SubnetDetails card expanded to the headings they render
+  const headingLevels = (jsx: string): Array<number | null> =>
+    [...jsx.matchAll(/<(h[1-6]|CardTitle|SubnetDetails)\b/g)].flatMap(([, tag]) =>
+      tag === "SubnetDetails" ? headingLevels(component(calculator, "SubnetDetails"))
+        : tag === "CardTitle" ? [cardTitleLevel()]
+        : [Number(tag[1])]);
+
+  it("renders CardTitle as an h2, so each card is a section under the page's h1", () => {
+    expect(cardTitleLevel()).toBe(2);
   });
 
-  it("follows h1 with h2, not h3", () => {
-    expect(calculator).toContain("<h1 ");
-    expect(calculator).not.toContain("<h3");
+  it("gives the calculator one h1 followed by h2 sections, skipping no level", () => {
+    // The title, then Enter CIDR Range, Network Overview, Subnet Table and the empty state
+    const levels = headingLevels(component(calculator, "Calculator"));
+    expect(levels).toEqual([1, 2, 2, 2, 2]);
+    levels.forEach((level, i) => {
+      if (i > 0) expect(level!).toBeLessThanOrEqual(levels[i - 1]! + 1);
+    });
+  });
+
+  it("gives the 404 page a single h1", () => {
+    expect(headingLevels(notFound)).toEqual([1]);
+  });
+
+  it("keeps the subnet table toolbar out of its heading and names the table by the heading", () => {
+    expect(calculator).toContain('<CardTitle id="subnet-table-title">Subnet Table</CardTitle>');
+    expect(calculator).toContain('aria-labelledby="subnet-table-title"');
+  });
+
+  it("names the header QR code link by its destination", () => {
+    expect(calculator).toContain('alt="nicholashoule on GitHub (QR code)"');
   });
 
   it("labels the theme toggle with the action a press performs, and the docs link", () => {
@@ -192,15 +261,69 @@ describe("Semantic Structure", () => {
     expect(calculator).toContain('aria-label="Open API documentation"');
   });
 
-  it("labels the CIDR input and ties validation errors to it", () => {
-    expect(calculator).toContain('<label htmlFor="cidr-input"');
+  it("names the CIDR input by its visible heading (WCAG 2.5.3) and ties validation errors to it", () => {
+    expect(calculator).toContain('<CardTitle id="cidr-heading">Enter CIDR Range</CardTitle>');
+    expect(calculator).toContain('aria-labelledby="cidr-heading"');
+    expect(calculator).toContain("aria-invalid={!!cidrError}");
     expect(calculator).toContain('aria-describedby={cidrError ? "cidr-input-error" : undefined}');
-    expect(calculator).toContain('id="cidr-input-error"');
+  });
+
+  it("announces messages: validation errors as alerts, table status in a live region", () => {
+    // Enter in the input moves no focus, so only role="alert" announces the error;
+    // a new key per failed submit announces a repeated error again
+    expect(calculator).toMatch(/<p key=\{cidrError\.id\} id="cidr-input-error" role="alert"/);
+    // The status region stays mounted; a new key per message re-announces repeated text
+    expect(calculator).toMatch(/<div role="status">\s*\{statusMessage && \(\s*<span key=\{statusMessage\.id\}/);
+  });
+
+  it("underlines links inside text, not just on hover (color alone is not enough)", () => {
+    const linkClasses = (source: string, href: string) => {
+      const tag = source.match(new RegExp(`<a href="${href}"[^>]*>`))?.[0] ?? "";
+      return (tag.match(/className="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    };
+    const footer = calculator.slice(calculator.indexOf("Created by"));
+    for (const classes of [linkClasses(footer, "https://github.com/nicholashoule"), linkClasses(notFound, "/")]) {
+      expect(classes).toContain("text-primary");
+      expect(classes).toContain("underline");
+    }
   });
 
   it("has a footer with the CIDR explanation and creator link", () => {
     expect(calculator).toContain("CIDR (Classless Inter-Domain Routing)");
     expect(calculator).toMatch(/Created by <a href="https:\/\/github\.com\/nicholashoule"/);
+  });
+});
+
+describe("Theme Before First Paint", () => {
+  const html = read("client/index.html");
+  const themeInit = read("client/public/theme-init.js");
+
+  it("loads theme-init.js as a classic blocking script in <head>, before the app bundle", () => {
+    const head = html.slice(0, html.indexOf("</head>"));
+    expect(head).toContain('<script src="/theme-init.js"></script>');
+    expect(html.indexOf("/theme-init.js")).toBeLessThan(html.indexOf('type="module"'));
+    // No inline script: the CSP (script-src 'self') would block it
+    expect(html).not.toContain("<script>");
+  });
+
+  // Runs theme-init.js against a stub document and localStorage; returns the classes it adds
+  const run = (getItem: (key: string) => string | null) => {
+    const classes = new Set<string>();
+    const document = { documentElement: { classList: { add: (name: string) => classes.add(name) } } };
+    new Function("localStorage", "document", themeInit)({ getItem }, document);
+    return classes;
+  };
+
+  it("applies dark only when the saved theme is dark, like lib/theme.ts", () => {
+    const keys: string[] = [];
+    expect(run((key) => (keys.push(key), "dark"))).toEqual(new Set(["dark"]));
+    expect(keys).toEqual(["theme"]);
+    expect(run(() => "light")).toEqual(new Set());
+    expect(run(() => null)).toEqual(new Set());
+  });
+
+  it("keeps the light default when storage is unavailable", () => {
+    expect(run(() => { throw new Error("SecurityError"); })).toEqual(new Set());
   });
 });
 

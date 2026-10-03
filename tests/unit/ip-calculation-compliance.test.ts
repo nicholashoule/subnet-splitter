@@ -5,8 +5,9 @@
  * from EKS_COMPLIANCE_AUDIT.md, GKE_COMPLIANCE_AUDIT.md, AKS_COMPLIANCE_AUDIT.md,
  * and IP_ALLOCATION_CROSS_REFERENCE.md
  *
- * These tests validate that our tier configurations match the documented
- * IP allocation formulas for each cloud provider.
+ * These tests check the tier layouts the generator applies (getTierConfig and real
+ * plans) against each provider's documented address rules: usable addresses per
+ * subnet, pod ranges per node, Service range sizes, and VPC size.
  */
 
 import { describe, it, expect } from "vitest";
@@ -32,28 +33,28 @@ function cidrToRange(cidr: string): { start: number; end: number } {
   return { start, end: start + size - 1 };
 }
 
-// Calculate node capacity from subnet prefix
-// Formula: Node_Capacity = 2^(32 - prefix) - 4
-function calculateNodeCapacity(prefix: number): number {
-  return Math.pow(2, 32 - prefix) - 4;
+// Addresses each cloud keeps in every subnet: AWS (VPC user guide, subnet sizing) and
+// Azure (virtual network FAQ) reserve 5; Google Cloud reserves 4
+const RESERVED_PER_SUBNET = { eks: 5, aks: 5, gke: 4 } as const;
+type CloudProvider = keyof typeof RESERVED_PER_SUBNET;
+const CLOUD_PROVIDERS = Object.keys(RESERVED_PER_SUBNET) as CloudProvider[];
+
+/** Usable addresses (one per node) in a subnet of the given prefix */
+function usableAddresses(prefix: number, provider: CloudProvider): number {
+  return Math.pow(2, 32 - prefix) - RESERVED_PER_SUBNET[provider];
 }
 
-// Calculate pod capacity using GKE alias IP formula
-// Formula: MN = 2^(HD - HM) where HD = 32 - podPrefix, HM = 8 (for /24 per node)
-function calculateGKENodeCapacity(podPrefix: number): number {
-  const HD = 32 - podPrefix; // Host bits for pod subnet
-  const HM = 8; // Host bits per node (/24 per node in GKE)
-  return Math.pow(2, HD - HM);
+/**
+ * GKE per-node pod range (GKE_COMPLIANCE_AUDIT.md): M = 31 - ceil(log2(Q)) for Q max
+ * pods per node, so each node takes 2^(32 - M) addresses (a /24 for 65-128 pods)
+ */
+function gkeNodeRangeBits(maxPodsPerNode: number): number {
+  return 32 - (31 - Math.ceil(Math.log2(maxPodsPerNode)));
 }
 
-// Calculate max pods for GKE
-// Formula: MP = MN * Q where Q = pods per node
-function calculateGKEMaxPods(
-  podPrefix: number,
-  podsPerNode: number = 110
-): number {
-  const maxNodes = calculateGKENodeCapacity(podPrefix);
-  return maxNodes * podsPerNode;
+/** Nodes that fit in a GKE pod range: MN = 2^(HD - HM) */
+function gkeMaxNodes(podPrefix: number, maxPodsPerNode: number): number {
+  return Math.pow(2, (32 - podPrefix) - gkeNodeRangeBits(maxPodsPerNode));
 }
 
 // Calculate total IP addresses from prefix
@@ -151,52 +152,33 @@ describe("IP Calculation Compliance Validation", () => {
     });
   });
 
-  describe("Primary Subnet Sizing Formula Validation", () => {
-    /**
-     * From EKS_COMPLIANCE_AUDIT.md Section 5.1:
-     * Formula: Node_Capacity = 2^(32 - prefix_length) - 4
-     * Updated: Now uses privateSubnetSize for node capacity calculation
-     */
-    describe("Node Capacity Calculations", () => {
-      it("should calculate micro tier node capacity correctly", () => {
-        const prefix = DEPLOYMENT_TIER_CONFIGS["micro"].privateSubnetSize;
-        const capacity = calculateNodeCapacity(prefix);
-        // /25: 2^7 - 4 = 124 nodes
-        expect(capacity).toBe(124);
-        expect(capacity).toBeGreaterThanOrEqual(1); // Micro supports 1 node
-      });
+  describe("Node Subnet Capacity", () => {
+    // Node subnet prefix of each tier, and the most nodes one subnet must hold
+    // (hyperscale spreads 5,000 nodes over 3 subnets on EKS and AKS)
+    const NODE_SUBNETS = {
+      micro: { prefix: 25, nodesPerSubnet: 1 },
+      standard: { prefix: 24, nodesPerSubnet: 3 },
+      professional: { prefix: 23, nodesPerSubnet: 10 },
+      enterprise: { prefix: 21, nodesPerSubnet: 50 },
+      hyperscale: { prefix: 20, nodesPerSubnet: 1667 },
+    } as const;
 
-      it("should calculate standard tier node capacity correctly", () => {
-        const prefix = DEPLOYMENT_TIER_CONFIGS["standard"].privateSubnetSize;
-        const capacity = calculateNodeCapacity(prefix);
-        // /24: 2^8 - 4 = 252 nodes
-        expect(capacity).toBe(252);
-        expect(capacity).toBeGreaterThanOrEqual(3); // Standard supports 1-3 nodes
+    for (const [tier, { prefix, nodesPerSubnet }] of Object.entries(NODE_SUBNETS)) {
+      it(`gives each ${tier} node subnet a /${prefix} with room for its nodes on EKS, AKS and GKE`, () => {
+        for (const provider of CLOUD_PROVIDERS) {
+          const config = getTierConfig(tier as keyof typeof NODE_SUBNETS, provider);
+          expect(config.privateSubnetSize, provider).toBe(prefix);
+          expect(usableAddresses(config.privateSubnetSize, provider), provider).toBeGreaterThanOrEqual(nodesPerSubnet);
+        }
       });
+    }
 
-      it("should calculate professional tier node capacity correctly", () => {
-        const prefix = DEPLOYMENT_TIER_CONFIGS["professional"].privateSubnetSize;
-        const capacity = calculateNodeCapacity(prefix);
-        // /23: 2^9 - 4 = 508 nodes
-        expect(capacity).toBe(508);
-        expect(capacity).toBeGreaterThanOrEqual(10); // Professional supports 3-10 nodes
-      });
-
-      it("should calculate enterprise tier node capacity correctly", () => {
-        const prefix = DEPLOYMENT_TIER_CONFIGS["enterprise"].privateSubnetSize;
-        const capacity = calculateNodeCapacity(prefix);
-        // /21: 2^11 - 4 = 2,044 nodes
-        expect(capacity).toBe(2044);
-        expect(capacity).toBeGreaterThanOrEqual(50); // Enterprise supports 10-50 nodes
-      });
-
-      it("should calculate hyperscale tier node capacity correctly", () => {
-        const prefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].privateSubnetSize;
-        const capacity = calculateNodeCapacity(prefix);
-        // /20: 2^12 - 4 = 4,092 nodes per subnet
-        expect(capacity).toBe(4092);
-        expect(capacity).toBeGreaterThanOrEqual(1667); // Hyperscale supports 50-5000 nodes across 3 subnets
-      });
+    it("counts 5 reserved addresses per subnet for AWS and Azure, 4 for Google Cloud", () => {
+      expect(usableAddresses(20, "eks")).toBe(4091);
+      expect(usableAddresses(20, "aks")).toBe(4091);
+      expect(usableAddresses(20, "gke")).toBe(4092);
+      expect(usableAddresses(24, "aks")).toBe(251); // Microsoft: a /24 leaves 251 usable
+      expect(usableAddresses(25, "eks")).toBe(123);
     });
   });
 
@@ -209,60 +191,46 @@ describe("IP Calculation Compliance Validation", () => {
      * MN = 2^(HD - HM) (max nodes)
      * MP = MN * Q (max pods)
      */
-    describe("GKE Node Capacity from Pod CIDR", () => {
-      it("should calculate hyperscale GKE node capacity correctly (/13 pod CIDR)", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        // /13 pod CIDR: HD = 32-13 = 19, HM = 8, MN = 2^(19-8) = 2048 nodes
-        const maxNodes = calculateGKENodeCapacity(podPrefix);
-        expect(maxNodes).toBe(2048);
+    describe("GKE Node Capacity from Pod CIDR (110 pods per node: a /24 each)", () => {
+      it("derives a /24 per node at 65-128 max pods, and a /26 at 32", () => {
+        expect(gkeNodeRangeBits(110)).toBe(8);
+        expect(gkeNodeRangeBits(65)).toBe(8);
+        expect(gkeNodeRangeBits(128)).toBe(8);
+        expect(gkeNodeRangeBits(32)).toBe(6);
       });
 
-      it("should calculate enterprise GKE node capacity correctly (/16 pod CIDR)", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["enterprise"].podsPrefix;
-        // /16 pod CIDR: HD = 32-16 = 16, HM = 8, MN = 2^(16-8) = 256 nodes
-        const maxNodes = calculateGKENodeCapacity(podPrefix);
-        expect(maxNodes).toBe(256);
+      it("holds 2,048 nodes in the hyperscale /13 pod range", () => {
+        expect(gkeMaxNodes(getTierConfig("hyperscale", "gke").podsPrefix, 110)).toBe(2048);
       });
 
-      it("should calculate micro GKE node capacity correctly (/20 pod CIDR)", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["micro"].podsPrefix;
-        // /20 pod CIDR: HD = 32-20 = 12, HM = 8, MN = 2^(12-8) = 16 nodes
-        const maxNodes = calculateGKENodeCapacity(podPrefix);
-        expect(maxNodes).toBe(16);
+      it("holds 256 nodes in the enterprise /16 pod range", () => {
+        expect(gkeMaxNodes(getTierConfig("enterprise", "gke").podsPrefix, 110)).toBe(256);
+      });
+
+      it("holds 16 nodes in the micro /20 pod range", () => {
+        expect(gkeMaxNodes(getTierConfig("micro", "gke").podsPrefix, 110)).toBe(16);
       });
     });
 
-    describe("GKE Max Pods Calculation (110 pods/node)", () => {
-      it("should calculate hyperscale GKE max pods correctly", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        // MP = 2048 nodes * 110 pods = 225,280 pods
-        const maxPods = calculateGKEMaxPods(podPrefix, 110);
-        expect(maxPods).toBe(225280);
-        // 2,048 nodes at 110 pods; reaching 5,000 nodes needs <= 32 pods per node or a /11 podsCidr
+    describe("GKE Max Pods (nodes x max pods per node)", () => {
+      it("gives hyperscale 225,280 pods at 110 per node", () => {
+        expect(gkeMaxNodes(getTierConfig("hyperscale", "gke").podsPrefix, 110) * 110).toBe(225280);
       });
 
-      it("should calculate enterprise GKE max pods correctly", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["enterprise"].podsPrefix;
-        // MP = 256 nodes * 110 pods = 28,160 pods
-        const maxPods = calculateGKEMaxPods(podPrefix, 110);
-        expect(maxPods).toBe(28160);
-        // Enterprise tier supports 10-50 nodes with 110 pods = 1,100-5,500 pods max
-        expect(maxPods).toBeGreaterThanOrEqual(5500);
+      it("gives enterprise 28,160 pods at 110 per node, above its 50-node x 110 need", () => {
+        const pods = gkeMaxNodes(getTierConfig("enterprise", "gke").podsPrefix, 110) * 110;
+        expect(pods).toBe(28160);
+        expect(pods).toBeGreaterThanOrEqual(50 * 110);
       });
     });
 
-    describe("GKE Autopilot Mode (32 pods/node)", () => {
-      it("should calculate hyperscale GKE Autopilot max pods correctly", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        // For Autopilot: M = 31 - ceil(log2(32)) = 31 - 5 = 26, HM = 6
-        // MN = 2^(19-6) = 8,192 nodes, MP = 8,192 * 32 = 262,144 pods
-        const HD = 32 - podPrefix; // 19
-        const HM = 6; // For 32 pods/node
-        const maxNodes = Math.pow(2, HD - HM);
-        const maxPods = maxNodes * 32;
-        expect(maxNodes).toBe(8192);
-        expect(maxPods).toBe(262144);
-        // Hyperscale tier (50-5000 nodes): 8,192 node capacity supports GKE Autopilot max
+    describe("GKE Autopilot (32 pods per node: a /26 each)", () => {
+      it("holds 8,192 nodes and 262,144 pods in the hyperscale /13 pod range", () => {
+        const nodes = gkeMaxNodes(getTierConfig("hyperscale", "gke").podsPrefix, 32);
+        expect(nodes).toBe(8192);
+        expect(nodes * 32).toBe(262144);
+        // So Autopilot reaches 5,000 nodes in the default /13; Standard at 110 pods does not
+        expect(nodes).toBeGreaterThanOrEqual(5000);
       });
     });
   });
@@ -362,7 +330,7 @@ describe("IP Calculation Compliance Validation", () => {
      * From all compliance audits:
      * - Professional: 2 AZs (dual-AZ ready)
      * - Enterprise: 3 AZs (triple-AZ ready)
-     * - Hyperscale: 8 AZs (multi-region ready)
+     * - Hyperscale: 3 AZs (most regions have at least 3)
      */
     describe("AZ Count by Tier", () => {
       it("should generate dual-AZ for professional tier", async () => {
@@ -492,18 +460,16 @@ describe("IP Calculation Compliance Validation", () => {
        * - Total needed: 13,824 addresses
        * - /18 VPC has 16,384 addresses (sufficient, matches user example)
        */
-      it("should validate hyperscale fits in /18 VPC CIDR (realistic)", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
-        const publicAddresses = config.publicSubnets * Math.pow(2, 32 - config.publicSubnetSize);
-        const privateAddresses = config.privateSubnets * Math.pow(2, 32 - config.privateSubnetSize);
-        const totalAddressesNeeded = publicAddresses + privateAddresses;
-
-        // Realistic hyperscale: 3 × /23 public + 3 × /20 private = 13,824 addresses
-        expect(totalAddressesNeeded).toBe(13824);
-
-        // /18 VPC has 16,384 addresses - SUFFICIENT
-        const vpcSize18 = Math.pow(2, 32 - 18);
-        expect(totalAddressesNeeded).toBeLessThanOrEqual(vpcSize18);
+      it("fits a hyperscale plan in a /18 VPC for every provider and network mode", async () => {
+        for (const provider of ["eks", "gke", "aks", "kubernetes"] as const) {
+          for (const networkMode of ["public", "private"] as const) {
+            const plan = await generateKubernetesNetworkPlan({
+              deploymentSize: "hyperscale", provider, networkMode, vpcCidr: "10.0.0.0/18",
+            });
+            expect(plan.vpc.cidr).toBe("10.0.0.0/18");
+            expect(getTierConfig("hyperscale", provider, networkMode).minVpcPrefix).toBeGreaterThanOrEqual(18);
+          }
+        }
       });
 
       it("should report a minimum VPC prefix that is exact for every tier and provider", async () => {
@@ -544,17 +510,11 @@ describe("IP Calculation Compliance Validation", () => {
         });
       });
 
-      it("should calculate hyperscale EKS IP capacity correctly", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
-        const subnetCapacity = calculateNodeCapacity(config.privateSubnetSize);
-
-        // EKS: Pods share VPC CIDR, need adequate subnets
-        // /20 subnet: 4,092 nodes per subnet (with 3 subnets = 12,276 total capacity)
-        expect(subnetCapacity).toBe(4092);
-
-        // With 3 private subnets at /20, total private IP space = 3 * 4,096 = 12,288
-        const totalPrivateIPs = config.privateSubnets * Math.pow(2, 32 - config.privateSubnetSize);
-        expect(totalPrivateIPs).toBe(12288);
+      it("gives each hyperscale EKS node subnet 4,091 usable addresses (AWS reserves 5)", () => {
+        const config = getTierConfig("hyperscale", "eks");
+        expect(usableAddresses(config.privateSubnetSize, "eks")).toBe(4091);
+        // Three /20 node subnets: 12,273 usable addresses for nodes (and VPC CNI pods)
+        expect(config.privateSubnets * usableAddresses(config.privateSubnetSize, "eks")).toBe(12273);
       });
     });
 
@@ -596,27 +556,6 @@ describe("IP Calculation Compliance Validation", () => {
       });
     });
 
-    describe("GKE Pod CIDR for Hyperscale", () => {
-      it("should support 2048+ nodes with /13 pod CIDR (GKE Standard)", () => {
-        const podPrefix = DEPLOYMENT_TIER_CONFIGS["hyperscale"].podsPrefix;
-        const maxNodes = calculateGKENodeCapacity(podPrefix);
-
-        // /13 pod CIDR holds 2,048 nodes at 110 pods/node (a /24 each)
-        expect(maxNodes).toBe(2048);
-        // 5,000 nodes needs max pods per node of 32 or fewer (a /26 each), or a /11 podsCidr
-      });
-
-      it("should support 8,192 nodes with /13 pod CIDR (GKE Autopilot, 32 pods/node)", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
-        // Autopilot: M = 26 (32 pods), HM = 6
-        const HD = 32 - config.podsPrefix; // 19
-        const HM = 6; // For 32 pods/node
-        const maxNodes = Math.pow(2, HD - HM);
-
-        expect(maxNodes).toBe(8192);
-        // Hyperscale tier (50-5000 nodes): 8,192 node capacity supports GKE Autopilot max
-      });
-    });
   });
 
   describe("AKS-Specific Compliance", () => {
@@ -657,16 +596,11 @@ describe("IP Calculation Compliance Validation", () => {
         expect(overlayNodes * 110).toBeGreaterThanOrEqual(200000);
       });
 
-      it("should have sufficient node subnet capacity for 5,000 nodes", () => {
-        const config = DEPLOYMENT_TIER_CONFIGS["hyperscale"];
-        const nodeCapacity = calculateNodeCapacity(config.privateSubnetSize);
-
-        // /20 subnet = 4,092 nodes per subnet
-        // With 3 private subnets, can support 12,276 total node capacity
-        expect(nodeCapacity).toBe(4092);
-        
-        const totalNodeCapacity = config.privateSubnets * nodeCapacity;
-        expect(totalNodeCapacity).toBeGreaterThanOrEqual(5000);
+      it("gives hyperscale AKS node subnets room for 5,000 nodes (Azure reserves 5 per subnet)", () => {
+        const config = getTierConfig("hyperscale", "aks");
+        expect(usableAddresses(config.privateSubnetSize, "aks")).toBe(4091);
+        // Three /20 node subnets (one per node pool group): 12,273 node addresses
+        expect(config.privateSubnets * usableAddresses(config.privateSubnetSize, "aks")).toBeGreaterThanOrEqual(5000);
       });
     });
   });

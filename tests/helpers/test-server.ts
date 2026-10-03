@@ -35,8 +35,6 @@ export interface TestServerConfig {
   middleware?: RequestHandler[];
   /** Custom JSON parser configuration */
   jsonOptions?: OptionsJson;
-  /** Default port to use if random port allocation fails */
-  defaultPort?: number;
 }
 
 export interface TestServer {
@@ -77,15 +75,20 @@ export async function createTestServer(config: TestServerConfig = {}): Promise<T
     await config.setup(app, httpServer);
   }
   
-  // Start server on random port
-  const { port, baseUrl } = await new Promise<{ port: number; baseUrl: string }>((resolve) => {
+  // Start on a free port chosen by the OS (port 0); a listen error fails the test
+  const port = await new Promise<number>((resolve, reject) => {
+    httpServer.once("error", reject);
     httpServer.listen(0, "127.0.0.1", () => {
+      httpServer.off("error", reject);
       const address = httpServer.address();
-      const port = typeof address === "object" && address ? address.port : (config.defaultPort ?? 5001);
-      const baseUrl = `http://127.0.0.1:${port}`;
-      resolve({ port, baseUrl });
+      if (typeof address === "object" && address) {
+        resolve(address.port);
+      } else {
+        reject(new Error(`Test server has no TCP address: ${String(address)}`));
+      }
     });
   });
+  const baseUrl = `http://127.0.0.1:${port}`;
   
   return { app, httpServer, baseUrl, port };
 }

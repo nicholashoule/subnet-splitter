@@ -18,8 +18,10 @@ applyTo: "client/**"
 |------|---------|
 | `client/src/App.tsx` | Main application component (renders Calculator on `/`, NotFound otherwise; no router library) |
 | `client/src/main.tsx` | React entry point |
+| `client/public/theme-init.js` | Applies the saved theme before first paint (classic script in `index.html` `<head>`; same rule as `lib/theme.ts`) |
+| `client/src/lib/theme.ts` | Theme runtime API: read, save, and apply the light/dark choice (`localStorage` key `theme`) |
 | `client/src/index.css` | Global styles, CSS variables, elegant-scrollbar |
-| `client/src/lib/subnet-utils.ts` | Core CIDR calculation logic |
+| `client/src/lib/subnet-utils.ts` | Core CIDR calculation logic, plus the calculator table's rows, tree updates, and CSV export |
 | `client/src/lib/kubernetes-network-generator.ts` | Kubernetes network plan generator used by the API (first-fit subnet layout, separated pod/service ranges, one-network control plane, `networkMode` public/private layouts with `subnets.loadBalancer`); its invariants are enforced by `tests/unit/network-separation.test.ts`, and `server/openapi.ts` builds its examples from it |
 | `client/src/lib/utils.ts` | Helper functions |
 | `client/src/pages/calculator.tsx` | Calculator page component |
@@ -40,7 +42,7 @@ applyTo: "client/**"
 - Custom styles only in `index.css` for reusable patterns (e.g., `.elegant-scrollbar`)
 - Support both light and dark modes via Tailwind `dark:` prefix
 - No hardcoded colors -- all via CSS variables; Tailwind palette classes (`text-green-600`, `bg-gray-50`) fail `tests/unit/ui-styles.test.ts` (only the decorative depth bars in `subnet-utils.ts` are exempt)
-- No horizontal scrollbars on 1080p+ screens
+- No horizontal page scrollbar on 1080p+ screens or at 320px wide (WCAG 1.4.10 reflow): rows of buttons use `flex-wrap`; only the subnet table scrolls sideways, inside its own container
 
 ### CSS Variables
 
@@ -48,15 +50,15 @@ Colors defined in `client/src/index.css` (`:root` and `.dark` selectors):
 
 | Variable | Purpose |
 |----------|---------|
-| `--primary` / `--primary-foreground` | Action buttons, links, badges (blue); text on primary |
-| `--secondary` | Example buttons, subtle surfaces |
+| `--primary` / `--primary-foreground` | Action buttons, links, focus ring (blue); text on primary |
+| `--secondary` | Example buttons, network class badges, subtle surfaces |
 | `--background` / `--card` | Page and card backgrounds |
 | `--foreground` | Primary text |
 | `--muted` / `--muted-foreground` | Secondary backgrounds/text |
 | `--destructive` / `--destructive-foreground` | Error text; destructive buttons and badges |
 | `--destructive-soft` / `--destructive-soft-foreground` | Error toasts |
 | `--success` | Status messages, copy confirmation |
-| `--border` / `--input` | Borders, dividers; input borders |
+| `--border` / `--input` | Borders, dividers; input borders (3:1 against card and background) |
 | `--ring` | Focus ring (same as `--primary`) |
 
 The API docs page (`server/swagger-ui.ts`) mirrors these tokens; a test fails if they drift.
@@ -86,9 +88,16 @@ Every text pair the app renders meets WCAG AA (4.5:1) in both themes; `tests/uni
 - Primary on background: 5.0 / 5.2; text on primary buttons: 5.2 / 5.2
 - Muted foreground on background, card, and footer: 4.8 or better / 6.9 or better
 - Destructive on card: 4.8 / 5.2; success on card: 5.6 / 9.8; error toast text: 9.2 / 13.2
+- Non-text (3:1): input borders 3.3 / 3.3 on card and 3.2 / 3.4 on background; focus ring 5.0 / 5.2 on background and 5.2 / 4.9 on card
 - In dark mode, primary and destructive surfaces use dark text (`--primary-foreground` and `--destructive-foreground` are `222 47% 8%`); white text on those colors is below 4.5:1
-- Errors pair color with text, never color alone
+- Errors pair color with text, never color alone; links inside text are always underlined (`underline underline-offset-2`), not only on hover
 - Icon-only toggles name the action and update with state (`Switch to light mode` / `Switch to dark mode`)
+- Focus: buttons, inputs, and checkboxes use `focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-background`; the gap keeps the ring (`--ring` = `--primary`) visible on primary buttons
+- Headings: one `h1`; `CardTitle` renders an `h2` and holds only its text (toolbars go beside it). Name a table by its heading with `aria-labelledby`
+- Inputs are named by their visible label or heading (`aria-labelledby`), so the accessible name matches the text on screen (WCAG 2.5.3)
+- Messages: validation errors are `role="alert"` plus `aria-invalid`/`aria-describedby`; status text goes in an always-mounted `role="status"` region. Key each message on a new id so repeated text is announced again
+- Pointer targets are at least 24x24 px (WCAG 2.5.8); size icons through the Button's `[&_svg]:size-4` rather than classes on the icon, which it overrides
+- See [docs/ui-examples.md](../../docs/ui-examples.md#accessibility-patterns) for how the calculator applies these
 
 ## Icons
 
@@ -104,13 +113,16 @@ Core logic in `client/src/lib/subnet-utils.ts`:
 - `splitSubnet()` -- recursive splitting down to /32
 - `getSubnetClass()` -- network class (A-E) identification
 - `validateCidrInput()` -- calculator form validation; returns an error message or `null` and requires the network address (e.g., `192.168.1.0/24`, not `192.168.1.5/24`)
+- `collectVisibleRows()` -- the subnet table's rows with depth and parent CIDR; Hide Parents, "select all", and the export all use it
+- `splitSubnetInTree()` / `removeSplitInTree()` -- immutable split and remove-split updates; the split enforces the whole-tree node limit
+- `selectedVisibleSubnets()` / `subnetsToCsv()` -- the CSV export
 - Validates CIDR format, octet ranges, prefix 0-32
 - Handles RFC 3021 /31 (point-to-point) and /32 (host routes)
 - RFC 1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 
 ## CSV Export
 
-Exports all subnet details: CIDR, network/broadcast addresses, host range, masks, prefix length.
+Exports the selected rows that are visible (`selectedVisibleSubnets()`; rows hidden by Hide Parents or a removed split are skipped), in table order, with all subnet details: CIDR, network/broadcast addresses, host range, masks, prefix length (`subnetsToCsv()`).
 
 File naming: `subnet-export-YYYY-MM-DD.csv`
 
@@ -126,7 +138,7 @@ See [docs/ui-examples.md](../../docs/ui-examples.md) for full implementation cod
 ## Performance
 
 - All subnet calculations are client-side (no network requests)
-- Optimize table rendering with React best practices
+- The subnet table renders a flat list of memoized rows from `collectVisibleRows()`. Each row gets primitives (`depth`, `parentCidr`, a boolean `selected`), stable callbacks, and its subnet object, which `splitSubnetInTree()` / `removeSplitInTree()` replace only along the path to the change, so a checkbox re-renders one row and a split only the rows on the path to it
 - Monitor component re-renders with React DevTools
 - Test with large subnet hierarchies (many splits)
 
@@ -135,7 +147,7 @@ See [docs/ui-examples.md](../../docs/ui-examples.md) for full implementation cod
 - [ ] TypeScript compilation passes (`npm run check`)
 - [ ] Production build passes (`npm run build`)
 - [ ] No console warnings or errors
-- [ ] No horizontal scrollbars on 1080p+ screens
+- [ ] No horizontal page scrollbar on 1080p+ screens or at 320px wide
 - [ ] Works in both light and dark modes
 - [ ] Follows existing code style
 - [ ] WCAG accessibility maintained

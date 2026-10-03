@@ -2,8 +2,12 @@
  * scripts/install-hooks.mjs
  *
  * Runs on `npm install` / `npm ci` (the "prepare" script): points git at the
- * committed hooks in .githooks/ (the pre-commit emoji check). Skips quietly when
- * there is no git checkout or no git, e.g. in a container build.
+ * committed hooks in .githooks/ (the pre-commit emoji check). Does nothing when
+ * there is no git checkout or no git.
+ *
+ * The script runs as `node scripts/install-hooks.mjs || exit 0` (works in sh and
+ * cmd.exe), so an install never fails because of it: a container build that copies
+ * package*.json before scripts/ runs `npm ci` while this file does not exist yet.
  */
 
 import { execFileSync } from "child_process";

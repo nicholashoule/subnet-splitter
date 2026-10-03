@@ -5,6 +5,7 @@
  * "theme" (the API docs page reads the same key); light is the default.
  * Storage can be unavailable (blocked cookies, some private modes), so reads fall
  * back to light and writes are skipped instead of throwing.
+ * client/public/theme-init.js applies the same rule before first paint; keep them in step.
  */
 
 export type Theme = "light" | "dark";

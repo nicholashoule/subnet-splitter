@@ -1,13 +1,18 @@
 /**
  * server/routes.ts
  * 
- * API route registration. Centralized location for all Express route definitions.
- * 
+ * API route registration. Centralized location for all Express route definitions:
+ * health checks (/health* and /api/v1/health*), and under /api the version, the
+ * OpenAPI document and its Swagger UI page, and the Kubernetes planning endpoints.
+ *
  * All routes should:
- * - Be prefixed with /api
- * - Use the storage instance for data operations
- * - Return appropriate HTTP status codes and error responses
- * - Include input validation using Zod schemas from shared/schema.ts
+ * - Return appropriate HTTP status codes and { error, code } error bodies
+ * - Validate input with the Zod schemas in shared/kubernetes-schema.ts
+ *
+ * The plan and tiers routes write their validation and planning errors in the format
+ * ?format= asks for (JSON or YAML). Malformed or oversized bodies (400, 413, from
+ * errorHandler in server/app.ts), unknown API paths (404, below) and rate limiting
+ * (429) are always JSON.
  */
 
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
@@ -268,8 +273,11 @@ export async function registerRoutes(
   get("/api/kubernetes/tiers", handleTiers);
 
   // Anything else under /api is a JSON 404, so clients (Terraform http data sources,
-  // scripts) never receive the web app's index.html for a mistyped path or method
-  app.use("/api", (_req, res) => {
+  // scripts) never receive the web app's index.html for a mistyped path or method.
+  // Routing is case-sensitive (server/app.ts), so /API/k8s/tiers matches no route;
+  // it is matched here in any letter case, before static serving or Vite.
+  app.use((req, res, next) => {
+    if (!/^\/api(?:\/|$)/i.test(req.path)) return next();
     res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
   });
 

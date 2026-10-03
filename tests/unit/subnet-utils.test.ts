@@ -181,12 +181,12 @@ describe("Subnet Calculation", () => {
 
 describe("Utility Functions", () => {
   describe("formatNumber", () => {
-    it("formats numbers with thousand separators", () => {
-      expect(formatNumber(0)).toBe("0");
-      expect(formatNumber(256)).toBe("256");
-      expect(formatNumber(1000)).toBe("1,000");
-      expect(formatNumber(1000000)).toBe("1,000,000");
-      expect(formatNumber(16777214)).toBe("16,777,214");
+    it("formats numbers with the user's locale grouping (independent of the test machine's locale)", () => {
+      // formatNumber uses the runtime locale, so compare with Intl in that same locale
+      const grouped = new Intl.NumberFormat();
+      for (const n of [0, 256, 1000, 1000000, 16777214]) {
+        expect(formatNumber(n)).toBe(grouped.format(n));
+      }
     });
   });
 
@@ -287,7 +287,7 @@ describe("Edge Cases & Robustness", () => {
       expect(subnet192.totalHosts).toBe(Math.pow(2, 16));
     });
 
-    it("validates network address matches prefix", () => {
+    it("normalizes an address with host bits set to the network address", () => {
       // 192.168.1.5/24 is invalid because network address should be 192.168.1.0
       // This is handled by the calculateSubnet function using the mask
       const subnet = calculateSubnet("192.168.1.5/24");

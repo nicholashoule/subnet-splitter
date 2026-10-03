@@ -7,8 +7,11 @@
  * Every plan separates four kinds of address space, and no two ranges overlap:
  * - Nodes: private subnets inside the VPC
  * - Control plane: dedicated /28 subnets inside the VPC
- * - Pods: a range outside the VPC, in a different RFC 1918 block
+ * - Pods: a range outside the VPC, in a different RFC 1918 block, or in
+ *   100.64.0.0/10 (RFC 6598) when no RFC 1918 block has room
  * - Services: a ClusterIP range outside the VPC, in a third RFC 1918 block
+ * Generated ranges keep to their own blocks; caller-supplied podsCidr and
+ * servicesCidr only have to stay clear of the VPC, each other and reserved ranges.
  * Public subnets (load balancers, NAT) are also inside the VPC.
  *
  * Network modes:
@@ -33,9 +36,10 @@
  * - Pods use separate CIDR range (this API's pods.cidr field) as an overlay CNI's
  *   IP pool (Calico, Cilium in VXLAN/IP-in-IP mode)
  * - Does NOT consume VPC primary subnet IPs
- * - pods.cidr can NOT be a VPC secondary CIDR: it is always in a different RFC 1918
- *   block than the VPC, which AWS refuses to associate (and secondary blocks must be
- *   /16-/28). VPC CNI custom networking needs a user-chosen 100.64.0.0/10 block instead.
+ * - A generated pods.cidr in another RFC 1918 block can NOT be a VPC secondary CIDR:
+ *   AWS refuses to associate a different RFC 1918 block (and secondary blocks must be
+ *   /16-/28). VPC CNI custom networking needs a 100.64.0.0/10 block instead (pass one
+ *   as podsCidr).
  * - Recommended for clusters >1000 nodes or high pod density
  *
  * Services:
@@ -87,8 +91,8 @@ export function normalizeProvider(provider: Provider): CanonicalProvider {
 }
 
 /**
- * Address ranges the generator never allocates to pods or services, and warns
- * about when a VPC overlaps them.
+ * Address ranges the generator never allocates to pods or services, for every
+ * provider. A caller's VPC may overlap them; the plan then carries a warning.
  */
 export const RESERVED_RANGES = [
   {
@@ -96,6 +100,19 @@ export const RESERVED_RANGES = [
     reason: "Docker's default bridge network; AWS also reserves it for some services (Cloud9, SageMaker)",
   },
 ] as const;
+
+/**
+ * Ranges a provider refuses for the cluster network, pods and services. The generator
+ * never allocates them, and caller-supplied ranges that overlap them are rejected.
+ * AKS: "CNI networking prerequisites" (also 169.254.0.0/16 and 192.0.2.0/24, which are
+ * outside the private ranges this API accepts anyway).
+ */
+export const PROVIDER_RESERVED_RANGES: Partial<Record<CanonicalProvider, ReadonlyArray<{ cidr: string; reason: string }>>> = {
+  aks: [
+    { cidr: "172.30.0.0/16", reason: "reserved by AKS for service, pod, and cluster virtual network ranges" },
+    { cidr: "172.31.0.0/16", reason: "reserved by AKS for service, pod, and cluster virtual network ranges" },
+  ],
+};
 
 /** Control-plane subnets are /28: GKE's required master range size, AKS's minimum API server subnet, and above EKS's 6-address minimum */
 export const CONTROL_PLANE_SUBNET_PREFIX = 28;
@@ -111,10 +128,27 @@ export type NetworkMode = z.infer<typeof NetworkModeEnum>;
 /**
  * Size limits for caller-supplied ranges.
  * - Pods: at least one /24 (GKE at its default density and AKS overlay give each node a /24)
- * - Services: /13 to /24, the intersection of EKS (/12 to /24) and AKS (smaller than /12)
+ * - Services: /13 to /24, which suits EKS (/12 to /24) and AKS (smaller than /12);
+ *   GKE caps a user-managed Services range at /16, so GKE allows /16 to /24
  */
 export const PODS_PREFIX_LIMITS = { largest: 8, smallest: 24 } as const;
 export const SERVICES_PREFIX_LIMITS = { largest: 13, smallest: 24 } as const;
+export const PROVIDER_SERVICES_PREFIX_LIMITS: Partial<Record<CanonicalProvider, { largest: number; smallest: number }>> = {
+  gke: { largest: 16, smallest: 24 },
+};
+
+/**
+ * Largest VPC (VNet) any plan accepts: a /16. For EKS it is AWS's limit (VPC CIDR
+ * blocks are /16 to /28); for GKE, AKS and generic Kubernetes it is this project's
+ * standard (GCP subnets and Azure VNets may be larger).
+ */
+export const LARGEST_VPC_PREFIX = 16;
+export const LARGEST_VPC_REASON: Record<CanonicalProvider, string> = {
+  eks: "AWS VPC CIDR blocks are /16 to /28",
+  gke: "plans are capped at a /16 VPC",
+  aks: "plans are capped at a /16 VNet",
+  kubernetes: "plans are capped at a /16 VPC",
+};
 
 /** Region and zone names: lowercase letters, digits and hyphens */
 const LOCATION_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;

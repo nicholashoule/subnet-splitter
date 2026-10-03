@@ -6,15 +6,24 @@
  * - API version (/api/version)
  * - OpenAPI specification (/api/docs JSON/YAML)
  * - Swagger UI presentation (/api/docs/ui HTML/CSS/themes)
- * - Path variations (/api/v1/... and /v1/...)
- * - Error handling consistency
+ * - Path variations (/api/k8s/..., /api/v1/k8s/..., /api/kubernetes/... and
+ *   /api/v1/kubernetes/...)
+ * - Error handling consistency, and unknown API paths in the production app
+ *   (case-sensitive routing, SPA fallback)
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { createServer } from "http";
 import { fileURLToPath } from "url";
+import request from "supertest";
+import type { Express } from "express";
 import { registerRoutes } from "../../server/routes";
+import { createApp, errorHandler } from "../../server/app";
+import { serveStatic } from "../../server/static";
+import { THEME_STORAGE_KEY } from "../../client/src/lib/theme";
 import { version as APP_VERSION } from "../../package.json";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
 
@@ -47,8 +56,11 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("timestamp");
       expect(data).toHaveProperty("uptime");
       expect(data).toHaveProperty("version", APP_VERSION);
-      expect(typeof data.uptime).toBe("number");
-      expect(data.uptime).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(data.uptime)).toBe(true);
+
+      // Process uptime in seconds, so it grows between two calls
+      const later = await (await fetch(`${baseUrl}/health`)).json();
+      expect(later.uptime).toBeGreaterThan(data.uptime);
     });
 
     it("should return ready status from /health/ready", async () => {
@@ -229,10 +241,15 @@ describe("API Endpoints Integration", () => {
     it("should share the theme with the web app and toggle without a reload", async () => {
       const html = await (await fetch(`${baseUrl}/api/docs/ui`)).text();
 
-      // Same storage key as the web app, default light, kept in sync across tabs
-      expect(html).toContain("localStorage.getItem('theme') === 'dark'");
-      expect(html).toContain("localStorage.setItem('theme', next)");
+      // The web app's storage key (client/src/lib/theme.ts), default light, kept in sync across tabs
+      expect(html).toContain(`localStorage.getItem('${THEME_STORAGE_KEY}') === 'dark'`);
+      expect(html).toContain(`localStorage.setItem('${THEME_STORAGE_KEY}', next)`);
       expect(html).toContain("window.addEventListener('storage'");
+      expect(html).toContain(`if (e.key === '${THEME_STORAGE_KEY}')`);
+      // ...and no other key anywhere on the page
+      const keys = [...html.matchAll(/localStorage\.(?:get|set)Item\('([^']*)'|e\.key === '([^']*)'/g)].map((m) => m[1] ?? m[2]);
+      expect(keys.length).toBeGreaterThanOrEqual(4);
+      expect(new Set(keys)).toEqual(new Set([THEME_STORAGE_KEY]));
       // Accessible toggle whose name says what a press will do, updated on every render
       expect(html).toContain('<button id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">');
       expect(html).toContain("var label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';");
@@ -476,18 +493,23 @@ describe("API Endpoints Integration", () => {
       expect(data.error).toContain("provider");
     });
 
-    it("should serve OpenAPI examples that match real API output", async () => {
+    it("should accept every documented example request and serve the plan documented for it", async () => {
+      // server/openapi.ts builds the documented responses with the same generator, so
+      // this proves each example request is valid and that the route serves the
+      // generator's output unchanged; it does not check the plans against fixed values
       const spec = await (await fetch(`${baseUrl}/api/docs`)).json();
       const plan = spec.paths["/k8s/plan"].post;
       const requests = plan.requestBody.content["application/json"].examples;
       const responses = plan.responses["200"].content["application/json"].examples;
 
       for (const [name, example] of Object.entries<{ value: Record<string, unknown> }>(requests)) {
-        const live = await (await fetch(`${baseUrl}/api/k8s/plan`, {
+        const response = await fetch(`${baseUrl}/api/k8s/plan`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(example.value)
-        })).json();
+        });
+        expect(response.status, name).toBe(200);
+        const live = await response.json();
         const documented = responses[name].value;
         // Identical apart from the generation timestamp
         expect({ ...live, metadata: { ...live.metadata, generatedAt: "" } })
@@ -654,19 +676,22 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should treat a repeated format parameter as the default (JSON), not fail", async () => {
-      const tiers = await fetch(`${baseUrl}/api/k8s/tiers?format=json&format=yaml`);
-      expect(tiers.status).toBe(200);
-      expect(tiers.headers.get("content-type")).toContain("application/json");
-
-      const plan = await fetch(`${baseUrl}/api/k8s/plan?format=yaml&format=yaml`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deploymentSize: "micro", provider: "eks" })
-      });
-      expect(plan.status).toBe(200);
-
-      const docs = await fetch(`${baseUrl}/api/docs?format=json&format=yaml`);
-      expect(docs.status).toBe(200);
+      // Repeated values parse as an array; neither the first nor the last value wins
+      const responses = {
+        tiers: await fetch(`${baseUrl}/api/k8s/tiers?format=yaml&format=json`),
+        plan: await fetch(`${baseUrl}/api/k8s/plan?format=yaml&format=yaml`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deploymentSize: "micro", provider: "eks" })
+        }),
+        docs: await fetch(`${baseUrl}/api/docs?format=yaml&format=json`),
+      };
+      for (const [name, response] of Object.entries(responses)) {
+        expect(response.status, name).toBe(200);
+        expect(response.headers.get("content-type"), name).toContain("application/json");
+        const body = JSON.parse(await response.text());
+        expect(typeof body, name).toBe("object");
+      }
     });
   });
 
@@ -723,5 +748,61 @@ describe("API Endpoints Integration", () => {
       expect(text).toContain('region: "no"');
       expect(text).toContain('deploymentName: "yes"');
     });
+  });
+});
+
+describe("Unknown API paths in the production app", () => {
+  // The production stack as server/index.ts builds it: createApp() routes
+  // case-sensitively, then the routes, the SPA fallback (which answers unmatched GETs
+  // with index.html) and errorHandler
+  let app: Express;
+  let distPath: string;
+
+  beforeAll(async () => {
+    distPath = await fs.promises.mkdtemp(path.join(os.tmpdir(), "test-api-404-"));
+    await fs.promises.writeFile(path.join(distPath, "index.html"), '<html><body><div id="root"></div></body></html>');
+    app = createApp({ isDevelopment: false });
+    await registerRoutes(createServer(app), app);
+    serveStatic(app, distPath);
+    app.use(errorHandler);
+  });
+
+  afterAll(async () => {
+    await fs.promises.rm(distPath, { recursive: true, force: true });
+  });
+
+  it("should answer /api in any letter case with a JSON 404, never the web app", async () => {
+    for (const url of ["/API/k8s/tiers", "/Api/version", "/api/K8S/TIERS", "/API", "/API/", "/api/typo"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(404);
+      expect(response.headers["content-type"], url).toContain("application/json");
+      expect(response.body, url).toEqual({ error: "Not found", code: "NOT_FOUND" });
+    }
+  });
+
+  it("should still serve the web app for client routes outside /api", async () => {
+    for (const url of ["/some/client/route", "/apiary"]) {
+      const response = await request(app).get(url);
+      expect(response.status, url).toBe(200);
+      expect(response.text, url).toContain('<div id="root">');
+    }
+  });
+
+  it("should answer in YAML only for the plan and tiers routes' own errors", async () => {
+    // Validation errors from the route follow ?format=
+    const invalid = await request(app).get("/api/k8s/tiers?format=yaml&provider=openstack");
+    expect(invalid.status).toBe(400);
+    expect(invalid.headers["content-type"]).toContain("application/yaml");
+    expect(invalid.text).toContain("code: INVALID_REQUEST");
+
+    // A malformed body (express.json, then errorHandler) and an unknown path are always JSON
+    const malformed = await request(app).post("/api/k8s/plan?format=yaml").set("Content-Type", "application/json").send("{bad");
+    expect(malformed.status).toBe(400);
+    expect(malformed.headers["content-type"]).toContain("application/json");
+    expect(malformed.body.code).toBe("INVALID_REQUEST");
+
+    const unknown = await request(app).get("/api/typo?format=yaml");
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers["content-type"]).toContain("application/json");
   });
 });

@@ -119,6 +119,8 @@ try {
     assert(res.ok && html.includes('<div id="root">'), "index.html not served");
     assert(csp.get("script-src")?.join(" ") === "'self'", `script-src not 'self' only: ${csp.get("script-src")}`);
     assert(![...csp.values()].flat().some(isCdn), "global CSP allows the CDN");
+    // Over plain HTTP on a LAN address, upgrade-insecure-requests would blank the page
+    assert(!csp.has("upgrade-insecure-requests"), "global CSP upgrades requests to https");
     assert(res.headers.get("x-content-type-options") === "nosniff", "nosniff missing");
   });
 
@@ -128,6 +130,9 @@ try {
     assert(asset, "no script asset in index.html");
     const res = await fetch(`${base}${asset}`);
     assert(res.ok && (res.headers.get("cache-control") ?? "").includes("immutable"), "asset not cached immutably");
+    // A file copied from client/public whose name only looks hashed must revalidate
+    const publicFile = await fetch(`${base}/github-nicholashoule.png`);
+    assert(publicFile.ok && publicFile.headers.get("cache-control") === "no-cache", `public file cached as ${publicFile.headers.get("cache-control")}`);
     const fallback = await fetch(`${base}/some/client/route`);
     assert(fallback.ok && (await fallback.text()).includes('<div id="root">'), "SPA fallback failed");
   });
@@ -165,8 +170,9 @@ try {
   });
 
   await check("unknown API paths get a JSON 404, not the web app", async () => {
-    // In production the SPA fallback answers unmatched GETs, so this must come first
-    for (const path of ["/api/typo", "/api/k8s/plan"]) {
+    // In production the SPA fallback answers unmatched GETs, so this must come first.
+    // Routing is case-sensitive, so /API/... matches no route but is still an API path.
+    for (const path of ["/api/typo", "/api/k8s/plan", "/API/k8s/tiers", "/Api/version"]) {
       const res = await fetch(`${base}${path}`);
       const body = await res.text();
       assert(res.status === 404 && (res.headers.get("content-type") ?? "").includes("json"), `GET ${path}: ${res.status} ${body.slice(0, 40)}`);
@@ -204,6 +210,13 @@ try {
     for (const directive of ["script-src", "style-src"]) {
       assert(csp.get(directive)?.some(isHttpsCdn), `docs CSP ${directive} lacks the CDN`);
     }
+    // The docs policy extends the global one: every directive and source it sends
+    const global = parseCsp((await fetch(`${base}/`)).headers.get("content-security-policy") ?? "");
+    for (const [directive, sources] of global) {
+      const docsSources = csp.get(directive);
+      assert(docsSources && sources.every((s) => docsSources.includes(s)), `docs CSP drops ${directive} ${sources.join(" ")}`);
+    }
+    assert(!csp.has("upgrade-insecure-requests"), "docs CSP upgrades requests to https");
   });
 
   await check("invalid PORT and TRUST_PROXY stop startup with a clear error", async () => {
