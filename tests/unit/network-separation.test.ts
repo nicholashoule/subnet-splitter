@@ -29,6 +29,7 @@ import type { KubernetesNetworkPlan } from "@shared/kubernetes-schema";
 const TIERS = ["micro", "standard", "professional", "enterprise", "hyperscale"] as const;
 const PROVIDERS = ["eks", "gke", "aks", "kubernetes"] as const;
 const MODES = ["public", "private"] as const;
+const PROVIDER_NAMES = { eks: "EKS", gke: "GKE", aks: "AKS", kubernetes: "generic Kubernetes" } as const;
 const RFC1918 = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
 const RFC6598 = "100.64.0.0/10";
 // Microsoft, "CNI networking prerequisites": AKS rejects pod, service, and cluster
@@ -422,7 +423,7 @@ describe("Provider address rules", () => {
     for (const provider of PROVIDERS) {
       for (const vpcCidr of ["10.0.0.0/8", "172.16.0.0/12", "10.0.0.0/15"]) {
         expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", provider, vpcCidr }), `${provider} ${vpcCidr}`)
-          .toThrow(new RegExp(`too large for ${provider.toUpperCase()}.*/16 or smaller`));
+          .toThrow(new RegExp(`too large for ${PROVIDER_NAMES[provider]}:.*/16 or smaller`));
       }
       expect(buildKubernetesNetworkPlan({ deploymentSize: "micro", provider, vpcCidr: "10.0.0.0/16" }).vpc.cidr).toBe("10.0.0.0/16");
     }

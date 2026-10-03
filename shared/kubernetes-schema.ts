@@ -38,8 +38,8 @@
  * - Does NOT consume VPC primary subnet IPs
  * - A generated pods.cidr in another RFC 1918 block can NOT be a VPC secondary CIDR:
  *   AWS refuses to associate a different RFC 1918 block (and secondary blocks must be
- *   /16-/28). VPC CNI custom networking needs a 100.64.0.0/10 block instead (pass one
- *   as podsCidr).
+ *   /16-/28). VPC CNI custom networking needs a /16-to-/28 podsCidr AWS can associate:
+ *   100.64.0.0/10 (recommended) or another range in the VPC's own RFC 1918 block.
  * - Recommended for clusters >1000 nodes or high pod density
  *
  * Services:
@@ -170,7 +170,7 @@ export const KubernetesNetworkPlanRequestSchema = z.object({
   podsCidr: z.string().trim().max(18).optional()
     .describe("Optional pod range, e.g. to keep several clusters from overlapping. RFC 1918 or 100.64.0.0/10, /8 to /24"),
   servicesCidr: z.string().trim().max(18).optional()
-    .describe("Optional service (ClusterIP) range. RFC 1918, /13 to /24"),
+    .describe("Optional service (ClusterIP) range. RFC 1918, /13 to /24 (GKE: /16 to /24)"),
   availabilityZones: z.array(
     z.string()
       .max(64)
@@ -264,7 +264,7 @@ export const KubernetesNetworkPlanSchema = z.object({
     cidr: z.string().describe("Pod network CIDR for the CNI plugin (overlay pool, GKE pod secondary range, or AKS overlay pod CIDR)")
   }).describe("Pod IP range for container networking"),
   services: z.object({
-    cidr: z.string().describe("Service ClusterIP range. RFC 1918, /13 to /24, set at cluster creation only. Placed in an RFC 1918 block used by neither the VPC nor the pods.")
+    cidr: z.string().describe("Service ClusterIP range. RFC 1918, /13 to /24 (GKE: /16 to /24), set at cluster creation only. A generated range sits in an RFC 1918 block used by neither the VPC nor the pods; a supplied servicesCidr only has to avoid them.")
   }).describe("Service IP range for Kubernetes ClusterIP services (immutable after cluster creation)"),
   warnings: z.array(z.string()).optional().describe("Non-fatal issues with the requested ranges (omitted when there are none)"),
   metadata: z.object({

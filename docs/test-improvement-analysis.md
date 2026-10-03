@@ -3,7 +3,7 @@
 **Date**: February 2026 (added to the repository on February 14, 2026)  
 **Scope**: Integration test duplication and shared utilities  
 **Test Count**: 406 tests (218 unit + 188 integration) at the time of analysis; `npm test -- --run` prints the current counts  
-**Status**: Implemented. `tests/helpers/test-server.ts` exports `createTestServer`, `closeTestServer`, `createTestServers`, and `closeTestServers`. `api-endpoints.test.ts`, `csp-violation-endpoint.test.ts`, `swagger-ui-csp-middleware.test.ts`, and `swagger-ui-theming.test.ts` use `createTestServer` and `closeTestServer`; no test uses `createTestServers` or `closeTestServers`.
+**Status**: Implemented. `tests/helpers/test-server.ts` exports `createTestServer`, `closeTestServer`, `createTestServers`, and `closeTestServers`. `api-endpoints.test.ts`, `swagger-ui-csp-middleware.test.ts`, and `swagger-ui-theming.test.ts` use `createTestServer` and `closeTestServer`; `csp-violation-endpoint.test.ts` now builds on `createApp()` from `server/app.ts`, like the rate-limiting and static-serving tests. No test uses `createTestServers` or `closeTestServers`.
 
 The sections below are the original analysis and are kept as history. Where they describe a file's setup "before", or propose code, the current files may differ; notes in each section say what changed.
 

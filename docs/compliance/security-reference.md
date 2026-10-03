@@ -112,7 +112,7 @@ Browsers send each violation as an `application/csp-report` body wrapped in a `"
 }
 ```
 
-`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes; reports past the limit are dropped without logging. Every report that reaches the handler, including invalid and rate-limited ones, gets an empty `204 No Content` (browsers ignore the response). The rate limit runs before the route's JSON parser, so malformed reports count toward it too. A body that is not valid JSON, or is larger than 16 KB, never reaches the handler: the parser rejects it with `400` or `413` and the JSON error body.
+`cspViolationReportSchema` in `server/csp-config.ts` accepts exactly the fields of that serialization (`script-sample` too, sent when the policy has `'report-sample'`). It is strict, so a body with any other field is logged as an invalid report. The handler lives in `server/csp-report.ts`. Each IP may send 100 reports per 15 minutes. The rate limit runs first, then the route's JSON parser, so malformed reports count toward it too. Reports past the limit never reach the handler: the limiter answers them with an empty `204` and nothing is logged. Every report that reaches the handler, valid or invalid, gets an empty `204 No Content` (browsers ignore the response). A body that is not valid JSON, is larger than 16 KB, or has an unsupported character set never reaches the handler either: the parser rejects it with `400`, `413` or `415` and the JSON error body.
 
 ### Helmet v8 Rules
 

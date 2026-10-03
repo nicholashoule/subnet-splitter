@@ -78,7 +78,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 
 [PASS] **Error Handling**
 - Consistent `{"error", "code"}` responses (`INVALID_REQUEST`, `NETWORK_GENERATION_ERROR`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL_ERROR`); unknown `/api` paths, in any letter case, get a JSON 404, never the web app
-- Validation and planning errors from the plan and tiers routes follow `?format=` (JSON or YAML); malformed or oversized bodies (`400`/`413`), unknown API paths (`404`) and rate limiting (`429`) are always JSON
+- Validation and planning errors from the plan and tiers routes follow `?format=` (JSON or YAML); malformed, oversized or wrongly encoded bodies (`400`/`413`/`415`), unknown API paths (`404`) and rate limiting (`429`) are always JSON
 - 5xx responses never include internal error messages or stack traces
 - Validation errors name the offending field without echoing internals
 

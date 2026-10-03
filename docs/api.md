@@ -84,7 +84,7 @@ curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
   }' > network-plan.yaml
 ```
 
-The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed or oversized bodies (400/413), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
+The YAML is written as YAML 1.1, so strings such as `"no"`, `"yes"`, `"on"` and `"off"` (in `region`, `deploymentName`, or zone names) are quoted: Terraform's `yamldecode` and PyYAML would otherwise read them as booleans. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
 
 **Use Cases:**
 - Import into Terraform/Pulumi configurations
@@ -1348,7 +1348,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 Response (400):
 ```json
 {
-  "error": "VPC 10.0.0.0/24 is too small for a eks micro plan: its subnets need 416 addresses (a /23 or larger), but a /24 provides 256. Use a larger VPC CIDR (smaller prefix number).",
+  "error": "VPC 10.0.0.0/24 is too small for the EKS micro tier: its subnets need 416 addresses (a /23 or larger), but a /24 provides 256. Use a larger VPC CIDR (smaller prefix number).",
   "code": "NETWORK_GENERATION_ERROR"
 }
 ```
@@ -1360,7 +1360,7 @@ Response (400):
 | `"podsCidr": "10.0.0.0/16"` | `podsCidr 10.0.0.0/16 overlaps the VPC 10.0.0.0/24.` |
 | `"podsCidr": "172.17.0.0/16"` | `podsCidr "172.17.0.0/16" overlaps 172.17.0.0/16 (Docker's default bridge network; AWS also reserves it for some services (Cloud9, SageMaker)).` |
 | `"servicesCidr": "172.16.0.0/12"` | `servicesCidr "172.16.0.0/12" must be between /13 and /24; got /12.` |
-| `"provider": "gke", "availabilityZones": ["us-central1-a", "us-central1-b"]` | `availabilityZones applies to eks and kubernetes only: GKE subnets are regional, and node pools choose their zones.` |
+| `"provider": "gke", "availabilityZones": ["us-central1-a", "us-central1-b"]` | `availabilityZones applies to EKS and generic Kubernetes only: GKE subnets are regional, and node pools choose their zones.` |
 | `"provider": "eks", "availabilityZones": ["us-east-1a"]` (VPC `10.0.0.0/23`) | `EKS needs subnets in at least two availability zones; pass two or more availabilityZones.` |
 | `"provider": "aks", "podsCidr": "172.30.0.0/16"` | `podsCidr "172.30.0.0/16" overlaps 172.30.0.0/16 (reserved by AKS for service, pod, and cluster virtual network ranges).` |
 | `"provider": "gke", "servicesCidr": "172.16.0.0/15"` | `servicesCidr "172.16.0.0/15" must be between /16 and /24; got /15.` |

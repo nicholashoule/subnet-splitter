@@ -1082,10 +1082,10 @@ Hyperscale Tier (provider "eks"):
 
 ### AWS Requirements
 
--  Primary VPC must use RFC 1918 (we do)
--  Secondary ranges also RFC 1918 (we do)
--  No public IP address blocks in secondary ranges (we don't)
--  No overlap between VPC and pod/service CIDR blocks (we ensure this)
+- VPC CIDR blocks are /16 to /28. AWS allows public and RFC 6598 ranges too; this API requires the VPC to be private RFC 1918 space and at most a /16
+- A secondary VPC CIDR must follow AWS's association rules: for an RFC 1918 VPC, another range from the same RFC 1918 block, or `100.64.0.0/10` (VPC user guide, "IPv4 VPC CIDR block association restrictions"). Generated pods sit outside the VPC's block, so they are an overlay CNI's pool, not a secondary CIDR; for VPC CNI custom networking pass a `podsCidr` AWS can associate
+- Generated pods use another RFC 1918 block, or `100.64.0.0/10` when none has room
+- No overlap between the VPC and the pod and service ranges (the API ensures this)
 
 ---
 

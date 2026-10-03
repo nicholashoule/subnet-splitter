@@ -376,6 +376,25 @@ describe("Rate Limiting - API (100 requests per minute)", () => {
     expect(health.status).toBe(200);
   });
 
+  it("should exempt only real health probes: other methods and lookalike paths count", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
+    try {
+      app.use(errorHandler);
+      for (let i = 0; i < 50; i++) {
+        // A POST with a body under the health path is parsed, so it must be limited
+        await request(app).post("/api/v1/health").set("Content-Type", "application/json").send("{bad");
+        await request(app).get("/api/v1/healthz");
+      }
+      // Real probes are still exempt...
+      expect((await request(app).get("/api/v1/health")).status).toBe(200);
+      expect((await request(app).head("/api/v1/health")).status).toBe(200);
+      // ...but the 100 lookalikes used up the quota
+      expect((await request(app).get("/api/k8s/tiers")).status).toBe(429);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("should count malformed and oversized bodies toward the limit (the limiter runs before the JSON parser)", async () => {
     vi.spyOn(logger, "warn").mockImplementation(() => {}); // errorHandler's "Request rejected"
     try {
@@ -425,11 +444,31 @@ describe("Request logging of rejected requests", () => {
     expect(statuses).toContain(429);
   });
 
+  it("should log API requests in any letter case, and skip only real health probes", async () => {
+    const logged = vi.spyOn(logger, "request").mockImplementation(() => {});
+    const app = createApp({ isDevelopment: false });
+    app.get("/api/v1/health", (_req, res) => { res.json({ status: "healthy" }); });
+
+    await request(app).get("/API/k8s/tiers"); // answered 404, but still an API request
+    await request(app).get("/api/v1/health"); // a probe: not logged
+    await request(app).get("/api/v1/healthz"); // a lookalike: logged
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const paths = logged.mock.calls.map(([, path]) => path);
+    expect(paths).toEqual(["/API/k8s/tiers", "/api/v1/healthz"]);
+  });
+
   it("should build the server from createApp() and end with errorHandler in server/index.ts", () => {
     // The tests above exercise createApp(); this ties it to the server that ships
     const source = fs.readFileSync(path.resolve(__dirname, "../../server/index.ts"), "utf8");
     expect(source).toContain("const app = createApp({ isDevelopment });");
-    expect(source).toContain("app.use(errorHandler);");
     expect(source).not.toMatch(/express\(\)|express\.json\(|app\.use\(requestLogger\)/);
+
+    // errorHandler is the last middleware, after static serving and Vite, so it also
+    // handles their errors
+    const handlerAt = source.indexOf("app.use(errorHandler);");
+    expect(handlerAt).toBeGreaterThan(source.indexOf("serveStatic(app);"));
+    expect(handlerAt).toBeGreaterThan(source.indexOf("setupVite(httpServer, app);"));
+    expect(source.lastIndexOf("app.use(")).toBe(handlerAt);
   });
 });

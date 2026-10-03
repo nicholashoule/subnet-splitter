@@ -10,9 +10,9 @@
  * - Validate input with the Zod schemas in shared/kubernetes-schema.ts
  *
  * The plan and tiers routes write their validation and planning errors in the format
- * ?format= asks for (JSON or YAML). Malformed or oversized bodies (400, 413, from
- * errorHandler in server/app.ts), unknown API paths (404, below) and rate limiting
- * (429) are always JSON.
+ * ?format= asks for (JSON or YAML). Malformed, oversized or wrongly encoded bodies
+ * (400, 413, 415, from errorHandler in server/app.ts), unknown API paths (404, below)
+ * and rate limiting (429) are always JSON.
  */
 
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
@@ -30,13 +30,15 @@ const TierQuerySchema = z.object({
 import YAML from "yaml";
 import { version as APP_VERSION } from "../package.json";
 import { logger } from "./logger";
+import { isHealthProbe } from "./health";
 import { openApiSpec } from "./openapi";
 import { buildSwaggerUICSP } from "./csp-config";
 import { swaggerUiHtml } from "./swagger-ui";
 
 /**
- * Per-IP rate limiter for /api routes. Health endpoints are exempt so
- * load balancer and Kubernetes probes are never throttled.
+ * Per-IP rate limiter for /api routes. Health probes (GET or HEAD on an exact health
+ * path, server/health.ts) are exempt so load balancer and Kubernetes probes are never
+ * throttled; every other request under /api counts, bodies or not.
  */
 export function createApiRateLimiter(): RequestHandler {
   return rateLimit({
@@ -45,8 +47,8 @@ export function createApiRateLimiter(): RequestHandler {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests. Please wait a minute and try again.", code: "RATE_LIMITED" },
-    // Mounted at /api, so req.path is relative to the mount point
-    skip: (req) => req.path.startsWith("/v1/health"),
+    // Mounted at /api: req.baseUrl is "/api" and req.path the rest
+    skip: (req) => isHealthProbe(req.method, req.baseUrl + req.path),
     keyGenerator: (req) => req.ip ? ipKeyGenerator(req.ip) : "unknown",
   });
 }

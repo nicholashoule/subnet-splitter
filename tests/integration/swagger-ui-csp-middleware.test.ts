@@ -4,14 +4,15 @@
  * Integration tests for the Content-Security-Policy of the Swagger UI page.
  *
  * Starts an in-process server with the real routes (server/routes.ts) behind the
- * global Helmet CSP that server/index.ts applies in production (baseCSPDirectives),
+ * global Helmet CSP that createApp() (server/app.ts) applies in production
+ * (createSecurityHeaders(false), built from baseCSPDirectives),
  * then checks the headers over HTTP:
  * - /api/docs/ui replaces the global policy with buildSwaggerUICSP(), which adds
  *   'unsafe-inline' for scripts and the jsDelivr CDN for scripts, styles and source maps
  * - That policy does not depend on NODE_ENV: development and production send the
  *   same header, 'unsafe-inline' included. Only the global policy differs by
- *   environment (in development server/index.ts adds 'unsafe-inline', ws: and
- *   report-uri for Vite HMR).
+ *   environment (in development createSecurityHeaders(true) adds 'unsafe-inline', ws:
+ *   and report-uri for Vite HMR).
  * - Every other route keeps the global policy: no CDN and no inline scripts
  * - The docs policy keeps every directive the global header actually sends, Helmet's
  *   defaults included, and neither sends upgrade-insecure-requests
@@ -58,7 +59,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
 
   beforeAll(async () => {
     server = await createTestServer({
-      // The global policy server/index.ts applies when NODE_ENV=production
+      // The global policy createApp() applies when NODE_ENV=production
       middleware: [createSecurityHeaders(false)], // the production configuration
       setup: async (app, httpServer) => {
         await registerRoutes(httpServer, app);

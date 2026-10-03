@@ -61,7 +61,7 @@ Colors defined in `client/src/index.css` (`:root` and `.dark` selectors):
 | `--border` / `--input` | Borders, dividers; input borders (3:1 against card and background) |
 | `--ring` | Focus ring (same as `--primary`) |
 
-The API docs page (`server/swagger-ui.ts`) mirrors these tokens; a test fails if they drift.
+The API docs page (`server/swagger-ui.ts`) mirrors the twelve it uses (`--background`, `--foreground`, `--card`, `--border`, `--input`, `--muted`, `--muted-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--destructive`, `--success`); a test fails if any of them drift.
 
 ### Adding New Colors
 
@@ -95,8 +95,9 @@ Every text pair the app renders meets WCAG AA (4.5:1) in both themes; `tests/uni
 - Focus: buttons, inputs, and checkboxes use `focus-visible:ring-2 focus-visible:ring-offset-2 ring-offset-background`; the gap keeps the ring (`--ring` = `--primary`) visible on primary buttons
 - Headings: one `h1`; `CardTitle` renders an `h2` and holds only its text (toolbars go beside it). Name a table by its heading with `aria-labelledby`
 - Inputs are named by their visible label or heading (`aria-labelledby`), so the accessible name matches the text on screen (WCAG 2.5.3)
-- Messages: validation errors are `role="alert"` plus `aria-invalid`/`aria-describedby`; status text goes in an always-mounted `role="status"` region. Key each message on a new id so repeated text is announced again
-- Pointer targets are at least 24x24 px (WCAG 2.5.8); size icons through the Button's `[&_svg]:size-4` rather than classes on the icon, which it overrides
+- Messages: validation errors are `role="alert"` plus `aria-invalid`/`aria-describedby`; status text goes in an always-mounted `role="status"` region. Key each message on a new id so repeated text is announced again. Don't also move focus to the invalid input: its `aria-describedby` would read the error a second time
+- Pointer targets are at least 24x24 px (WCAG 2.5.8), or have room around them under its spacing exception, as the 16px row checkboxes do in their 40px-wide cells
+- The Button's `[&_svg]:size-4` overrides size classes on its icon, so size icons through the button: the header icons use `[&_svg]:size-5` on the Button
 - See [docs/ui-examples.md](../../docs/ui-examples.md#accessibility-patterns) for how the calculator applies these
 
 ## Icons

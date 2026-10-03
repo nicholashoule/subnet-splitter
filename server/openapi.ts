@@ -56,8 +56,8 @@ const exampleEntries = <T>(build: (example: { summary: string; request: Record<s
   Object.fromEntries(Object.entries(PLAN_EXAMPLES).map(([key, example]) => [key, { summary: example.summary, value: build(example) }]));
 
 // Validation and planning errors from the plan and tiers routes follow ?format= (JSON by
-// default, YAML with format=yaml). Malformed or oversized bodies (400, 413), unknown API
-// paths (404) and rate limiting (429) are always JSON.
+// default, YAML with format=yaml). Malformed, oversized or wrongly encoded bodies (400,
+// 413, 415), unknown API paths (404) and rate limiting (429) are always JSON.
 const errorContent = {
   "application/json": { schema: { $ref: "#/components/schemas/Error" } },
   "application/yaml": { schema: { $ref: "#/components/schemas/Error" } },
@@ -427,7 +427,7 @@ export const openApiSpec = {
           },
           pods: {
             type: "object",
-            description: "Pod network, outside the VPC. GKE: the pod secondary range. AKS: the CNI Overlay pod_cidr (each node takes a fixed /24). EKS: an overlay CNI pool (Calico, Cilium); a generated range in another RFC 1918 block cannot be a VPC secondary CIDR, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's (VPC CNI custom networking needs a 100.64.0.0/10 podsCidr).",
+            description: "Pod network, outside the VPC. GKE: the pod secondary range. AKS: the CNI Overlay pod_cidr (each node takes a fixed /24). EKS: an overlay CNI pool (Calico, Cilium); a generated range in another RFC 1918 block cannot be a VPC secondary CIDR, because AWS refuses CIDRs from a different RFC 1918 block than the VPC's (VPC CNI custom networking needs a /16-to-/28 podsCidr AWS can associate with the VPC: 100.64.0.0/10 (recommended) or another range in the VPC's own RFC 1918 block).",
             properties: {
               cidr: {
                 type: "string",

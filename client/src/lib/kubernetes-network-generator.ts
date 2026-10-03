@@ -246,6 +246,9 @@ function zoneNames(
   return Array.from({ length: count }, (_, i) => zones[i % zones.length]);
 }
 
+/** Provider names as error messages show them */
+const PROVIDER_NAMES: Record<CanonicalProvider, string> = { eks: "EKS", gke: "GKE", aks: "AKS", kubernetes: "generic Kubernetes" };
+
 // ── VPC, pod, and service ranges ─────────────────────────────────────
 
 function parseRange(field: string, cidr: string): Block {
@@ -362,7 +365,7 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
 
   if (req.availabilityZones && (provider === "gke" || provider === "aks")) {
     throw new KubernetesNetworkGenerationError(
-      `availabilityZones applies to eks and kubernetes only: ${provider.toUpperCase()} subnets are regional, and node pools choose their zones.`
+      `availabilityZones applies to EKS and generic Kubernetes only: ${PROVIDER_NAMES[provider]} subnets are regional, and node pools choose their zones.`
     );
   }
   if (provider === "eks" && req.availabilityZones && req.availabilityZones.length < 2) {
@@ -375,13 +378,13 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   const vpcBlock = rfc1918BlockOf(vpc)!;
   if (vpc.prefix < LARGEST_VPC_PREFIX) {
     throw new KubernetesNetworkGenerationError(
-      `VPC ${toCidr(vpc)} is too large for ${provider.toUpperCase()}: ${LARGEST_VPC_REASON[provider]}. Use a /${LARGEST_VPC_PREFIX} or smaller (larger prefix number).`
+      `VPC ${toCidr(vpc)} is too large for ${PROVIDER_NAMES[provider]}: ${LARGEST_VPC_REASON[provider]}. Use a /${LARGEST_VPC_PREFIX} or smaller (larger prefix number).`
     );
   }
   const refused = providerReserved(provider).find((r) => overlaps(r, vpc));
   if (refused) {
     throw new KubernetesNetworkGenerationError(
-      `VPC ${toCidr(vpc)} overlaps ${refused.cidr}, ${refused.reason}, so ${provider.toUpperCase()} rejects it. Choose a VPC outside it.`
+      `VPC ${toCidr(vpc)} overlaps ${refused.cidr}, ${refused.reason}, so ${PROVIDER_NAMES[provider]} rejects it. Choose a VPC outside it.`
     );
   }
 
@@ -389,7 +392,7 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   const layout = layoutSubnets(tier);
   if (layout.addressesNeeded > blockSize(vpc.prefix)) {
     throw new KubernetesNetworkGenerationError(
-      `VPC ${toCidr(vpc)} is too small for a ${provider} ${req.deploymentSize} plan: its subnets need ` +
+      `VPC ${toCidr(vpc)} is too small for the ${PROVIDER_NAMES[provider]} ${req.deploymentSize} tier: its subnets need ` +
       `${layout.addressesNeeded} addresses (a /${tier.minVpcPrefix} or larger), but a /${vpc.prefix} provides ` +
       `${blockSize(vpc.prefix)}. Use a larger VPC CIDR (smaller prefix number).`
     );

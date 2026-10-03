@@ -117,7 +117,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 │   ├── smoke-test.ts       # Starts the production build and checks it over HTTP
 │   └── install-hooks.mjs   # Points git at .githooks/ (runs on npm install)
 ├── .githooks/
-│   └── pre-commit          # Emoji check before each commit (skipped without Go 1.24+)
+│   └── pre-commit          # Emoji check of staged files (skips if demojify cannot run)
 ├── .github/
 │   ├── workflows/          # CI (ci.yml) and instruction-file validation
 │   ├── instructions/       # Development guidelines (backend, frontend, testing, general)
@@ -330,8 +330,8 @@ The project includes a test suite (`npm test -- --run`; the [test inventory](doc
 **Integration Tests:**
 - **API endpoints**: Health checks, OpenAPI spec (examples checked against live responses), provider and network-mode tiers, validation errors, JSON and YAML response formats, and the API docs page (palette matches the web app, pinned SRI assets, theme toggle)
 - **Calculator UI**: the calculator page's logic through the real `subnet-utils` functions, called in the order the page calls them (no React is rendered, so markup, clipboard, toasts, and the file download itself are not covered): form validation, split and remove-split with the tree size limit, visible rows with Hide Parents, the CSV text for selected visible rows, network class, depth indicator colors
-- **Kubernetes Network Planning API**: Plan structure (plain data that survives a JSON round trip), RFC 1918 enforcement, public IP rejection, all deployment tiers and providers
-- **Rate limiting**: API limit (100/min, health exempt) and SPA fallback limit, standard rate-limit headers
+- **Kubernetes Network Planning API**: Plan structure (plain data that survives a JSON round trip), RFC 1918 enforcement, public IP rejection, every deployment tier (EKS), and EKS, GKE and generic Kubernetes plans (AKS is covered by the unit tests)
+- **Rate limiting**: API limit (100/min; only real health probes exempt; malformed bodies count, since the limit runs before the JSON parser) and SPA fallback limit, standard rate-limit headers, logging of rejected requests
 - **Static serving**: Compression and cache headers for hashed assets and `index.html`
 - **Swagger UI CSP middleware**: Route-specific CSP; the global CSP allows no third-party scripts
 - **Swagger UI theming**: The docs page served by an in-process server the test starts itself, so it always runs (no `npm run dev` needed)

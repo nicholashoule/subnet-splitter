@@ -56,7 +56,7 @@ A GKE cluster takes its nodes, pods, and services from one default subnet, so th
 | Aspect | Requirement | Status |
 |--------|------------|--------|
 | VPC-native | Yes, secondary ranges | [PASS] |
-| RFC 1918 | All tiers | [PASS] |
+| Private address space | VPC and Services in RFC 1918; pods in RFC 1918, or `100.64.0.0/10` (RFC 6598, which GKE supports) when no RFC 1918 block has room | [PASS] |
 | Max cluster | 5,000 nodes | WARNING - one `/20` node subnet holds 4,092 |
 | Pod limits | 200,000 max | [PASS] |
 | Service range | /20 recommended | /20 provided (/18 hyperscale) |

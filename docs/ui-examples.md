@@ -129,7 +129,7 @@ To check a new color, add it to the pairs in `tests/unit/ui-styles.test.ts` and 
 
 The calculator page (`client/src/pages/calculator.tsx`) uses these patterns; `tests/unit/ui-styles.test.ts` checks the structural ones in the source.
 
-- **Headings:** one `h1` (the page title); each card title is a `CardTitle`, which renders an `h2` (Enter CIDR Range, Network Overview, Subnet Table, and the empty state). Headings hold only their text: the subnet table toolbar sits beside its heading, not inside it.
+- **Headings:** one `h1` (the page title), then `h2`s: each card title is a `CardTitle`, which renders an `h2` (Enter CIDR Range, Network Overview, Subnet Table), and the empty state's "No subnet calculated yet" is a plain `h2`. Headings hold only their text: the subnet table toolbar sits beside its heading, not inside it.
 - **Names:** the CIDR input is named by its visible heading (`aria-labelledby="cidr-heading"`), so its accessible name is the text on screen (WCAG 2.5.3). The subnet table is named by its heading (`aria-labelledby="subnet-table-title"`). Each remove button is named after the split it removes, `Remove split of {parent CIDR}`: it removes that row, its sibling, and everything below them.
 - **Messages:** a validation error is `role="alert"`, tied to the input with `aria-invalid` and `aria-describedby`. Pressing Enter in the input moves no focus, so the alert is what announces it. The status line under the subnet table title is an always-mounted `role="status"` region. Both give each message a new id used as its React `key`, so a repeat of the same text is announced again.
 - **Targets:** the copy buttons in table cells are 24x24 px (WCAG 2.5.8), with the button's 16px icon.

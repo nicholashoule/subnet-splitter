@@ -28,7 +28,7 @@ It fails the commit (exit 1) only when demojify reports findings. When the check
 - demojify cannot be downloaded or built, for example offline (checked first with `npm run emoji:check -- -version`, so such a failure is never reported as emoji)
 - the index cannot be exported
 
-The `prepare` script is `node scripts/install-hooks.mjs || exit 0`, so it never fails an install. It does nothing outside a git checkout, and a container build that copies `package*.json` before `scripts/` can run `npm ci` before the file exists. `tests/unit/config.test.ts` runs the hook with stub `go` and `npm` commands to cover each of these outcomes.
+The `prepare` script is `node scripts/install-hooks.mjs || exit 0`, so it never fails an install. It does nothing outside a git checkout, and a container build that copies `package*.json` before `scripts/` can run `npm ci` before the file exists. `tests/unit/config.test.ts` runs the hook with stub `go` and `npm` commands in scratch repositories: no Go, Go older than 1.24, demojify that cannot run, findings in staged files, findings only in unstaged or untracked files, and removal of the temporary export. The install script's no-checkout and missing-file cases are covered by its `|| exit 0` and existence checks, not by tests.
 
 ## Text alternatives
 

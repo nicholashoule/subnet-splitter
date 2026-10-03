@@ -282,13 +282,6 @@ describe("Table Rows (collectVisibleRows)", () => {
     ]);
   });
 
-  it("should list the same subnets as collectVisibleSubnets", () => {
-    const root = nestedTree();
-    for (const hideParents of [false, true]) {
-      expect(collectVisibleRows(root, hideParents).map((row) => row.subnet)).toEqual(collectVisibleSubnets(root, hideParents));
-    }
-  });
-
   it("should keep the subnet objects of rows a split did not touch", () => {
     const tree = nestedTree();
     const before = collectVisibleRows(tree, false);

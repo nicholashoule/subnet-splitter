@@ -14,6 +14,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { isHealthProbe } from "./health";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -150,17 +151,19 @@ class Logger {
 export const logger = new Logger({ source: "server" });
 
 /**
- * Logs each API request when its response finishes (health probes are skipped to
- * keep logs useful). Register it before the rate limiter and the JSON body parser, as
- * createApp() in server/app.ts does, so rate-limited requests (429) and malformed or
- * oversized bodies (400, 413) are logged.
+ * Logs each API request when its response finishes. Health probes are skipped to keep
+ * logs useful; /api is matched in any letter case, so requests answered by the
+ * case-insensitive JSON 404 (/API/...) are logged too. Register it before the rate
+ * limiter and the JSON body parser, as createApp() in server/app.ts does, so
+ * rate-limited requests (429) and malformed, oversized or wrongly encoded bodies
+ * (400, 413, 415) are logged.
  */
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   const path = req.path;
 
   res.on("finish", () => {
-    if (path.startsWith("/api") && !path.startsWith("/api/v1/health")) {
+    if (/^\/api(?:\/|$)/i.test(path) && !isHealthProbe(req.method, path)) {
       logger.request(req.method, path, res.statusCode, Date.now() - start, {
         ip: req.ip,
         userAgent: req.get("user-agent"),

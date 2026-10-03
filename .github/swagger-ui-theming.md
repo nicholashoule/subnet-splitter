@@ -13,7 +13,7 @@ How the API documentation page (`/api/docs/ui`) is styled, and how to keep it wo
 
 ## Design
 
-**One palette, two themes.** `:root` defines color tokens copied from the web app (`client/src/index.css`): `--background`, `--foreground`, `--card`, `--border`, `--input`, `--muted`, `--muted-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--destructive`, `--success`. `html.dark` redefines only the tokens. Every rule uses tokens, so the two themes can't drift apart. A test (`tests/integration/api-endpoints.test.ts`, "should use the web app's color tokens in both themes") reads nine of these tokens from `client/src/index.css` in both themes, `--background`, `--foreground`, `--card`, `--border`, `--muted-foreground`, `--primary`, `--primary-foreground`, `--destructive`, and `--success`, and fails if the docs page's `:root` or `html.dark` value for any of them differs. It does not check `--input`, `--muted`, or `--secondary`, which can drift unnoticed.
+**One palette, two themes.** `:root` defines color tokens copied from the web app (`client/src/index.css`): `--background`, `--foreground`, `--card`, `--border`, `--input`, `--muted`, `--muted-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--destructive`, `--success`. `html.dark` redefines only the tokens. Every rule uses tokens, so the two themes can't drift apart. A test (`tests/integration/api-endpoints.test.ts`, "should use the web app's color tokens in both themes") reads all twelve of these tokens from `client/src/index.css` in both themes and fails if the docs page's `:root` or `html.dark` value for any of them differs.
 
 **Fixed accent colors.** HTTP method badges use `--method-get` (#2563eb), `--method-post` (#047857), `--method-put`, `--method-patch`, `--method-delete`, `--method-other`. They are the same in both themes and dark enough for white text at 4.5:1 or better. Each operation also gets a 4px left border in its method color. `--success` (green text such as "Controls Accept header.") and `--copy-bg` (copy and download buttons) do change per theme.
 
@@ -48,7 +48,7 @@ Assets load from `https://cdn.jsdelivr.net/npm/swagger-ui-dist@<version>` with `
 
 ## Testing
 
-- `tests/integration/api-endpoints.test.ts` ("Swagger UI Presentation"): token parity with the web app (the nine tokens listed under [Design](#design)), method badge colors, pinned assets with SRI (exactly two CDN tags, no standalone preset), favicon, theme toggle without reload, no repaint script, header and footer.
+- `tests/integration/api-endpoints.test.ts` ("Swagger UI Presentation"): token parity with the web app (the twelve tokens listed under [Design](#design)), method badge colors, pinned assets with SRI (exactly two CDN tags, no standalone preset), favicon, theme toggle without reload, no repaint script, header and footer.
 - `tests/integration/swagger-ui-csp-middleware.test.ts`: the route's CSP.
 - `tests/integration/swagger-ui-theming.test.ts`: the same page served by an in-process server the test starts itself, so it always runs (no `npm run dev` needed).
 - `npm run smoke` (after `npm run build`; CI runs both): the production bundle serves `/api/docs/ui` with exactly two CDN tags, each with a `sha384` integrity hash, under a CSP that allows `cdn.jsdelivr.net`. It checks that the hashes are present, not that they match the files; a wrong hash only shows up in the browser (step 5 above).

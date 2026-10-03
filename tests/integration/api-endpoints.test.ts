@@ -278,13 +278,14 @@ describe("API Endpoints Integration", () => {
 
       // "210 20% 98%" in the app becomes "hsl(210, 20%, 98%)" on the docs page
       const tokens = (block: string) => Object.fromEntries(
-        [...block.matchAll(/--(background|foreground|card|border|muted-foreground|primary|primary-foreground|destructive|success):\s*(\d+) (\d+%) (\d+%);/g)]
+        [...block.matchAll(/--(background|foreground|card|border|input|muted|muted-foreground|primary|primary-foreground|secondary|destructive|success):\s*(\d+) (\d+%) (\d+%);/g)]
           .map(([, name, h, s, l]) => [name, `hsl(${h}, ${s}, ${l})`])
       );
       const light = tokens(appCss.slice(appCss.indexOf(":root"), appCss.indexOf(".dark {")));
       const dark = tokens(appCss.slice(appCss.indexOf(".dark {")));
-      expect(Object.keys(light)).toHaveLength(9);
-      expect(Object.keys(dark)).toHaveLength(9);
+      // Every token the docs page mirrors (see server/swagger-ui.ts)
+      expect(Object.keys(light)).toHaveLength(12);
+      expect(Object.keys(dark)).toHaveLength(12);
 
       const docsRoot = html.slice(html.indexOf(":root {"), html.indexOf("html.dark {"));
       const docsDark = html.slice(html.indexOf("html.dark {"), html.indexOf("}", html.indexOf("html.dark {")));

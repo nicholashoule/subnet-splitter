@@ -321,15 +321,13 @@ export default function Calculator() {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const error = validateCidrInput(cidrValue);
-    // The message is role="alert", so it is announced however the form was submitted:
-    // after Enter in the input, focus() below changes nothing and announces nothing.
-    // A new id per failed submit re-mounts it, so the same error is announced again.
+    // The message is role="alert", so it is announced once however the form was
+    // submitted (Enter in the input or the Calculate button). A new id per failed submit
+    // re-mounts it, so a repeated error is announced again. Focus stays where it is:
+    // moving it to the input would read the error a second time, through
+    // aria-describedby, which still ties the error to the input.
     setCidrError(error ? { id: ++messageId.current, text: error } : null);
-    if (error) {
-      // Return to the input to correct it; aria-invalid and aria-describedby tie the error to it
-      inputRef.current?.focus();
-      return;
-    }
+    if (error) return;
 
     try {
       const subnet = calculateSubnet(cidrValue.trim());
@@ -471,11 +469,17 @@ export default function Calculator() {
   }, [selectedSubnets]);
 
   const loadExample = (cidr: string) => {
+    const subnet = calculateSubnet(cidr);
     setCidrValue(cidr);
     setCidrError(null);
-    setRootSubnet(calculateSubnet(cidr));
+    setRootSubnet(subnet);
     setSelectedIds(new Set());
     showStatus(null);
+    // Same confirmation as Calculate; the toast region announces it to screen readers
+    toast({
+      title: "Subnet calculated",
+      description: `Showing details for ${subnet.cidr}`,
+    });
   };
 
   return (
@@ -487,7 +491,7 @@ export default function Calculator() {
               asChild
               variant="ghost"
               size="icon"
-              className="rounded-lg hover:bg-muted transition-colors"
+              className="rounded-lg hover:bg-muted transition-colors [&_svg]:size-5"
             >
               <a
                 href="/api/docs/ui"
@@ -496,7 +500,7 @@ export default function Calculator() {
                 aria-label="Open API documentation"
                 data-testid="link-api-docs"
               >
-                <BookOpen className="h-5 w-5 text-muted-foreground" />
+                <BookOpen className="text-muted-foreground" />
               </a>
             </Button>
           </TooltipTrigger>
@@ -510,13 +514,13 @@ export default function Calculator() {
               variant="ghost"
               size="icon"
               onClick={toggleTheme}
-              className="rounded-lg hover:bg-muted transition-colors"
+              className="rounded-lg hover:bg-muted transition-colors [&_svg]:size-5"
               aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
             >
               {isDark ? (
-                <Sun className="h-5 w-5 text-muted-foreground" />
+                <Sun className="text-muted-foreground" />
               ) : (
-                <Moon className="h-5 w-5 text-muted-foreground" />
+                <Moon className="text-muted-foreground" />
               )}
             </Button>
           </TooltipTrigger>

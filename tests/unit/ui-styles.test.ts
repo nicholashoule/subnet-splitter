@@ -23,6 +23,12 @@ type Hsl = [number, number, number];
 const css = fs.readFileSync(path.resolve(__dirname, "../../client/src/index.css"), "utf8");
 const read = (file: string) => fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
 const calculator = read("client/src/pages/calculator.tsx");
+/** Source of one handler in calculator.tsx: from `const name` to its closing `  };` */
+const handlerSource = (name: string) => {
+  const start = calculator.indexOf(`  const ${name} = `);
+  expect(start, name).toBeGreaterThan(-1);
+  return calculator.slice(start, calculator.indexOf("\n  };\n", start) + 5);
+};
 const notFound = read("client/src/pages/not-found.tsx");
 
 // Reads "--name: H S% L%;" declarations from a selector block
@@ -269,9 +275,14 @@ describe("Semantic Structure", () => {
   });
 
   it("announces messages: validation errors as alerts, table status in a live region", () => {
-    // Enter in the input moves no focus, so only role="alert" announces the error;
-    // a new key per failed submit announces a repeated error again
+    // role="alert" announces the error however the form was submitted; a new key per
+    // failed submit announces a repeated error again
     expect(calculator).toMatch(/<p key=\{cidrError\.id\} id="cidr-input-error" role="alert"/);
+    // A failed submit must not also move focus to the input: aria-describedby would read
+    // the error a second time
+    const onSubmit = handlerSource("onSubmit");
+    expect(onSubmit).toContain("if (error) return;");
+    expect(onSubmit).not.toContain(".focus()");
     // The status region stays mounted; a new key per message re-announces repeated text
     expect(calculator).toMatch(/<div role="status">\s*\{statusMessage && \(\s*<span key=\{statusMessage\.id\}/);
   });
@@ -302,8 +313,10 @@ describe("Theme Before First Paint", () => {
     const head = html.slice(0, html.indexOf("</head>"));
     expect(head).toContain('<script src="/theme-init.js"></script>');
     expect(html.indexOf("/theme-init.js")).toBeLessThan(html.indexOf('type="module"'));
-    // No inline script: the CSP (script-src 'self') would block it
-    expect(html).not.toContain("<script>");
+    // No inline script of any type: the CSP (script-src 'self') would block it
+    const scriptTags = html.match(/<script\b[^>]*>/gi) ?? [];
+    expect(scriptTags.length).toBeGreaterThan(0);
+    for (const tag of scriptTags) expect(tag, tag).toMatch(/\ssrc="/);
   });
 
   // Runs theme-init.js against a stub document and localStorage; returns the classes it adds
@@ -324,6 +337,41 @@ describe("Theme Before First Paint", () => {
 
   it("keeps the light default when storage is unavailable", () => {
     expect(run(() => { throw new Error("SecurityError"); })).toEqual(new Set());
+  });
+});
+
+// No React renders in these tests, so the page's wiring is checked in its source: each
+// assertion fails if the corresponding regression (found by mutation testing) returns
+describe("Calculator Wiring", () => {
+  it("memoizes table rows and keeps the split callback stable", () => {
+    expect(calculator).toContain("const SubnetRow = memo(function SubnetRow(");
+    // The callback reads the tree through a ref; depending on rootSubnet would re-render every row
+    const start = calculator.indexOf("  const handleSplit = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const deps = calculator.slice(start).match(/\n {2}\}, \[([^\]]*)\]\);/)?.[1];
+    expect(deps).toBeDefined();
+    expect(deps).not.toContain("rootSubnet");
+  });
+
+  it("builds the table and the export from the visible rows, honoring Hide Parents", () => {
+    expect(calculator).toContain("collectVisibleRows(rootSubnet, hideParents)");
+    expect(calculator).toContain("selectedVisibleSubnets(visibleSubnets, selectedIds)");
+  });
+
+  it("shows a minus for the partial select-all state and a check otherwise", () => {
+    const checkbox = read("client/src/components/ui/checkbox.tsx");
+    expect(checkbox).toMatch(/<Minus className="[^"]*group-data-\[state=indeterminate\]\/indicator:block/);
+    expect(checkbox).toMatch(/<Check className="[^"]*group-data-\[state=indeterminate\]\/indicator:hidden/);
+  });
+
+  it("sizes the header icons through their buttons (size=\"icon\" overrides classes on the icon)", () => {
+    expect(calculator.match(/\[&_svg\]:size-5/g)?.length).toBe(2);
+    expect(calculator).not.toMatch(/<(BookOpen|Sun|Moon) className="[^"]*\bh-5\b/);
+  });
+
+  it("confirms example loads like Calculate, through the announced toast", () => {
+    const loadExample = handlerSource("loadExample");
+    expect(loadExample).toContain('title: "Subnet calculated"');
   });
 });
 

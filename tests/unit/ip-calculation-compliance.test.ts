@@ -2,8 +2,8 @@
  * tests/unit/ip-calculation-compliance.test.ts
  *
  * Compliance validation tests for IP calculations against documented formulas
- * from EKS_COMPLIANCE_AUDIT.md, GKE_COMPLIANCE_AUDIT.md, AKS_COMPLIANCE_AUDIT.md,
- * and IP_ALLOCATION_CROSS_REFERENCE.md
+ * from docs/compliance/: EKS_COMPLIANCE_AUDIT.md, GKE_COMPLIANCE_AUDIT.md,
+ * AKS_COMPLIANCE_AUDIT.md and ip-allocation-cross-reference.md
  *
  * These tests check the tier layouts the generator applies (getTierConfig and real
  * plans) against each provider's documented address rules: usable addresses per
@@ -37,7 +37,6 @@ function cidrToRange(cidr: string): { start: number; end: number } {
 // Azure (virtual network FAQ) reserve 5; Google Cloud reserves 4
 const RESERVED_PER_SUBNET = { eks: 5, aks: 5, gke: 4 } as const;
 type CloudProvider = keyof typeof RESERVED_PER_SUBNET;
-const CLOUD_PROVIDERS = Object.keys(RESERVED_PER_SUBNET) as CloudProvider[];
 
 /** Usable addresses (one per node) in a subnet of the given prefix */
 function usableAddresses(prefix: number, provider: CloudProvider): number {
@@ -153,8 +152,10 @@ describe("IP Calculation Compliance Validation", () => {
   });
 
   describe("Node Subnet Capacity", () => {
-    // Node subnet prefix of each tier, and the most nodes one subnet must hold
-    // (hyperscale spreads 5,000 nodes over 3 subnets on EKS and AKS)
+    // Node subnet prefix of each tier, and the most nodes one subnet must hold: below
+    // hyperscale, the tier's whole node count (1, 3, 10, 50). Hyperscale spreads 5,000
+    // nodes over its 3 node subnets on EKS and AKS (node groups and node pools each take
+    // a subnet); a GKE cluster's nodes all come from one subnet.
     const NODE_SUBNETS = {
       micro: { prefix: 25, nodesPerSubnet: 1 },
       standard: { prefix: 24, nodesPerSubnet: 3 },
@@ -164,8 +165,8 @@ describe("IP Calculation Compliance Validation", () => {
     } as const;
 
     for (const [tier, { prefix, nodesPerSubnet }] of Object.entries(NODE_SUBNETS)) {
-      it(`gives each ${tier} node subnet a /${prefix} with room for its nodes on EKS, AKS and GKE`, () => {
-        for (const provider of CLOUD_PROVIDERS) {
+      it(`gives each ${tier} node subnet a /${prefix} with room for its nodes on EKS and AKS`, () => {
+        for (const provider of ["eks", "aks"] as const) {
           const config = getTierConfig(tier as keyof typeof NODE_SUBNETS, provider);
           expect(config.privateSubnetSize, provider).toBe(prefix);
           expect(usableAddresses(config.privateSubnetSize, provider), provider).toBeGreaterThanOrEqual(nodesPerSubnet);
@@ -173,12 +174,16 @@ describe("IP Calculation Compliance Validation", () => {
       });
     }
 
-    it("counts 5 reserved addresses per subnet for AWS and Azure, 4 for Google Cloud", () => {
-      expect(usableAddresses(20, "eks")).toBe(4091);
-      expect(usableAddresses(20, "aks")).toBe(4091);
-      expect(usableAddresses(20, "gke")).toBe(4092);
-      expect(usableAddresses(24, "aks")).toBe(251); // Microsoft: a /24 leaves 251 usable
-      expect(usableAddresses(25, "eks")).toBe(123);
+    it("gives a GKE cluster's single node subnet room for every tier but hyperscale's 5,000 nodes", () => {
+      // Below hyperscale, nodesPerSubnet is already the tier's whole node count
+      for (const tier of ["micro", "standard", "professional", "enterprise"] as const) {
+        const config = getTierConfig(tier, "gke");
+        expect(usableAddresses(config.privateSubnetSize, "gke"), tier).toBeGreaterThanOrEqual(NODE_SUBNETS[tier].nodesPerSubnet);
+      }
+      // One /20 holds 4,092 nodes: 5,000 need a larger node subnet or GKE's additional subnets
+      const hyperscale = getTierConfig("hyperscale", "gke");
+      expect(usableAddresses(hyperscale.privateSubnetSize, "gke")).toBe(4092);
+      expect(usableAddresses(hyperscale.privateSubnetSize, "gke")).toBeLessThan(5000);
     });
   });
 
@@ -237,11 +242,10 @@ describe("IP Calculation Compliance Validation", () => {
 
   describe("Service CIDR Validation", () => {
     /**
-     * From all compliance audits:
-     * - AWS/GKE/AKS minimum: /20 (4,096 services); GKE's own default is a /20
-     * - Our implementation: /20 for every tier except hyperscale, which gets /18
-     *   (16,384 > Kubernetes' tested limit of 10,000 services per cluster)
-     * - Allowed overrides: /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12)
+     * Provider limits: EKS /12 to /24, AKS smaller than /12, GKE (user-managed) /16 to /28
+     * - Generated: /20 for every tier except hyperscale, which gets /18 (16,384 >
+     *   Kubernetes' tested limit of 10,000 services per cluster); GKE's own default is a /20
+     * - Allowed servicesCidr overrides: /13 to /24 (GKE: /16 to /24)
      */
     describe("Service CIDR Sizing", () => {
       it("should provide at least /20 equivalent capacity for all tiers", () => {
@@ -256,8 +260,8 @@ describe("IP Calculation Compliance Validation", () => {
       it("should right-size service CIDRs: /20, or /18 for hyperscale", () => {
         Object.entries(DEPLOYMENT_TIER_CONFIGS).forEach(([tier, config]) => {
           expect(config.servicesPrefix).toBe(tier === "hyperscale" ? 18 : 20);
-          // Within every provider's limits
-          expect(config.servicesPrefix).toBeGreaterThanOrEqual(13);
+          // Within every provider's limits: GKE's /16 cap is the tightest
+          expect(config.servicesPrefix).toBeGreaterThanOrEqual(16);
           expect(config.servicesPrefix).toBeLessThanOrEqual(24);
         });
         expect(calculateTotalAddresses(DEPLOYMENT_TIER_CONFIGS.hyperscale.servicesPrefix)).toBeGreaterThan(10000);
@@ -387,8 +391,8 @@ describe("IP Calculation Compliance Validation", () => {
         micro: "10.0.0.0/24",       // /24 min for micro
         standard: "10.0.0.0/23",    // /23 min for standard
         professional: "10.0.0.0/21", // /21 min for professional
-        enterprise: "10.0.0.0/18",  // /18 min for enterprise
-        hyperscale: "10.0.0.0/18",  // /18 min for hyperscale (realistic)
+        enterprise: "10.0.0.0/18",  // above the /19 minimum
+        hyperscale: "10.0.0.0/18",  // the minimum
       } as const;
 
       (Object.keys(tierVpcMap) as (keyof typeof tierVpcMap)[]).forEach((tier) => {
@@ -425,8 +429,8 @@ describe("IP Calculation Compliance Validation", () => {
         micro: "10.0.0.0/24",       // /24 min for micro
         standard: "10.0.0.0/23",    // /23 min for standard
         professional: "10.0.0.0/21", // /21 min for professional
-        enterprise: "10.0.0.0/18",  // /18 min for enterprise
-        hyperscale: "10.0.0.0/18",  // /18 min for hyperscale (realistic)
+        enterprise: "10.0.0.0/18",  // above the /19 minimum
+        hyperscale: "10.0.0.0/18",  // the minimum
       } as const;
 
       (Object.keys(tierVpcMap) as (keyof typeof tierVpcMap)[]).forEach((tier) => {
@@ -453,12 +457,9 @@ describe("IP Calculation Compliance Validation", () => {
 
     describe("Hyperscale VPC Size Requirement", () => {
       /**
-       * UPDATED: Realistic hyperscale tier now uses /18 VPC
-       * - 3 public + 3 private = 6 subnets (realistic for most cloud regions)
-       * - Public subnets: /23 = 512 addresses each (1,536 total)
-       * - Private subnets: /20 = 4,096 addresses each (12,288 total)
-       * - Total needed: 13,824 addresses
-       * - /18 VPC has 16,384 addresses (sufficient, matches user example)
+       * Hyperscale needs a /18 (16,384 addresses): 3 x /23 public and 3 x /20 node
+       * subnets plus the control plane add up to 13,840 addresses (13,856 for EKS's two
+       * /28s), and placing each at its own alignment uses the whole /18
        */
       it("fits a hyperscale plan in a /18 VPC for every provider and network mode", async () => {
         for (const provider of ["eks", "gke", "aks", "kubernetes"] as const) {

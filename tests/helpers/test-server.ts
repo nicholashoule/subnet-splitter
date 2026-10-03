@@ -2,7 +2,11 @@
  * tests/helpers/test-server.ts
  * 
  * Shared utilities for integration tests that need HTTP server lifecycle.
- * Reduces duplication across api-endpoints, csp-violation, and CSP middleware tests.
+ *
+ * createTestServer() builds a lighter stack than production's createApp()
+ * (server/app.ts): it keeps case-sensitive routing, the 16 KB JSON body limit and
+ * errorHandler (registered after setup), but adds no security headers, logging or rate
+ * limiting. Tests that need those pass them as middleware, or build on createApp().
  * 
  * Usage:
  * ```typescript
@@ -25,6 +29,7 @@
  */
 
 import express, { type Express, type RequestHandler } from "express";
+import { errorHandler } from "../../server/app";
 import { createServer, type Server as HttpServer } from "http";
 import type { OptionsJson } from "body-parser";
 
@@ -33,7 +38,7 @@ export interface TestServerConfig {
   setup?: (app: Express, httpServer: HttpServer) => void | Promise<void>;
   /** Express middleware to add before routes */
   middleware?: RequestHandler[];
-  /** Custom JSON parser configuration */
+  /** JSON parser options, merged over production's 16 KB limit */
   jsonOptions?: OptionsJson;
 }
 
@@ -59,9 +64,11 @@ export interface TestServer {
  */
 export async function createTestServer(config: TestServerConfig = {}): Promise<TestServer> {
   const app = express();
-  
-  // Add default JSON middleware (or custom options)
-  app.use(express.json(config.jsonOptions || {}));
+  // As in production, before the first app.use() creates the router
+  app.set("case sensitive routing", true);
+
+  // JSON bodies, capped at 16 KB like the API (custom options merged over that)
+  app.use(express.json({ limit: "16kb", ...config.jsonOptions }));
   
   // Add custom middleware
   if (config.middleware) {
@@ -74,6 +81,9 @@ export async function createTestServer(config: TestServerConfig = {}): Promise<T
   if (config.setup) {
     await config.setup(app, httpServer);
   }
+
+  // Production's error handler, last: malformed or oversized bodies get its JSON errors
+  app.use(errorHandler);
   
   // Start on a free port chosen by the OS (port 0); a listen error fails the test
   const port = await new Promise<number>((resolve, reject) => {

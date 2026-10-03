@@ -8,7 +8,7 @@
  * The rate limit runs first, then the route's own JSON parser, so malformed and
  * oversized reports count toward the limit too. Every report that reaches the handler
  * is answered 204 No Content; a body that is not valid JSON, or is larger than 16 KB,
- * gets 400 or 413 with the JSON error body from errorHandler (server/app.ts).
+ * gets 400, 413 or 415 with the JSON error body from errorHandler (server/app.ts).
  */
 
 import express, { type Express, type Request, type Response } from "express";

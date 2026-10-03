@@ -288,8 +288,8 @@ describe("Edge Cases & Robustness", () => {
     });
 
     it("normalizes an address with host bits set to the network address", () => {
-      // 192.168.1.5/24 is invalid because network address should be 192.168.1.0
-      // This is handled by the calculateSubnet function using the mask
+      // calculateSubnet masks off the host bits; the calculator form rejects such input
+      // earlier (validateCidrInput), but the API and other callers rely on this
       const subnet = calculateSubnet("192.168.1.5/24");
       expect(subnet.networkAddress).toBe("192.168.1.0"); // Normalized to network address
     });

@@ -6,7 +6,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 **What each file covers**: see the [test inventory](../docs/test-suite-analysis.md#test-inventory); `npm test -- --run` prints the current counts  
 **Pass Rate**: 100% passing  
-**Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
+**Overall Grade**: A+ (from the February 8, 2026 audit; see [Test Quality & Audit](#test-quality--audit))
 
 ## Test Categories
 
@@ -118,7 +118,11 @@ Unit tests verify individual functions and utilities in isolation.
 - Non-text contrast (3:1): focus ring, toast close icon
 - Fails on Tailwind palette colors (`text-green-600`, `bg-gray-50`, `--color-<palette>` variables) in client code; only `getDepthIndicatorClasses()` in `subnet-utils.ts` is exempt
 - Design system consistency (primary hue, ring, destructive)
+- Focus indicators: Button, Input and Checkbox draw a 2px focus ring outside a 2px gap (no 1px ring)
 - Page semantics from `calculator.tsx` (alt text, `h1` followed by `h2`, aria-labels, labelled input and error)
+- Announcements: validation errors are alerts and `onSubmit` does not move focus; table status sits in a live region
+- Theme before first paint: `theme-init.js` loads as a blocking script in `<head>`, applies dark only for a saved `dark`, and keeps light when storage throws
+- Calculator wiring: memoized rows with a stable split callback, table and export built from the visible rows, a minus for the partial select-all state, header icons sized through their buttons, example loads confirmed through the announced toast
 
 **config.test.ts:**
 - Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config, replaced packages removed)
@@ -153,18 +157,21 @@ Integration tests verify system-wide features and API behavior.
 - Provider support: EKS, GKE, and generic Kubernetes plans; AKS appears only in the JSON round-trip test
 
 **rate-limiting.test.ts**:
-- Rate limiter configuration (SPA fallback: 30 requests per 15 minutes; API: 100 per minute, health probes exempt)
+- Rate limiter configuration (SPA fallback: 30 requests per 15 minutes; API: 100 per minute)
 - Request throttling behavior
 - Header verification (`RateLimit-*` headers from the IETF draft, with `RateLimit-Reset` in seconds and `RateLimit-Policy: 30;w=900`; legacy `X-RateLimit-*` headers are not sent)
 - Multiple endpoints protected
-- Rate-limited (429) and malformed-body (400) requests are logged
+- Health probe exemption: only `GET` and `HEAD` of the real health paths; other methods and lookalike paths count
+- The API limiter runs before the JSON parser, so malformed and oversized bodies count toward the limit
+- Rate-limited (429) and malformed-body (400) requests are logged, and `/api` is logged in any letter case
+- `server/index.ts` builds on `createApp()` and registers `errorHandler` after the routes and static serving
 
 **csp-violation-endpoint.test.ts**:
 - Registers the production handler and limiter from `server/csp-report.ts`
 - CSP violation report handling
 - W3C spec compliance
-- Rate limiting for log flooding prevention (`RateLimit-Policy: 100;w=900`)
-- Schema validation
+- Rate limiting for log flooding prevention (`RateLimit-Policy: 100;w=900`): reports past the limit get 204 and are not logged; the limiter runs before the JSON parser, so malformed reports count
+- Schema validation, including a complete Chrome-shaped report
 
 **swagger-ui-csp-middleware.test.ts**:
 - Serves the real routes behind the production global headers (`createSecurityHeaders()` from `server/csp-config.ts`)
@@ -257,7 +264,7 @@ When adding new tests:
 
 ## Emoji Checking and Fixing
 
-The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run emoji:check` before each commit and skips with a message when Go 1.24+ is missing. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
+The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run emoji:check` on the staged files before each commit, and skips with a message when Go 1.24+ is missing or demojify cannot be downloaded or built. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
 
 ```bash
 # Audit every text file; exits 1 and reports file, line, and column for each emoji
@@ -281,7 +288,7 @@ Tests are configured in `vitest.config.ts` at the project root:
 **For detailed analysis of test suite health, see [test-suite-analysis.md](../docs/test-suite-analysis.md)**
 
 **Assessment** (grade from the February 8, 2026 audit in [test-suite-analysis.md](../docs/test-suite-analysis.md), whose inventory is kept current):
-- **Grade**: A (Comprehensive coverage with proper organization)
+- **Grade**: A+ (comprehensive coverage with proper organization)
 - **Pass Rate**: 100%
 - **Test Files**: unit + integration
 

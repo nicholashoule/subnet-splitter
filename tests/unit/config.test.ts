@@ -9,6 +9,9 @@
  *   v3 config or PostCSS pipeline
  * - The stylesheet's theme maps only to design tokens defined for both themes
  * - Removed build packages stay removed
+ * - The emoji check: one pinned demojify command shared by the npm scripts, CI and the
+ *   pre-commit hook, and the prepare script that installs the hook
+ * - The pre-commit hook itself, run with stub tools in scratch repositories
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";

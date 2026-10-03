@@ -50,7 +50,7 @@ describe("API Endpoint", () => {
 ## Test Organization Rules
 
 - **File naming:** `{module}.test.ts` or `{feature}.test.ts`
-- **Location:** `tests/unit/` for pure functions, `tests/integration/` for system features
+- **Location:** `tests/unit/` for code tested in isolation with no server (mostly pure functions; some read project files or run git), `tests/integration/` for system features
 - **Imports:** Use `@/` (client/src) and `@shared/` aliases; import server code, test helpers, and `package.json` relatively (they have no alias)
 - **Grouping:** `describe()` blocks for related tests
 - **Description:** Clear, specific `it()` descriptions stating expected behavior
@@ -145,7 +145,7 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?networkMode=isolated" # 400 INV
 - GKE and AKS subnets have no `availabilityZone`; EKS subnets span at least two AZs
 - Control plane is one network: one `/28` for GKE, AKS, and generic; exactly two contiguous `/28`s (one `/27`) in two AZs for EKS
 - Public mode: `subnets.loadBalancer` is `[]`. Private mode: `subnets.public` is `[]` and `subnets.loadBalancer` holds `load-balancer` subnets (GKE and AKS: exactly one; EKS: one per AZ, at least two)
-- Validation and planning errors (400) use the requested format; malformed or oversized bodies (400/413), unknown API paths (404), and rate limiting (429) are always JSON
+- Validation and planning errors (400) use the requested format; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON
 - AKS: a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16` is rejected; hyperscale on a `10.x` VNet gives pods `100.64.0.0/13`
 - A `vpcCidr` larger than `/16` is rejected for every provider
 

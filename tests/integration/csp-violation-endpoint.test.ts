@@ -22,9 +22,9 @@ import { logger } from "../../server/logger";
 import { closeTestServer, type TestServer } from "../helpers/test-server";
 
 /**
- * Serves the development app from server/app.ts, which registers the endpoint behind
- * the server's own body parser and limiter, followed by the error handler, as
- * server/index.ts does
+ * Serves the development app from server/app.ts, which registers the endpoint with
+ * its own rate limiter and then its own JSON parser (server/csp-report.ts), followed by
+ * the error handler, as server/index.ts does
  */
 async function startDevServer(): Promise<TestServer> {
   const app = createApp({ isDevelopment: true });
