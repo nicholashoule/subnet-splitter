@@ -99,7 +99,7 @@ The application is a stateless calculator. It has no database, no user accounts,
 - Small dependency set; unused packages are removed
 - `package-lock.json` is committed and CI installs with `npm ci`
 - CI runs `npm audit` on every push to `main` and every pull request, and the job fails on any known vulnerability
-- CI also starts the production bundle and checks its security headers (CSP and every header listed above), its validation of bad input, and the API docs page's Subresource Integrity over HTTP (`npm run smoke`)
+- CI also starts the production bundle and checks its security headers (CSP and every header listed above), its validation of bad input, and that the API docs page's Subresource Integrity hashes match the files the CDN serves (`npm run smoke`)
 - The production server is a single self-contained bundle (`dist/index.cjs`); `node_modules` is not needed at runtime
 - The package is `private`, so it cannot be published to npm by accident
 

@@ -23,6 +23,7 @@ import type { Express } from "express";
 import { registerRoutes } from "../../server/routes";
 import { createApp, errorHandler } from "../../server/app";
 import { serveStatic } from "../../server/static";
+import { SWAGGER_UI_VERSION } from "../../server/swagger-ui";
 import { THEME_STORAGE_KEY } from "../../client/src/lib/theme";
 import { version as APP_VERSION } from "../../package.json";
 import { createTestServer, closeTestServer, type TestServer } from "../helpers/test-server";
@@ -312,12 +313,24 @@ describe("API Endpoints Integration", () => {
       expect(html).not.toContain("swagger-ui-standalone-preset");
       expect(html).toContain("layout: 'BaseLayout'");
 
-      // ...and every CDN asset carries Subresource Integrity
+      // ...and every CDN asset carries Subresource Integrity. A SHA-384 digest is 48
+      // bytes, 64 base64 characters; npm run smoke checks the digests against the files.
       const cdnTags = html.match(/<(?:script|link)[^>]*cdn\.jsdelivr\.net[^>]*>/g) ?? [];
       expect(cdnTags).toHaveLength(2);
       for (const tag of cdnTags) {
-        expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/=]+"/);
+        expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/]{64}"/);
         expect(tag).toContain('crossorigin="anonymous"');
+      }
+    });
+
+    it("should name the pinned Swagger UI version wherever the docs state it", () => {
+      // Bumping SWAGGER_UI_VERSION must update these too (the CHANGELOG records history)
+      const pinned = `swagger-ui-dist@${SWAGGER_UI_VERSION}`;
+      for (const file of [".github/instructions/backend.instructions.md", "docs/compliance/security-reference.md", "server/swagger-ui.ts"]) {
+        const text = fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
+        const mentioned = [...text.matchAll(/swagger-ui-dist@(\d+\.\d+\.\d+)/g)].map((m) => m[0]);
+        expect(mentioned.length, file).toBeGreaterThan(0);
+        expect(new Set(mentioned), file).toEqual(new Set([pinned]));
       }
     });
 

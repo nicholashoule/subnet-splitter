@@ -86,7 +86,7 @@ export function buildSwaggerUICSP(): string {
 }
 ```
 
-**Subresource Integrity:** Swagger UI assets are pinned to `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1` and loaded with `sha384` `integrity` hashes and `crossorigin="anonymous"` (`SWAGGER_UI_VERSION` and `SRI` in `server/swagger-ui.ts`), so the browser refuses a changed or compromised CDN file. When upgrading Swagger UI, update the version and both hashes (CSS and bundle) as described in `.github/swagger-ui-theming.md`.
+**Subresource Integrity:** Swagger UI assets are pinned to `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1` and loaded with `sha384` `integrity` hashes and `crossorigin="anonymous"` (`SWAGGER_UI_VERSION` and `SRI` in `server/swagger-ui.ts`), so the browser refuses a changed or compromised CDN file. When upgrading Swagger UI, update the version and both hashes (CSS and bundle) as described in `.github/swagger-ui-theming.md`; `npm run smoke` downloads both files and fails if a hash does not match.
 
 ### CSP Violation Reporting
 
@@ -264,6 +264,6 @@ Before committing:
 - [ ] `npm run check` -- TypeScript strict passes
 - [ ] `npm run test -- --run` -- all tests pass
 - [ ] Dev server: no console errors
-- [ ] Production build: `npm run build && npm run smoke` (checks the strict CSP, `nosniff`, rate-limit headers, and docs-page SRI on the bundle; `npm start` to try it by hand)
+- [ ] Production build: `npm run build && npm run smoke` (checks the strict CSP, the security headers, rate-limit headers, and that the docs page's SRI hashes match the files the CDN serves; `npm start` to try it by hand)
 - [ ] CSP: test in Chrome/Edge/Firefox, check DevTools
 - [ ] If modifying CSP: document rationale, test both modes

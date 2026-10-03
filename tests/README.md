@@ -144,7 +144,7 @@ Integration tests verify system-wide features and API behavior.
 - Health check endpoints (/health, /health/ready, /health/live), with ISO 8601 UTC timestamps
 - API version endpoint
 - OpenAPI specification (JSON/YAML)
-- Swagger UI presentation
+- Swagger UI presentation: pinned assets with well-formed `sha384` SRI (the smoke test checks the digests against the CDN files), and the pinned version named consistently in the docs
 - Endpoint aliases return the same full plan (only the generation timestamp may differ)
 - Error handling consistency: unknown `/api` paths and methods get a JSON 404 (not the web app), a repeated `?format=` falls back to JSON, unknown fields are ignored and not echoed
 - Response formats: JSON and YAML for tiers and plans; YAML quotes strings such as `yes` and `no` that YAML 1.1 readers would load as booleans
@@ -355,7 +355,7 @@ npm run build              # Production build
 npm run smoke              # Start dist/index.cjs on port 5099 and check it over HTTP
 ```
 
-`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, app and CSP headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's SRI-pinned assets. `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `emoji` job runs `npm run emoji:check` (demojify, Go).
+`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, the app with its CSP and security headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's pinned assets, which it downloads from the CDN to check that their SRI hashes match (this check needs network access). `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `emoji` job runs `npm run emoji:check` (demojify, Go).
 
 ---
 

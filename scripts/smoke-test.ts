@@ -5,6 +5,8 @@
  * health, static app and SPA fallback, security headers, the plan and tiers APIs,
  * validation errors, rate-limit headers, and the API docs. Unit and integration
  * tests import the source; this catches problems that only appear in the bundle.
+ * The API docs check downloads the pinned Swagger UI files from the CDN to compare
+ * them with their integrity hashes, so it needs network access to cdn.jsdelivr.net.
  *
  * Also checks that the served OpenAPI document matches server/openapi.ts and writes
  * it to dist/openapi.json for validation.
@@ -14,6 +16,7 @@
  */
 
 import { spawn } from "child_process";
+import { createHash } from "crypto";
 import { readFileSync, writeFileSync } from "fs";
 import { isDeepStrictEqual } from "util";
 import { openApiSpec } from "../server/openapi";
@@ -205,7 +208,7 @@ try {
     writeFileSync("dist/openapi.json", JSON.stringify(source, null, 2));
   });
 
-  await check("API docs page loads pinned assets with SRI", async () => {
+  await check("API docs page loads pinned assets whose SRI hashes match the CDN files", async () => {
     const res = await fetch(`${base}/api/docs/ui`);
     const html = await res.text();
     const csp = parseCsp(res.headers.get("content-security-policy") ?? "");
@@ -220,6 +223,21 @@ try {
       cdnElements.every((attrs) => attrs.get("integrity")?.startsWith("sha384-") && attrs.get("crossorigin") === "anonymous"),
       "CDN asset without SRI"
     );
+    // A stale or mistyped hash passes the format check above, but the browser refuses
+    // the file and the docs page stays blank. Hash what the CDN actually serves.
+    for (const attrs of cdnElements) {
+      const url = (attrs.get("src") ?? attrs.get("href"))!;
+      let asset: Response;
+      try {
+        asset = await fetch(url);
+      } catch (error) {
+        throw new Error(`could not download ${url} to check its integrity hash (needs network access to ${CDN_HOST}): ${error}`);
+      }
+      assert(asset.ok, `${url}: HTTP ${asset.status}`);
+      const actual = `sha384-${createHash("sha384").update(Buffer.from(await asset.arrayBuffer())).digest("base64")}`;
+      const declared = attrs.get("integrity")!.split(/\s+/);
+      assert(declared.includes(actual), `${url}: integrity ${declared.join(" ")} does not match the file (${actual})`);
+    }
     for (const directive of ["script-src", "style-src"]) {
       assert(csp.get(directive)?.some(isHttpsCdn), `docs CSP ${directive} lacks the CDN`);
     }

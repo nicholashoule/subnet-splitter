@@ -33,7 +33,7 @@ How the API documentation page (`/api/docs/ui`) is styled, and how to keep it wo
 
 Assets load from `https://cdn.jsdelivr.net/npm/swagger-ui-dist@<version>` with `sha384` Subresource Integrity; a stale hash makes the browser refuse the file. To upgrade:
 
-1. Set `SWAGGER_UI_VERSION` in `server/swagger-ui.ts`.
+1. Set `SWAGGER_UI_VERSION` in `server/swagger-ui.ts`, and the `swagger-ui-dist@<version>` it names in the header comment there, `.github/instructions/backend.instructions.md` and `docs/compliance/security-reference.md` (a test fails until they match).
 2. Recompute both hashes and replace `SRI.css` and `SRI.bundle`:
    ```bash
    V=5.33.1   # the new version
@@ -44,14 +44,15 @@ Assets load from `https://cdn.jsdelivr.net/npm/swagger-ui-dist@<version>` with `
    ```
 3. Regenerate the selector lists from the new `swagger-ui.css`. Rules setting `color:#3b4151` (and other dark greys) feed `TEXT_SELECTORS`; light `background` values feed `SURFACE_SELECTORS`; `font-family:sans-serif` and `monospace` feed `SANS_SELECTORS` and `MONO_SELECTORS`. Skip the Tachyons helper classes (`.black`, `.bg-white`, `.hover-*`, ...) and the `json-schema-2020-12` viewer, which an OpenAPI 3.0 document never renders.
 4. Check that `idea` and `tomorrow-night` still exist in `swagger-ui-bundle.js` (`grep -c 'idea:{' swagger-ui-bundle.js`).
-5. Look at the page in both themes: the info card, servers, an expanded operation after "Try it out" and "Execute" (curl, request URL, response body, response headers), and the Schemas section. Check the browser console for errors and CSP violations.
+5. Run `npm run build` and `npm run smoke`: the smoke test compares both hashes with the files the CDN serves.
+6. Look at the page in both themes: the info card, servers, an expanded operation after "Try it out" and "Execute" (curl, request URL, response body, response headers), and the Schemas section. Check the browser console for errors and CSP violations.
 
 ## Testing
 
-- `tests/integration/api-endpoints.test.ts` ("Swagger UI Presentation"): token parity with the web app (the twelve tokens listed under [Design](#design)), method badge colors, pinned assets with SRI (exactly two CDN tags, no standalone preset), favicon, theme toggle without reload, no repaint script, header and footer.
+- `tests/integration/api-endpoints.test.ts` ("Swagger UI Presentation"): token parity with the web app (the twelve tokens listed under [Design](#design)), method badge colors, pinned assets with SRI (exactly two CDN tags, each with a 64-character `sha384` digest, no standalone preset), the pinned version named consistently in the docs, favicon, theme toggle without reload, no repaint script, header and footer.
 - `tests/integration/swagger-ui-csp-middleware.test.ts`: the route's CSP.
 - `tests/integration/swagger-ui-theming.test.ts`: the same page served by an in-process server the test starts itself, so it always runs (no `npm run dev` needed).
-- `npm run smoke` (after `npm run build`; CI runs both): the production bundle serves `/api/docs/ui` with exactly two CDN tags, each with a `sha384` integrity hash, under a CSP that allows `cdn.jsdelivr.net`. It checks that the hashes are present, not that they match the files; a wrong hash only shows up in the browser (step 5 above).
+- `npm run smoke` (after `npm run build`; CI runs both): the production bundle serves `/api/docs/ui` with exactly two CDN tags, each with a `sha384` integrity hash, under a CSP that allows `cdn.jsdelivr.net`. It downloads both files from the CDN and fails, naming the file and both hashes, when a declared hash does not match the bytes served, so a stale or mistyped hash is caught before a browser refuses the file. This check needs network access to `cdn.jsdelivr.net`.
 - Visual checks: render the page in headless Chrome in both themes (set `localStorage.theme`, open `#/Kubernetes/generateNetworkPlan`, choose "Try it out" and "Execute") and review screenshots. There is no committed visual-regression suite.
 
 ## Known limitations
