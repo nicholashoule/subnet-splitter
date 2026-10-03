@@ -104,7 +104,7 @@ Unit tests verify individual functions and utilities in isolation.
 - Generated pod and service ranges avoid `172.17.0.0/16`; a VPC overlapping it yields a `warnings` entry (omitted otherwise)
 - Provider address rules: AKS rejects a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16`, and AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`; GKE `servicesCidr` is capped at `/16`; a VPC larger than `/16` is rejected; generated pods stay out of a caller `servicesCidr`'s block
 - EKS puts every subnet type in at least two AZs; GKE and AKS subnets carry no zone
-- `podsCidr`, `servicesCidr`, and `availabilityZones` overrides and their rejections
+- `podsCidr`, `servicesCidr`, and `availabilityZones` overrides and their rejections; a blank `vpcCidr`, `podsCidr` or `servicesCidr` is rejected, not treated as omitted
 - Provider-specific tier layouts and `minVpcPrefix` ("VPC too small" errors name the minimum)
 
 **ip-calculation-compliance.test.ts:**

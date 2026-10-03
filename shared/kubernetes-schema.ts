@@ -156,6 +156,14 @@ export const LARGEST_VPC_REASON: Record<CanonicalProvider, string> = {
 const LOCATION_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /**
+ * An optional CIDR field. Surrounding whitespace is dropped, but a blank value is an
+ * error: the generator treats an empty string as omitted, so "" or "   " (an unset
+ * Terraform variable, say) would otherwise silently get a generated range.
+ */
+const optionalCidr = () =>
+  z.string().trim().min(1, "Must not be blank; omit the field to have a range generated").max(18).optional();
+
+/**
  * Request schema for generating Kubernetes network plans
  */
 export const KubernetesNetworkPlanRequestSchema = z.object({
@@ -168,10 +176,10 @@ export const KubernetesNetworkPlanRequestSchema = z.object({
     .regex(LOCATION_PATTERN, "Region must be lowercase letters, digits, and hyphens (e.g., us-east-1, us-central1, eastus)")
     .optional()
     .describe("Cloud region/location (e.g., us-east-1 for AWS, us-central1 for GCP, eastus for Azure)"),
-  vpcCidr: z.string().trim().max(18).optional().describe("Optional VPC CIDR (e.g., 10.0.0.0/16). If not provided, random RFC 1918 will be generated"),
-  podsCidr: z.string().trim().max(18).optional()
+  vpcCidr: optionalCidr().describe("Optional VPC CIDR (e.g., 10.0.0.0/16). If omitted, a random RFC 1918 /18 is generated; a blank value is rejected"),
+  podsCidr: optionalCidr()
     .describe("Optional pod range, e.g. to keep several clusters from overlapping. RFC 1918 or 100.64.0.0/10, /8 to /24"),
-  servicesCidr: z.string().trim().max(18).optional()
+  servicesCidr: optionalCidr()
     .describe("Optional service (ClusterIP) range. RFC 1918, /13 to /24 (GKE: /16 to /24)"),
   availabilityZones: z.array(
     z.string()

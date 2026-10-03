@@ -1339,6 +1339,20 @@ Response (400):
 }
 ```
 
+**Blank CIDR:** `vpcCidr`, `podsCidr` and `servicesCidr` are trimmed, and a blank value is rejected rather than read as "generate one". Omit the field to get a generated range.
+```bash
+curl -X POST http://localhost:5000/api/kubernetes/network-plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize": "standard", "vpcCidr": ""}'
+```
+Response (400):
+```json
+{
+  "error": "Invalid request: vpcCidr: Must not be blank; omit the field to have a range generated",
+  "code": "INVALID_REQUEST"
+}
+```
+
 **VPC Too Small:** the message names the minimum prefix for the tier and provider.
 ```bash
 curl -X POST http://localhost:5000/api/kubernetes/network-plan \

@@ -367,6 +367,19 @@ describe("Pod and service overrides", () => {
     reject({ podsCidr: "not-a-cidr" }, /Invalid podsCidr/);
   });
 
+  it("rejects a blank CIDR instead of treating it as omitted", () => {
+    // The generator picks a default when a field is falsy, so "" or "   " must not get
+    // through: a blank vpcCidr would silently get a random VPC
+    for (const field of ["vpcCidr", "podsCidr", "servicesCidr"]) {
+      for (const blank of ["", "   ", "\t\n"]) {
+        expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", [field]: blank }), `${field} ${JSON.stringify(blank)}`)
+          .toThrow(/Must not be blank/);
+      }
+    }
+    // Surrounding whitespace around a real CIDR is still dropped
+    expect(buildKubernetesNetworkPlan({ deploymentSize: "micro", vpcCidr: " 10.0.0.0/24 " }).vpc.cidr).toBe("10.0.0.0/24");
+  });
+
   it("raises KubernetesNetworkGenerationError (a 400) for bad overrides", () => {
     expect(() => buildKubernetesNetworkPlan({ deploymentSize: "micro", podsCidr: "8.8.0.0/16" }))
       .toThrow(KubernetesNetworkGenerationError);

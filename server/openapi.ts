@@ -226,21 +226,21 @@ export const openApiSpec = {
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "10.100.0.0/18",
-                    description: "Private RFC 1918 CIDR. The entire range must fall within 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16; host bits are cleared. /16 or smaller for every provider (AWS limits VPCs to /16 to /28; for GKE, AKS and generic Kubernetes the /16 cap is this project's standard). AKS: clear of 172.30.0.0/16 and 172.31.0.0/16, which AKS reserves. A random /18 is generated if omitted."
+                    description: "Private RFC 1918 CIDR. The entire range must fall within 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16; host bits are cleared. /16 or smaller for every provider (AWS limits VPCs to /16 to /28; for GKE, AKS and generic Kubernetes the /16 cap is this project's standard). AKS: clear of 172.30.0.0/16 and 172.31.0.0/16, which AKS reserves. A random /18 is generated if omitted; a blank value is rejected."
                   },
                   podsCidr: {
                     type: "string",
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "172.16.64.0/18",
-                    description: "Optional pod range, e.g. so several clusters in one network don't overlap. RFC 1918 or 100.64.0.0/10, /8 to /24; must not overlap the VPC, servicesCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted."
+                    description: "Optional pod range, e.g. so several clusters in one network don't overlap. RFC 1918 or 100.64.0.0/10, /8 to /24; must not overlap the VPC, servicesCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted; a blank value is rejected."
                   },
                   servicesCidr: {
                     type: "string",
                     pattern: "^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$",
                     maxLength: 18,
                     example: "192.168.16.0/20",
-                    description: "Optional service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12); for GKE /16 to /24 (Google caps user-managed Services ranges at /16). Must not overlap the VPC, podsCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted. Pass your current range to keep it stable: it cannot change after cluster creation."
+                    description: "Optional service (ClusterIP) range. RFC 1918, /13 to /24 (EKS allows /12-/24, AKS requires smaller than /12); for GKE /16 to /24 (Google caps user-managed Services ranges at /16). Must not overlap the VPC, podsCidr, or 172.17.0.0/16 (for AKS also 172.30.0.0/16 and 172.31.0.0/16). Generated if omitted; a blank value is rejected. Pass your current range to keep it stable: it cannot change after cluster creation."
                   },
                   availabilityZones: {
                     type: "array",

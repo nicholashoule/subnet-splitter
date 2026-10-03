@@ -623,6 +623,21 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("code");
     });
 
+    it("should reject a blank CIDR rather than generate a range for it", async () => {
+      // An unset Terraform variable often arrives as ""; it must not mean "pick one"
+      for (const field of ["vpcCidr", "podsCidr", "servicesCidr"]) {
+        const response = await fetch(`${baseUrl}/api/k8s/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deploymentSize: "micro", [field]: "  " }),
+        });
+        expect(response.status, field).toBe(400);
+        const data = await response.json();
+        expect(data.code).toBe("INVALID_REQUEST");
+        expect(data.error).toBe(`Invalid request: ${field}: Must not be blank; omit the field to have a range generated`);
+      }
+    });
+
     it("should reject VPC CIDR with invalid prefix", async () => {
       const response = await fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
         method: "POST",
