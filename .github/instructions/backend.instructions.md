@@ -96,7 +96,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - `GET /api/kubernetes/tiers` -- deployment tier information; `?provider=eks|gke|aks|kubernetes|k8s` and `?networkMode=public|private` (400 `INVALID_REQUEST` otherwise, naming the field), since layouts and `minVpcPrefix` differ by provider
 - Supports providers: `eks`, `gke`, `aks`, `kubernetes`/`k8s`
 - RFC 1918 private addressing, deterministic generation when `vpcCidr` is given
-- Four separated address spaces in every plan: nodes (`subnets.private`) and the control plane (`subnets.controlPlane`) inside the VPC; pods and services outside it, each in its own RFC 1918 block; generated ranges avoid `172.17.0.0/16` (overlapping VPCs get a `warnings` entry)
+- Four separated address spaces in every plan: nodes (`subnets.private`) and the control plane (`subnets.controlPlane`) inside the VPC; pods and services outside it, generated in their own blocks (RFC 1918, or `100.64.0.0/10` for pods when no RFC 1918 block has room); generated ranges avoid `172.17.0.0/16` (overlapping VPCs get a `warnings` entry) and, for AKS, `172.30.0.0/16` and `172.31.0.0/16`, which AKS rejects; every VPC is /16 or smaller
 - The control plane is one network: one `/28` for GKE, AKS, and generic Kubernetes; for EKS exactly two `/28`s in two AZs, placed as one aligned `/27`
 - `networkMode`: `public` (default) or `private`. Every plan has top-level `networkMode` and `subnets.loadBalancer` (empty in public mode); private mode empties `subnets.public` and puts internal load-balancer subnets (type `load-balancer`) in `subnets.loadBalancer`. OpenAPI includes generated `gke_private` and `eks_private` examples
 - Plan format version is `metadata.version` (`PLAN_FORMAT_VERSION`, currently `"2.0"`)

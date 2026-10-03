@@ -2067,5 +2067,5 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 **Last Updated:** October 2, 2026  
 **API Status:**  Production Ready  
-**Tests:** all passing (`npm test -- --run`; counts in the [test inventory](test-suite-analysis.md#test-inventory)); no coverage tool is configured  
+**Tests:** run `npm test -- --run` (CI runs it on every push and pull request); the [test inventory](test-suite-analysis.md#test-inventory) says what each file covers; no coverage tool is configured  
 **Vulnerabilities:** 0

@@ -317,7 +317,7 @@ Invoke-WebRequest -Uri "http://127.0.0.1:5000/api/k8s/plan?format=yaml" `
   -Body '{"deploymentSize":"hyperscale","provider":"gke"}' | Select-Object -ExpandProperty Content
 ```
 
-The project includes a comprehensive test suite (100% passing; per-file counts are in the [test inventory](docs/test-suite-analysis.md#test-inventory)) covering:
+The project includes a test suite (`npm test -- --run`; the [test inventory](docs/test-suite-analysis.md#test-inventory) says what each file covers) covering:
 
 **Unit Tests:**
 - **Subnet calculations**: IP address conversion and validation, CIDR prefix/mask calculations for all prefix lengths (0-32), subnet splitting and calculations, network class identification (Classes A-E including multicast and reserved), edge cases (RFC 3021 point-to-point /31, /32 host routes, /0 all-IPv4), RFC 1918 private ranges, error handling with clear error messages, subnet tree operations

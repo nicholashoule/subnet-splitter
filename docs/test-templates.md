@@ -152,7 +152,7 @@ curl "http://127.0.0.1:5000/api/kubernetes/tiers?networkMode=isolated" # 400 INV
 ## Running Specific Test Subsets
 
 ```bash
-# Kubernetes network API integration tests (per-file counts: docs/test-suite-analysis.md, Test Inventory)
+# Kubernetes network API integration tests
 npm run test -- tests/integration/kubernetes-network-api.test.ts --run
 
 # Filter by test name

@@ -36,7 +36,9 @@ if ! output=$(npm run --silent emoji:check -- -version 2>&1); then
 fi
 
 tmp=$(mktemp -d) || skip "could not create a temporary directory."
-trap 'rm -rf "$tmp"' EXIT
+# Remove only the directory mktemp just created, never an empty or unexpected path
+{ [ -n "$tmp" ] && [ -d "$tmp" ]; } || skip "could not create a temporary directory."
+trap '[ -n "$tmp" ] && rm -rf -- "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
 
 # The index as this commit will record it (git commit sets GIT_INDEX_FILE when needed)

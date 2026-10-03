@@ -213,6 +213,6 @@ Private network mode (`"networkMode": "private"`): no public subnets; internal l
 | `tests/unit/network-separation.test.ts` | Separation invariants for every tier, provider, and network mode; one-network control plane; private mode; overrides, zones, warnings; provider address rules |
 | `tests/integration/kubernetes-network-api.test.ts` | Plan generation called directly, no HTTP |
 
-Test counts per file are in the [test inventory](../test-suite-analysis.md#test-inventory).
+The [test inventory](../test-suite-analysis.md#test-inventory) says what each test file covers.
 
 Key features: deterministic generation, random RFC 1918 CIDR, automatic normalization, Zod validation, provider-agnostic.

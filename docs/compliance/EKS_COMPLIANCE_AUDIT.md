@@ -1302,7 +1302,7 @@ For automated deployments:
 
 ### Test Coverage
 
-`npm run test -- --run` runs every unit and integration test; per-file counts are in the [test inventory](../test-suite-analysis.md#test-inventory).
+`npm run test -- --run` runs every unit and integration test; the [test inventory](../test-suite-analysis.md#test-inventory) says what each file covers.
 
 **Unit Tests** (`tests/unit/`):
 - Subnet calculation verification

@@ -4,7 +4,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**Test Count**: see the [test inventory](../docs/test-suite-analysis.md#test-inventory) for per-file and total counts  
+**What each file covers**: see the [test inventory](../docs/test-suite-analysis.md#test-inventory); `npm test -- --run` prints the current counts  
 **Pass Rate**: 100% passing  
 **Overall Grade**: A (Comprehensive tier configuration testing with proper test organization)
 
@@ -125,7 +125,7 @@ Unit tests verify individual functions and utilities in isolation.
 - Theme tokens defined for both light and dark mode
 - Vite configuration verification
 - Emoji check: `emoji:check` and `emoji:fix` pin demojify once, and CI and the pre-commit hook both call `npm run emoji:check`
-- Pre-commit hook: the `prepare` script (`scripts/install-hooks.mjs`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git, and skips (exit 0) without Go 1.24+
+- Pre-commit hook: the `prepare` script (`node scripts/install-hooks.mjs || exit 0`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git. The hook itself runs in temporary repositories with stub `go` and `npm`: it skips (exit 0) without Go 1.24+ or when demojify cannot run, fails (exit 1) only on findings in staged files, and removes its temporary export
 - Frontend instructions recommend a real browser over VS Code Simple Browser
 
 ### Integration Tests (`tests/integration/`)

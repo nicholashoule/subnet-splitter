@@ -35,8 +35,10 @@ function tryRun(file: string, args: string[], cwd = projectRoot): string | null 
 const inGitWorkTree = tryRun("git", ["rev-parse", "--is-inside-work-tree"]) === "true";
 
 /**
- * The sh git runs hooks with: on Windows, Git for Windows' bin/sh.exe (which puts its
- * own tools on PATH); elsewhere sh from PATH. Null when there is none.
+ * Absolute path of the sh git runs hooks with: on Windows, Git for Windows' bin/sh.exe
+ * (which puts its own tools on PATH); elsewhere sh from PATH. Null when there is none.
+ * It must be absolute: the hook tests run sh with a PATH that holds only stubs, and
+ * child_process looks a bare command name up on the child's PATH (Linux CI failed so).
  */
 function findSh(): string | null {
   const candidates: string[] = [];
@@ -45,7 +47,8 @@ function findSh(): string | null {
     const gitRoot = path.resolve(execPath, "..", "..", "..");
     candidates.push(path.join(gitRoot, "bin", "sh.exe"), path.join(gitRoot, "usr", "bin", "sh.exe"));
   }
-  candidates.push("sh");
+  const fromPath = tryRun("sh", ["-c", "command -v sh"]); // e.g. /usr/bin/sh
+  if (fromPath && path.isAbsolute(fromPath)) candidates.push(fromPath);
   return candidates.find((candidate) => tryRun(candidate, ["-c", "echo ok"]) === "ok") ?? null;
 }
 const sh = tryRun("git", ["--version"]) ? findSh() : null;
