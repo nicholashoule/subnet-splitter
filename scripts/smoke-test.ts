@@ -46,6 +46,34 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
+const CDN_HOST = "cdn.jsdelivr.net";
+
+/** Parses a URL, or returns null for CSP keywords ('self') and other non-URL tokens */
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+/** Splits a Content-Security-Policy header into directive name -> source list */
+function parseCsp(header: string): Map<string, string[]> {
+  const directives = new Map<string, string[]>();
+  for (const directive of header.split(";")) {
+    const [name, ...sources] = directive.trim().split(/\s+/);
+    if (name) directives.set(name.toLowerCase(), sources);
+  }
+  return directives;
+}
+
+// Compare parsed hostnames, not substrings: "cdn.jsdelivr.net.example.com" is not the CDN
+const isCdn = (url: string) => parseUrl(url)?.hostname === CDN_HOST;
+const isHttpsCdn = (url: string) => {
+  const parsed = parseUrl(url);
+  return parsed?.protocol === "https:" && parsed.hostname === CDN_HOST;
+};
+
 async function waitForServer() {
   for (let i = 0; i < 60; i++) {
     try {
@@ -69,10 +97,10 @@ try {
   await check("web app is served with a strict CSP", async () => {
     const res = await fetch(`${base}/`);
     const html = await res.text();
-    const csp = res.headers.get("content-security-policy") ?? "";
+    const csp = parseCsp(res.headers.get("content-security-policy") ?? "");
     assert(res.ok && html.includes('<div id="root">'), "index.html not served");
-    assert(/script-src 'self'(;|$)/.test(csp), `script-src not 'self' only: ${csp}`);
-    assert(!csp.includes("cdn.jsdelivr.net"), "global CSP allows the CDN");
+    assert(csp.get("script-src")?.join(" ") === "'self'", `script-src not 'self' only: ${csp.get("script-src")}`);
+    assert(![...csp.values()].flat().some(isCdn), "global CSP allows the CDN");
     assert(res.headers.get("x-content-type-options") === "nosniff", "nosniff missing");
   });
 
@@ -128,11 +156,16 @@ try {
   await check("API docs page loads pinned assets with SRI", async () => {
     const res = await fetch(`${base}/api/docs/ui`);
     const html = await res.text();
-    const csp = res.headers.get("content-security-policy") ?? "";
-    const cdnTags = html.match(/<(?:script|link)[^>]*cdn\.jsdelivr\.net[^>]*>/g) ?? [];
+    const csp = parseCsp(res.headers.get("content-security-policy") ?? "");
+    const cdnTags = (html.match(/<(?:script|link)\b[^>]*>/g) ?? []).filter((tag) => {
+      const url = tag.match(/\s(?:src|href)="([^"]+)"/)?.[1];
+      return url !== undefined && isCdn(url);
+    });
     assert(res.ok && cdnTags.length === 2, `expected 2 CDN tags, found ${cdnTags.length}`);
     assert(cdnTags.every((t) => /integrity="sha384-/.test(t)), "CDN asset without SRI");
-    assert(csp.includes("https://cdn.jsdelivr.net"), "docs CSP lacks the CDN");
+    for (const directive of ["script-src", "style-src"]) {
+      assert(csp.get(directive)?.some(isHttpsCdn), `docs CSP ${directive} lacks the CDN`);
+    }
   });
 } catch (error) {
   failed++;
