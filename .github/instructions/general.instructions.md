@@ -70,7 +70,7 @@ npm run build          # Production build succeeds
 npm run smoke          # Built server passes the smoke checks
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same steps on Node.js 24 and 26; see [testing instructions](testing.instructions.md#continuous-integration).
+CI (`.github/workflows/ci.yml`) runs the same steps on Node.js 24 and 26; see [testing instructions](testing.instructions.md#continuous-integration). The pre-commit hook runs `npm run governance:check` (repogov: `.github/` layout, Markdown line limits) and then `npm run emoji:check` on the staged files.
 
 ## Git Commit Conventions
 

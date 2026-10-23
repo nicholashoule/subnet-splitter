@@ -159,6 +159,7 @@ Before deploying to production:
 - WARNING **`style-src` allows `'unsafe-inline'`** for runtime-injected styles. Style injection is far lower risk than script injection; scripts remain `'self'` only.
 - WARNING **Fonts load from Google Fonts**, which sees each visitor's IP address. Self-host the fonts if that matters for your deployment.
 - WARNING **Rate limits are per process** (see Recommendations, item 3).
+- WARNING **The pre-commit hook runs the checked-out branch's code.** `npm install` points `core.hooksPath` at `.githooks` (unless it is already set), so `git commit` runs that branch's `.githooks/pre-commit`, which runs its `npm run governance:check` and `npm run emoji:check`. Before committing on a branch you have not reviewed (for example after `gh pr checkout`), read its `.githooks/` and those two scripts in `package.json`.
 
 ## Security Resources
 

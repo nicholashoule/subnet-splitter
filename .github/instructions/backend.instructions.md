@@ -144,8 +144,9 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
   "smoke": "tsx scripts/smoke-test.ts",
   "check": "tsc",
   "test": "vitest",
-  "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist",
-  "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.1.0 -root . -skip dist -sub",
+  "governance:check": "go run github.com/nicholashoule/repogov/cmd/repogov@v0.9.0 -root .",
+  "emoji:check": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.2.0 -root . -skip dist",
+  "emoji:fix": "go run github.com/nicholashoule/demojify-sanitize/cmd/demojify@v1.2.0 -root . -skip dist -sub",
   "prepare": "node scripts/install-hooks.mjs || exit 0",
   "audit": "npm audit",
   "audit:fix": "npm audit fix"

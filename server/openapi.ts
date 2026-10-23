@@ -99,7 +99,7 @@ const payloadTooLargeResponse = {
 export const CIDR_PATTERN = "^(0|[1-9]\\d{0,2})(\\.(0|[1-9]\\d{0,2})){3}/(0|[1-9]\\d?)$";
 
 const unsupportedMediaTypeResponse = {
-  description: "Request body in a charset other than UTF-8, or with an unsupported Content-Encoding (always JSON)",
+  description: "Content-Type charset that is not a UTF encoding (its name must start with utf-, so latin1 and us-ascii are refused; send UTF-8), or an unsupported Content-Encoding (always JSON)",
   content: {
     "application/json": {
       schema: { $ref: "#/components/schemas/Error" },

@@ -9,8 +9,9 @@
  *   v3 config or PostCSS pipeline
  * - The stylesheet's theme maps only to design tokens defined for both themes
  * - Removed build packages stay removed
- * - The emoji check: one pinned demojify command shared by the npm scripts, CI and the
- *   pre-commit hook, and the prepare script that installs the hook
+ * - The repository checks: one pinned repogov command and one pinned demojify command,
+ *   each shared by the npm scripts, CI and the pre-commit hook, run in that order; and
+ *   the prepare script that installs the hook
  * - The pre-commit hook itself, run with stub tools in scratch repositories
  */
 
@@ -117,7 +118,7 @@ describe("Configuration Validation", () => {
     });
   });
 
-  describe("Emoji check (demojify) and pre-commit hook", () => {
+  describe("Repository checks (repogov, demojify) and pre-commit hook", () => {
     const pkg = JSON.parse(read("package.json"));
 
     it("pins demojify once, in the npm scripts that CI and the hook both call", () => {
@@ -125,6 +126,28 @@ describe("Configuration Validation", () => {
       expect(pkg.scripts["emoji:fix"]).toBe(`${pkg.scripts["emoji:check"]} -sub`);
       expect(read(".github/workflows/ci.yml")).toContain("run: npm run emoji:check");
       expect(read(".githooks/pre-commit")).toContain("npm run --silent emoji:check");
+    });
+
+    it("pins repogov once, in the npm script that CI and the hook both call, and runs it first", () => {
+      // No subcommand: repogov runs `all` by default, and the hook appends `version` or a second -root
+      expect(pkg.scripts["governance:check"]).toMatch(/^go run github\.com\/nicholashoule\/repogov\/cmd\/repogov@v\d+\.\d+\.\d+ -root \.$/);
+      const ci = read(".github/workflows/ci.yml");
+      const hook = read(".githooks/pre-commit");
+      expect(ci).toContain("run: npm run governance:check");
+      expect(hook).toContain("npm run --silent governance:check");
+      // Fail fast in the same order in CI and the hook: governance, then emoji
+      expect(ci.indexOf("run: npm run governance:check")).toBeLessThan(ci.indexOf("run: npm run emoji:check"));
+      expect(hook.indexOf("governance:check -- -root")).toBeLessThan(hook.indexOf("emoji:check -- -root"));
+      // repogov replaced the hand-written instruction-file workflow
+      expect(fs.existsSync(path.join(projectRoot, ".github", "workflows", "validate-instructions.yml"))).toBe(false);
+    });
+
+    it("keeps the instruction-file limits in the repogov config and skips dependency and build output", () => {
+      const config = JSON.parse(read(".github/repogov-config.json"));
+      expect(config.rules).toContainEqual({ glob: ".github/instructions/*.instructions.md", limit: 200 });
+      expect(config.files[".github/copilot-instructions.md"]).toBe(10);
+      // Without these, repogov walks every Markdown file in node_modules
+      expect(config.skip_dirs).toEqual(expect.arrayContaining(["node_modules", "dist"]));
     });
 
     it("installs the hooks on npm install, without failing an install that lacks scripts/", () => {
@@ -171,10 +194,11 @@ describe("Configuration Validation", () => {
   });
 
   // Runs the real hook with sh in a scratch repository. Stubs stand in for go (it
-  // reports STUB_GO_VERSION) and for npm, which acts like `npm run emoji:check`:
-  // demojify's exit codes, the last -root wins, and the word FORBIDDEN stands in for
-  // an emoji. The other tools the hook needs are wrapped, so PATH holds nothing else
-  // (no real Go).
+  // reports STUB_GO_VERSION) and for npm, which acts like `npm run governance:check`
+  // (repogov: `version`, and the word OVERLIMIT stands in for a FAIL) or
+  // `npm run emoji:check` (demojify: `-version`, and FORBIDDEN stands in for an emoji).
+  // Both keep the last -root, exit 1 on findings and print "<tool> scanning <root>".
+  // The other tools the hook needs are wrapped, so PATH holds nothing else (no real Go).
   describe.skipIf(!sh)("pre-commit hook behavior", () => {
     const hook = path.join(projectRoot, ".githooks", "pre-commit").replace(/\\/g, "/");
     let tmp: string;
@@ -184,15 +208,23 @@ describe("Configuration Validation", () => {
     const stubs: Record<string, string> = {
       go: '[ "$1 $2" = "env GOVERSION" ] && echo "$STUB_GO_VERSION"\nexit 0\n',
       npm: [
+        "tool=demojify",
         "root=.",
         "while [ $# -gt 0 ]; do",
         '  case $1 in',
+        "    governance:check) tool=repogov ;;",
+        '    version) [ -n "$STUB_REPOGOV_BROKEN" ] && echo "go: repogov download failed" >&2 && exit 1; echo "repogov stub"; exit 0 ;;',
         '    -version) [ -n "$STUB_DEMOJIFY_BROKEN" ] && echo "go: download failed" >&2 && exit 1; echo "demojify stub"; exit 0 ;;',
         '    -root) root=$2; shift ;;',
         "  esac",
         "  shift",
         "done",
-        'echo "scanning $root"',
+        'echo "$tool scanning $root"',
+        'if [ "$tool" = repogov ]; then',
+        '  grep -rl OVERLIMIT "$root" && exit 1',
+        '  echo "[PASS] repogov"',
+        "  exit 0",
+        "fi",
         'grep -rl FORBIDDEN "$root" && exit 1',
         'echo "[PASS] no findings"',
         "",
@@ -233,7 +265,7 @@ describe("Configuration Validation", () => {
     }
 
     /** Runs the hook in `repo`; its temporary directory goes under a fresh TMPDIR */
-    function runHook(repo: string, opts: { goVersion?: string; demojifyBroken?: boolean } = {}) {
+    function runHook(repo: string, opts: { goVersion?: string; demojifyBroken?: boolean; repogovBroken?: boolean } = {}) {
       const env: NodeJS.ProcessEnv = {};
       for (const [key, value] of Object.entries(process.env)) {
         // Drop the real PATH and any GIT_DIR/GIT_INDEX_FILE inherited from a running git
@@ -242,6 +274,7 @@ describe("Configuration Validation", () => {
       env.PATH = (opts.goVersion ? [goDir, toolsDir] : [toolsDir]).join(path.delimiter);
       if (opts.goVersion) env.STUB_GO_VERSION = opts.goVersion;
       if (opts.demojifyBroken) env.STUB_DEMOJIFY_BROKEN = "1";
+      if (opts.repogovBroken) env.STUB_REPOGOV_BROKEN = "1";
       const tmpDir = fs.mkdtempSync(path.join(tmp, "tmpdir-"));
       env.TMPDIR = tmpDir.replace(/\\/g, "/");
       const result = spawnSync(sh!, [hook], { cwd: repo, env, encoding: "utf8" });
@@ -252,7 +285,7 @@ describe("Configuration Validation", () => {
       const { code, stderr } = runHook(makeRepo({ "a.txt": "FORBIDDEN\n" }));
       expect(code).toBe(0);
       expect(stderr).toContain("pre-commit: Go is not installed");
-      expect(stderr).toContain("CI still runs it");
+      expect(stderr).toContain("CI still runs them");
     });
 
     it("skips (exit 0) with a message when Go is older than 1.24", () => {
@@ -261,33 +294,66 @@ describe("Configuration Validation", () => {
       expect(stderr).toContain("pre-commit: found Go 1.23.4");
     });
 
-    it("skips (exit 0) with a message when demojify cannot be downloaded or built", () => {
-      const { code, stderr } = runHook(makeRepo({ "a.txt": "FORBIDDEN\n" }), { goVersion: "go1.25.0", demojifyBroken: true });
+    it("skips only demojify (exit 0) when it cannot be downloaded or built; repogov still runs", () => {
+      const { code, stdout, stderr } = runHook(makeRepo({ "a.txt": "FORBIDDEN\n" }), { goVersion: "go1.25.0", demojifyBroken: true });
       expect(code).toBe(0);
       expect(stderr).toContain("go: download failed");
       expect(stderr).toContain("pre-commit: could not run demojify");
+      expect(stdout).toContain("repogov scanning");
+      expect(stdout).not.toContain("demojify scanning");
     });
 
-    it("fails (exit 1) when a staged file has findings", () => {
+    it("skips only repogov when it cannot be downloaded or built; demojify still runs", () => {
+      const { code, stdout, stderr } = runHook(makeRepo({ "doc.md": "OVERLIMIT\n", "a.txt": "FORBIDDEN\n" }), { goVersion: "go1.25.0", repogovBroken: true });
+      expect(code).toBe(1);
+      expect(stderr).toContain("go: repogov download failed");
+      expect(stderr).toContain("pre-commit: could not run repogov");
+      expect(stdout).not.toContain("repogov scanning");
+      expect(stderr).toContain("pre-commit: emoji found in the staged files");
+    });
+
+    it("skips (exit 0) without exporting the index when neither tool can run", () => {
+      const { code, stdout, stderr, tmpDir } = runHook(makeRepo({ "doc.md": "OVERLIMIT\n" }), { goVersion: "go1.25.0", demojifyBroken: true, repogovBroken: true });
+      expect(code).toBe(0);
+      expect(stderr).toContain("pre-commit: could not run repogov");
+      expect(stderr).toContain("pre-commit: could not run demojify");
+      expect(stdout).not.toContain("scanning");
+      expect(fs.readdirSync(tmpDir)).toEqual([]);
+    });
+
+    it("fails fast (exit 1) on repogov findings: demojify does not run", () => {
+      const { code, stdout, stderr } = runHook(makeRepo({ "doc.md": "OVERLIMIT\n", "bad.txt": "FORBIDDEN\n" }), { goVersion: "go1.25.0" });
+      expect(code).toBe(1);
+      expect(stdout).toContain("doc.md");
+      expect(stderr).toContain("pre-commit: repogov found problems in the staged files");
+      expect(stdout).not.toContain("demojify scanning");
+      expect(stderr).not.toContain("emoji found");
+    });
+
+    it("fails (exit 1) when a staged file has emoji, after repogov passes", () => {
       const { code, stdout, stderr } = runHook(makeRepo({ "ok.txt": "fine\n", "bad.txt": "FORBIDDEN\n" }), { goVersion: "go1.25.0" });
       expect(code).toBe(1);
+      expect(stdout.indexOf("repogov scanning")).toBeGreaterThanOrEqual(0);
+      expect(stdout.indexOf("repogov scanning")).toBeLessThan(stdout.indexOf("demojify scanning"));
       expect(stdout).toContain("bad.txt");
       expect(stderr).toContain("pre-commit: emoji found in the staged files");
     });
 
     it("passes (exit 0) when findings are only in unstaged edits or untracked files", () => {
-      const repo = makeRepo({ "ok.txt": "fine\n" }, { "ok.txt": "FORBIDDEN\n", "untracked.txt": "FORBIDDEN\n" });
+      const repo = makeRepo({ "ok.txt": "fine\n" }, { "ok.txt": "OVERLIMIT FORBIDDEN\n", "untracked.txt": "OVERLIMIT FORBIDDEN\n" });
       const { code, stdout } = runHook(repo, { goVersion: "go1.25.0" });
       expect(code).toBe(0);
+      expect(stdout).toContain("[PASS] repogov");
       expect(stdout).toContain("[PASS] no findings");
     });
 
     it("removes its temporary export of the index, with or without findings", () => {
-      for (const text of ["fine\n", "FORBIDDEN\n"]) {
+      for (const text of ["fine\n", "OVERLIMIT\n", "FORBIDDEN\n"]) {
         const { stdout, tmpDir } = runHook(makeRepo({ "a.txt": text }), { goVersion: "go1.25.0" });
-        // The export was made under TMPDIR (Git for Windows' sh rewrites it as /tmp/...),
-        // then removed
-        expect(stdout).toMatch(new RegExp(`^scanning \\S*/${path.basename(tmpDir)}/`, "m"));
+        // Both tools checked the export made under TMPDIR (Git for Windows' sh rewrites
+        // it as /tmp/...), which was then removed
+        expect(stdout).toMatch(new RegExp(`^repogov scanning \\S*/${path.basename(tmpDir)}/`, "m"));
+        if (text !== "OVERLIMIT\n") expect(stdout).toMatch(new RegExp(`^demojify scanning \\S*/${path.basename(tmpDir)}/`, "m"));
         expect(fs.readdirSync(tmpDir)).toEqual([]);
       }
     });

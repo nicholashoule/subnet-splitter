@@ -130,8 +130,8 @@ Unit tests verify individual functions and utilities in isolation.
 - Tailwind CSS v4 setup (Vite plugin, no PostCSS or legacy config, replaced packages removed)
 - Theme tokens defined for both light and dark mode
 - Vite configuration verification
-- Emoji check: `emoji:check` and `emoji:fix` pin demojify once, and CI and the pre-commit hook both call `npm run emoji:check`
-- Pre-commit hook: the `prepare` script (`node scripts/install-hooks.mjs || exit 0`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git. The hook itself runs in temporary repositories with stub `go` and `npm`: it skips (exit 0) without Go 1.24+ or when demojify cannot run, fails (exit 1) only on findings in staged files, and removes its temporary export
+- Repository checks: `governance:check` pins repogov once and `emoji:check`/`emoji:fix` pin demojify once; CI and the pre-commit hook both call them, governance first; `validate-instructions.yml` is gone; the repogov config keeps the instruction-file limits (200 lines, 10 for `copilot-instructions.md`) and skips `node_modules` and `dist`
+- Pre-commit hook: the `prepare` script (`node scripts/install-hooks.mjs || exit 0`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git. The hook itself runs in temporary repositories with stub `go` and `npm`: it skips (exit 0) without Go 1.24+, skips only the tool that cannot run (or both), fails fast (exit 1) on repogov findings without running demojify, fails on emoji in staged files, ignores findings in unstaged or untracked files, and removes its temporary export
 - Frontend instructions recommend a real browser over VS Code Simple Browser
 
 ### Integration Tests (`tests/integration/`)
@@ -271,7 +271,7 @@ When adding new tests:
 
 ## Emoji Checking and Fixing
 
-The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run emoji:check` on the staged files before each commit, and skips with a message when Go 1.24+ is missing or demojify cannot be downloaded or built. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
+The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.2.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run governance:check` (repogov) and then `npm run emoji:check` on the staged files before each commit, stops at the first that fails, and skips a check with a message when Go 1.24+ is missing or its tool cannot be downloaded or built. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
 
 ```bash
 # Audit every text file; exits 1 and reports file, line, and column for each emoji
@@ -358,7 +358,7 @@ npm run build              # Production build
 npm run smoke              # Start dist/index.cjs on port 5099 and check it over HTTP
 ```
 
-`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, the app with its CSP and security headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's pinned assets, which it downloads from the CDN to check that their SRI hashes match (this check needs network access). `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `emoji` job runs `npm run emoji:check` (demojify, Go).
+`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, the app with its CSP and security headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's pinned assets, which it downloads from the CDN to check that their SRI hashes match (this check needs network access). `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `repo-checks` job runs `npm run governance:check` (repogov, Go) and then `npm run emoji:check` (demojify, Go).
 
 ---
 
