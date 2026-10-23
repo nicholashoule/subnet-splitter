@@ -6,12 +6,14 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
+import { ZodError } from "zod";
 import {
   generateKubernetesNetworkPlan,
   getDeploymentTierInfo,
   KubernetesNetworkGenerationError,
   PLAN_FORMAT_VERSION
 } from "@/lib/kubernetes-network-generator";
+import { KubernetesNetworkPlanSchema } from "@shared/kubernetes-schema";
 import { parseCidr } from "@/lib/subnet-utils";
 
 /** True when the CIDR lies entirely inside one RFC 1918 block */
@@ -498,6 +500,24 @@ describe("Kubernetes Network Generator", () => {
           })
         ).rejects.toThrow();
       });
+
+      it("should report a plan that fails its output schema as a bug, not a ZodError", async () => {
+        // The route answers a ZodError as 400 "Invalid request"; a plain Error is logged
+        // and answered 500 (tests/integration/rate-limiting.test.ts)
+        const check = vi.spyOn(KubernetesNetworkPlanSchema, "safeParse").mockReturnValueOnce({
+          success: false,
+          error: new ZodError([{ code: "custom", path: ["vpc", "cidr"], message: "broken" }]),
+        });
+        try {
+          const error = await generateKubernetesNetworkPlan({ deploymentSize: "micro", vpcCidr: "10.0.0.0/16" }).catch((e) => e);
+          expect(error).toBeInstanceOf(Error);
+          expect(error).not.toBeInstanceOf(ZodError);
+          expect(error).not.toBeInstanceOf(KubernetesNetworkGenerationError);
+          expect(error.message).toMatch(/^Allocation bug: plan failed its output schema/);
+        } finally {
+          check.mockRestore();
+        }
+      });
     });
 
     describe("RFC 1918 Support", () => {
@@ -575,6 +595,12 @@ describe("Kubernetes Network Generator", () => {
         getDeploymentTierInfo("unknown" as any);
       }).toThrow(KubernetesNetworkGenerationError);
     });
+
+    it("should not treat inherited object keys as tiers", () => {
+      for (const key of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+        expect(() => getDeploymentTierInfo(key as any), key).toThrow(KubernetesNetworkGenerationError);
+      }
+    });
   });
 
   describe("Reproducibility", () => {
@@ -617,6 +643,46 @@ describe("Kubernetes Network Generator", () => {
         expect(afterReserved.vpc.cidr).toBe("172.18.0.0/18");
       } finally {
         random.mockRestore();
+      }
+    });
+
+    it("should skip a block the caller's podsCidr fills when generating the VPC", async () => {
+      // podsCidr 10.0.0.0/8 leaves no /18 in 10.0.0.0/8, so the first draw picks among
+      // the other two blocks: 0 is 172.16.0.0/12
+      const random = vi.spyOn(Math, "random");
+      try {
+        random.mockReturnValueOnce(0).mockReturnValueOnce(0);
+        const plan = await generateKubernetesNetworkPlan({ deploymentSize: "micro", podsCidr: "10.0.0.0/8" });
+        expect(plan.vpc.cidr).toBe("172.16.0.0/18");
+        expect(plan.pods.cidr).toBe("10.0.0.0/8");
+      } finally {
+        random.mockRestore();
+      }
+    });
+
+    it("should generate a VPC clear of the caller's podsCidr and servicesCidr", async () => {
+      // Before the VPC avoided them, about two in three of these requests failed with
+      // "overlaps the VPC" (each override filled one of the three blocks)
+      for (let i = 0; i < 300; i++) {
+        const plan = await generateKubernetesNetworkPlan({
+          deploymentSize: "micro",
+          podsCidr: "10.0.0.0/8",
+          servicesCidr: "192.168.0.0/16",
+        });
+        expect(plan.vpc.cidr.startsWith("172."), plan.vpc.cidr).toBe(true);
+        expect(plan.pods.cidr).toBe("10.0.0.0/8");
+        expect(plan.services.cidr).toBe("192.168.0.0/16");
+      }
+    });
+
+    it("should generate a VPC clear of a hyperscale AKS /11 pod range", async () => {
+      // docs/api.md recommends podsCidr /11 for 5,000 nodes; about 4% of random VPCs used to land in it
+      const pods = parseCidr("10.0.0.0/11");
+      for (let i = 0; i < 300; i++) {
+        const plan = await generateKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "aks", podsCidr: "10.0.0.0/11" });
+        const vpc = parseCidr(plan.vpc.cidr);
+        const clear = vpc.network + 2 ** (32 - vpc.prefix) <= pods.network || vpc.network >= pods.network + 2 ** (32 - pods.prefix);
+        expect(clear, plan.vpc.cidr).toBe(true);
       }
     });
   });

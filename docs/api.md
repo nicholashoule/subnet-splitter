@@ -67,7 +67,7 @@ curl -X POST http://localhost:5000/api/k8s/plan \
 
 **What This Does:**
 - Generates a complete network topology for a 1-3 node Kubernetes cluster
-- Auto-allocates a random `/18` VPC inside one RFC 1918 block (10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16), clear of `172.17.0.0/16` (and for AKS of `172.30.0.0/16` and `172.31.0.0/16`), when `vpcCidr` is omitted
+- Auto-allocates a random `/18` VPC inside one RFC 1918 block (10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16), clear of `172.17.0.0/16` (and for AKS of `172.30.0.0/16` and `172.31.0.0/16`) and of any `podsCidr` or `servicesCidr` you pass, when `vpcCidr` is omitted
 - Provides separate, non-overlapping ranges for nodes, the control plane, pods, and services (see [Address Space Separation](#address-space-separation))
 - Ready to use with Terraform, Pulumi, or cloud CLI tools
 
@@ -1177,7 +1177,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ### Auto-Generated VPCs (Always Private)
 
-If you don't provide a `vpcCidr`, the API picks a random RFC 1918 block and generates a random `/18` (16,384 addresses, enough for every tier and provider) aligned to a `/18` boundary inside it and clear of `172.17.0.0/16` (for AKS, also of `172.30.0.0/16` and `172.31.0.0/16`). Pods and services are then placed as in any other request (see [Pod and Service Placement](#what-you-get)):
+If you don't provide a `vpcCidr`, the API picks a random RFC 1918 block and generates a random `/18` (16,384 addresses, enough for every tier and provider) aligned to a `/18` boundary inside it and clear of `172.17.0.0/16` (for AKS, also of `172.30.0.0/16` and `172.31.0.0/16`) and of any `podsCidr` or `servicesCidr` you pass; a block those ranges fill is not picked. Pods and services are then placed as in any other request (see [Pod and Service Placement](#what-you-get)):
 
 ```bash
 # Request without vpcCidr
@@ -1272,7 +1272,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 | 400 | Bad Request | Invalid `deploymentSize`, malformed, public, or too-small VPC CIDR, invalid `podsCidr`/`servicesCidr`/`availabilityZones`/`networkMode`, unknown tiers `provider` or `networkMode`, malformed JSON |
 | 404 | Not Found | No API route for the path and method, e.g. `GET /api/k8s/plan` (always JSON) |
 | 413 | Payload Too Large | Request body larger than 16 KB |
-| 415 | Unsupported Media Type | Body in a charset other than UTF-8, or with an unsupported `Content-Encoding` |
+| 415 | Unsupported Media Type | `Content-Type` charset that is not a UTF encoding (its name must start with `utf-`, so `latin1` and `us-ascii` are refused; send UTF-8), or an unsupported `Content-Encoding` |
 | 429 | Too Many Requests | More than 100 `/api` requests per minute from one IP |
 | 500 | Server Error | Unexpected error during generation |
 

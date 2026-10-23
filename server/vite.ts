@@ -12,15 +12,13 @@
  */
 
 import { type Express } from "express";
-import { createServer as createViteServer, createLogger } from "vite";
+import { createServer as createViteServer } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "node:crypto";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-
-const viteLogger = createLogger();
 
 export async function setupVite(server: Server, app: Express) {
   // allowedHosts keeps Vite's default (localhost/IPs only), which guards the
@@ -30,16 +28,12 @@ export async function setupVite(server: Server, app: Express) {
     hmr: { server, path: "/vite-hmr" },
   };
 
+  // Vite's default logger: Vite reports every request's transform error through it, so
+  // exiting on logger.error let any request (e.g. /index.html?html-proxy&index=0.js)
+  // stop the dev server. A failed start still rejects createViteServer and exits.
   const vite = await createViteServer({
     ...viteConfig,
     configFile: false,
-    customLogger: {
-      ...viteLogger,
-      error: (msg, options) => {
-        viteLogger.error(msg, options);
-        process.exit(1);
-      },
-    },
     server: serverOptions,
     appType: "custom",
   });

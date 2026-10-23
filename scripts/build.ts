@@ -15,6 +15,14 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
+import path from "path";
+
+// The paths below ("dist", "package.json", vite's config) are relative to the repo
+// root; without this, running the script from another directory deletes that
+// directory's dist. esbuild reads its working directory when it loads, so it is
+// also given the root (absWorkingDir).
+const root = path.resolve(import.meta.dirname, "..");
+process.chdir(root);
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -43,6 +51,7 @@ async function buildAll() {
   const externals = allDeps.filter((dep) => !allowlist.includes(dep));
 
   await esbuild({
+    absWorkingDir: root,
     entryPoints: ["server/index.ts"],
     platform: "node",
     bundle: true,

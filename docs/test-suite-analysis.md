@@ -6,7 +6,7 @@ The suite runs with Vitest. `npm test -- --run` runs every test once and prints 
 
 Two checks run outside Vitest:
 - `npm run smoke` (`scripts/smoke-test.ts`) starts the production build (`dist/index.cjs`) and checks it over HTTP. CI runs it after `npm run build`.
-- `npm run emoji:check` runs the demojify CLI (Go 1.24+). The pre-commit hook (`.githooks/pre-commit`) runs it on the staged files and CI runs it as its own job; `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
+- `npm run governance:check` runs the repogov CLI and `npm run emoji:check` the demojify CLI (both Go 1.24+). The pre-commit hook (`.githooks/pre-commit`) runs them on the staged files, repogov first, and CI runs them in the same order in its own job; `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
 
 Everything from **Issues Identified** on records the February 8, 2026 audit (406 tests in 13 files) and is kept as history: files, counts, and recommendations named there may no longer apply.
 
@@ -23,7 +23,7 @@ Everything from **Issues Identified** on records the February 8, 2026 audit (406
 | `network-separation.test.ts` | Invariants for every tier, provider, and network mode: nodes, control plane, pods, and services never overlap; one control-plane network; private mode; zones; reserved ranges and warnings; overrides (a blank CIDR is rejected, not treated as omitted); VPC sizing; provider rules (AKS-reserved ranges, the RFC 6598 pod fallback, GKE Services at most /16, the /16 VPC cap) |
 | `ip-calculation-compliance.test.ts` | Tier layouts against provider address rules: usable addresses per subnet (AWS and Azure reserve 5, Google Cloud 4), the GKE pod-range formula and Autopilot, Service and pod range sizes, zones, overlap and containment, exact minimum VPC prefixes, hyperscale in a /18, EKS node counts per tier under the default VPC CNI (the figures the docs quote) |
 | `ui-styles.test.ts` | WCAG contrast for every rendered text pair in both themes (colors read from `index.css`), non-text contrast, a guard against hard-coded Tailwind palette colors, focus indicators, heading structure and accessible names, live-region announcements (a validation error is an alert and does not move focus), the theme applied before first paint, calculator wiring (memoized rows, visible-row export, the partial select-all state, header icon sizing, example loads announced like Calculate), Tailwind 4 variant order (child selectors before positional variants such as `last:`), layout limits |
-| `config.test.ts` | Tailwind CSS 4 and Vite setup, theme tokens defined in both themes, the demojify scripts and the `prepare` hook installer, and the pre-commit hook itself, run with stub tools: it skips without Go 1.24+ or when demojify cannot run, and fails only on findings in staged files |
+| `config.test.ts` | Tailwind CSS 4 and Vite setup, theme tokens defined in both themes, the repogov and demojify scripts, the repogov config and the `prepare` hook installer, and the pre-commit hook itself, run with stub tools: it skips without Go 1.24+, skips only a tool that cannot run, stops at repogov findings before demojify runs, and fails only on findings in staged files |
 
 ### Integration tests (`tests/integration`)
 

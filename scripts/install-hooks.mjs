@@ -2,9 +2,10 @@
  * scripts/install-hooks.mjs
  *
  * Runs on `npm install` / `npm ci` (the "prepare" script): points git at the
- * committed hooks in .githooks/ (the pre-commit emoji check). Does nothing when
- * there is no git checkout or no git, and leaves an existing core.hooksPath alone
- * (a global gitleaks or husky setup, say): it prints how to opt in instead.
+ * committed hooks in .githooks/ (the pre-commit repogov and emoji checks). Does
+ * nothing when there is no git checkout or no git, and leaves an existing
+ * core.hooksPath alone (a global gitleaks or husky setup, say): it prints how to
+ * opt in instead.
  *
  * The script runs as `node scripts/install-hooks.mjs || exit 0` (works in sh and
  * cmd.exe), so an install never fails because of it: a container build that copies
@@ -28,7 +29,7 @@ if (existsSync(".git") && existsSync(".githooks")) {
       git("config", "core.hooksPath", ".githooks");
     } else if (current !== ".githooks") {
       console.log(
-        `core.hooksPath is already "${current}", so the emoji pre-commit hook was not installed. ` +
+        `core.hooksPath is already "${current}", so the pre-commit hook (repogov and emoji checks) was not installed. ` +
         "To use it here instead: git config core.hooksPath .githooks"
       );
     }

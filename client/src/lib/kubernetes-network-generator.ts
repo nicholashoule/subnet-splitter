@@ -194,10 +194,11 @@ export function getTierConfig(
   provider: Provider = "kubernetes",
   networkMode: NetworkMode = "public"
 ): EffectiveTierConfig {
-  const base = DEPLOYMENT_TIER_CONFIGS[size];
-  if (!base) {
+  // Own keys only: "toString" or "constructor" would otherwise pass as a tier
+  if (!Object.hasOwn(DEPLOYMENT_TIER_CONFIGS, size)) {
     throw new KubernetesNetworkGenerationError(`Unknown deployment size: ${size}`);
   }
+  const base = DEPLOYMENT_TIER_CONFIGS[size];
   const canonical = normalizeProvider(provider);
   const regional = canonical === "gke" || canonical === "aks";
   const minPerType = canonical === "eks" ? 2 : 1;
@@ -277,14 +278,22 @@ function parseVpc(vpcCidr: string): Block {
 
 /**
  * Random /18 (16,384 addresses, enough for every tier and provider) inside a
- * randomly chosen RFC 1918 block, aligned and clear of the provider's reserved ranges.
+ * randomly chosen RFC 1918 block, aligned and clear of the provider's reserved ranges
+ * and the caller's pod and service ranges. A block those ranges fill is not chosen.
  */
-function randomVpc(reserved: ReservedRange[]): Block {
-  const block = RFC1918_BLOCKS[RFC1918_NAMES[Math.floor(Math.random() * RFC1918_NAMES.length)]];
-  const slots = Array.from({ length: Math.pow(2, 18 - block.prefix) }, (_, i) => ({
-    network: block.network + i * blockSize(18),
-    prefix: 18,
-  })).filter((slot) => !reserved.some((r) => overlaps(r, slot)));
+function randomVpc(avoid: Block[]): Block {
+  const freeSlotsPerBlock = RFC1918_NAMES.map((name) => {
+    const block = RFC1918_BLOCKS[name];
+    return Array.from({ length: Math.pow(2, 18 - block.prefix) }, (_, i) => ({
+      network: block.network + i * blockSize(18),
+      prefix: 18,
+    })).filter((slot) => !avoid.some((r) => overlaps(r, slot)));
+  }).filter((slots) => slots.length > 0);
+  // Unreachable today (pods and services fill at most two of the three blocks); guards the indexing below
+  if (freeSlotsPerBlock.length === 0) {
+    throw new KubernetesNetworkGenerationError("No /18 is free for a VPC outside podsCidr and servicesCidr. Pass vpcCidr explicitly.");
+  }
+  const slots = freeSlotsPerBlock[Math.floor(Math.random() * freeSlotsPerBlock.length)];
   return slots[Math.floor(Math.random() * slots.length)];
 }
 
@@ -372,9 +381,21 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
     throw new KubernetesNetworkGenerationError("EKS needs subnets in at least two availability zones; pass two or more availabilityZones.");
   }
 
-  // VPC: caller's (must be private) or a random /18
+  // Caller's pod and service ranges, parsed first so a generated VPC can avoid them
   const reserved = reservedFor(provider);
-  const vpc = req.vpcCidr ? parseVpc(req.vpcCidr) : randomVpc(reserved);
+  const podsOverride = req.podsCidr
+    ? parseOverride("podsCidr", req.podsCidr, [...Object.values(RFC1918_BLOCKS), RFC6598_BLOCK],
+      "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 100.64.0.0/10", PODS_PREFIX_LIMITS, reserved)
+    : undefined;
+  const servicesOverride = req.servicesCidr
+    ? parseOverride("servicesCidr", req.servicesCidr, Object.values(RFC1918_BLOCKS),
+      "10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16",
+      PROVIDER_SERVICES_PREFIX_LIMITS[provider] ?? SERVICES_PREFIX_LIMITS, reserved)
+    : undefined;
+  const overrides = [podsOverride, servicesOverride].filter((r): r is Block => r !== undefined);
+
+  // VPC: caller's (must be private) or a random /18 clear of reserved ranges and the overrides
+  const vpc = req.vpcCidr ? parseVpc(req.vpcCidr) : randomVpc([...reserved, ...overrides]);
   const vpcBlock = rfc1918BlockOf(vpc)!;
   if (vpc.prefix < LARGEST_VPC_PREFIX) {
     throw new KubernetesNetworkGenerationError(
@@ -412,15 +433,6 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   const controlPlaneSubnets = makeSubnets("control-plane", tier.controlPlaneSubnetSize, layout.controlPlane);
 
   // Pods and services: outside the VPC, each in its own block unless overridden
-  const podsOverride = req.podsCidr
-    ? parseOverride("podsCidr", req.podsCidr, [...Object.values(RFC1918_BLOCKS), RFC6598_BLOCK],
-      "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 100.64.0.0/10", PODS_PREFIX_LIMITS, reserved)
-    : undefined;
-  const servicesOverride = req.servicesCidr
-    ? parseOverride("servicesCidr", req.servicesCidr, Object.values(RFC1918_BLOCKS),
-      "10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16",
-      PROVIDER_SERVICES_PREFIX_LIMITS[provider] ?? SERVICES_PREFIX_LIMITS, reserved)
-    : undefined;
   for (const [field, range] of [["podsCidr", podsOverride], ["servicesCidr", servicesOverride]] as const) {
     if (range && overlaps(range, vpc)) {
       throw new KubernetesNetworkGenerationError(`${field} ${toCidr(range)} overlaps the VPC ${toCidr(vpc)}.`);
@@ -480,8 +492,13 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
     },
   };
 
-  // Validate output
-  return KubernetesNetworkPlanSchema.parse(plan);
+  // Validate output. A failure is a bug, not bad input: a plain Error, so the route
+  // logs it and answers 500 (a ZodError would be reported as an invalid request)
+  const checked = KubernetesNetworkPlanSchema.safeParse(plan);
+  if (!checked.success) {
+    throw new Error(`Allocation bug: plan failed its output schema: ${checked.error.message}`);
+  }
+  return checked.data;
 }
 
 /**

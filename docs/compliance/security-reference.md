@@ -26,7 +26,10 @@ npm run audit           # Verify 0 vulnerabilities
 | Dependency | Issue | Resolution |
 |-----------|-------|------------|
 | `qs` 6.14.1 | arrayLimit bypass DoS (GHSA-w7fw-mjwx-w883) | `"qs": "6.14.2"` in `overrides` (now pinned to 6.16.0) |
-| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 (now ^5.0.0) |
+| Vitest 2.1.8 | 5 moderate vulnerabilities (esbuild/vite) | Updated to Vitest ^3.0.0 (now ^5.0.5) |
+| Vite 8.3.0 | 6 advisories, 1 high: the bundled `launch-editor` (GHSA-587h-7wmj-h5pm and GHSA-698v-4r3x-3vcv on Windows, GHSA-r825-w8mm-5pxw) and the dev server (GHSA-9jrq-w75r-8gcw, GHSA-rq7h-c2jc-7f22, GHSA-vfpm-58rq-9qcg) | Updated to Vite ^8.3.5 |
+| Vitest 5.0.1 | 2 moderate in `@vitest/mocker` (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp) | Updated to Vitest ^5.0.5 |
+| `ip-address` 10.7.2 | Quadratic-time zone identifier match (GHSA-rxp7-6hxx-x8q5), reached through `express-rate-limit`'s IPv6 keying | Lockfile resolves 10.7.4 (`express-rate-limit` ^8.7.1 allows `^10.2.0`) |
 
 ### Failed Audit Recovery
 

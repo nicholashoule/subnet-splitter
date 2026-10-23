@@ -117,9 +117,10 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 │   ├── smoke-test.ts       # Starts the production build and checks it over HTTP
 │   └── install-hooks.mjs   # Points git at .githooks/ (runs on npm install)
 ├── .githooks/
-│   └── pre-commit          # Emoji check of staged files (skips if demojify cannot run)
+│   └── pre-commit          # repogov, then emoji check of staged files (skips a tool that cannot run)
 ├── .github/
-│   ├── workflows/          # CI (ci.yml) and instruction-file validation
+│   ├── workflows/          # CI (ci.yml)
+│   ├── repogov-config.json # repogov: .github/ layout and Markdown line limits
 │   ├── instructions/       # Development guidelines (backend, frontend, testing, general)
 │   └── swagger-ui-theming.md # How the API docs page is styled and upgraded
 ├── docs/                   # Reference documentation
@@ -257,8 +258,12 @@ npm test -- --run tests/integration/kubernetes-network-api.test.ts
 # Run only the JSON/YAML response format tests
 npm test -- --run tests/integration/api-endpoints.test.ts -t "Response Format Support"
 
-# Check for emoji (demojify CLI; needs Go 1.24+). Also runs as a pre-commit hook,
-# installed by npm install, and as a CI job
+# Check repository governance (repogov CLI; needs Go 1.24+): .github/ layout and
+# Markdown line limits from .github/repogov-config.json
+npm run governance:check
+
+# Check for emoji (demojify CLI; needs Go 1.24+). Both checks also run, in this
+# order, as a pre-commit hook (installed by npm install) and as a CI job
 npm run emoji:check
 
 # Replace emoji with text tokens such as [PASS] and [FAIL]
@@ -351,15 +356,13 @@ See [tests/README.md](tests/README.md) for comprehensive testing documentation a
 6. `npm run smoke` (starts `dist/index.cjs` and checks it over HTTP)
 7. OpenAPI validation of the served document (`@apidevtools/swagger-cli`)
 
-A separate `emoji` job runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.1.0) over every text file and fails on any emoji; see [.github/emoji-prevention.md](.github/emoji-prevention.md).
+A separate `repo-checks` job runs [repogov](https://github.com/nicholashoule/repogov) (pinned to v0.9.0), which checks `.github/repogov-config.json`, the `.github/` layout (`applyTo` front matter on the instruction files) and Markdown line limits (200 for `.github/instructions/`, 500 by default), then [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.2.0), which fails on any emoji in any text file; see [.github/emoji-prevention.md](.github/emoji-prevention.md).
 
-Run the same checks locally before pushing (`emoji:check` needs Go 1.24+):
+Run the same checks locally before pushing (`governance:check` and `emoji:check` need Go 1.24+):
 
 ```bash
-npm audit && npm run check && npm test -- --run && npm run build && npm run smoke && npm run emoji:check
+npm audit && npm run check && npm test -- --run && npm run build && npm run smoke && npm run governance:check && npm run emoji:check
 ```
-
-[`.github/workflows/validate-instructions.yml`](.github/workflows/validate-instructions.yml) checks the files in `.github/instructions/` (front matter, at most 200 lines each) when they change.
 
 ## Windows Compatibility
 

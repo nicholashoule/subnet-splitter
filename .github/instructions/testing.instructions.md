@@ -96,9 +96,7 @@ All must pass before committing:
 2. `npm run test -- --run`
 3. `npm run build`, then `npm run smoke`: `scripts/smoke-test.ts` starts `dist/index.cjs` on `SMOKE_PORT` (default 5099), checks health, app and CSP headers, SPA fallback, the plan and tiers APIs (private mode, validation errors), JSON 404s for unknown API paths, API docs SRI, and startup rejection of a bad `PORT` or `TRUST_PROXY`, and writes `dist/openapi.json` (after checking it matches `server/openapi.ts`)
 4. `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`
-5. A separate `emoji` job: `npm run emoji:check` (demojify, Go). The same check runs as a pre-commit hook (`.githooks/pre-commit`) on the staged files only; it skips with a message when Go 1.24+ is missing or demojify cannot run
-
-`.github/workflows/validate-instructions.yml` runs when instruction files change: each `.github/instructions/*.instructions.md` needs `applyTo` front matter, `---` on line 1, and at most 200 lines; `.github/copilot-instructions.md` stays at 10 lines or fewer.
+5. A separate `repo-checks` job (Go): `npm run governance:check`, then `npm run emoji:check`. repogov reads `.github/repogov-config.json`: each `.github/instructions/*.instructions.md` needs `applyTo` front matter and at most 200 lines, `.github/copilot-instructions.md` at most 10, other Markdown 500 unless the config sets a limit. demojify fails on any emoji. The pre-commit hook (`.githooks/pre-commit`) runs both on the staged files only, in that order, and stops at the first failure; it skips a check with a message when Go 1.24+ is missing or its tool cannot run
 
 ## API Testing Workflow
 

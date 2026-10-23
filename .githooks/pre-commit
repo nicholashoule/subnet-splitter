@@ -1,19 +1,22 @@
 #!/bin/sh
-# Pre-commit hook: the emoji audit CI runs (npm run emoji:check, demojify), applied to
-# exactly what is being committed. The index is exported to a temporary directory and
-# scanned there, so unstaged edits and untracked or ignored files never block a commit.
+# Pre-commit hook: the repository checks CI runs, applied to exactly what is being
+# committed. The index is exported to a temporary directory and checked there, so
+# unstaged edits and untracked or ignored files never block a commit. In order:
+#   1. repogov (npm run governance:check): its config, the .github/ layout (applyTo
+#      front matter on instruction files) and Markdown line limits
+#   2. demojify (npm run emoji:check): no emoji in any text file
 # Installed by `npm install` (scripts/install-hooks.mjs sets core.hooksPath to .githooks).
 # POSIX sh, so it runs on Windows (Git for Windows ships sh), macOS and Linux.
 #
-# Exits 1 only when demojify reports findings. When the check cannot run (no Go 1.24+,
-# demojify cannot be downloaded or built, the index cannot be exported) it says why
-# and lets the commit through; CI still runs the check.
+# Fails fast: exits 1 at the first check with findings, so demojify does not run when
+# repogov fails. A check that cannot run (no Go 1.24+, its tool cannot be downloaded or
+# built, the index cannot be exported) is skipped with the reason; CI still runs it.
 
-MIN_GO_MINOR=24 # demojify needs Go 1.24 or newer
+MIN_GO_MINOR=24 # repogov and demojify need Go 1.24 or newer
 
 skip() {
   echo "pre-commit: $1" >&2
-  echo "pre-commit: skipping the emoji check; CI still runs it." >&2
+  echo "pre-commit: skipping the repogov and emoji checks; CI still runs them." >&2
   exit 0
 }
 
@@ -28,12 +31,22 @@ if [ "$major" != "1" ] || [ -z "$minor" ] || [ "$minor" -lt "$MIN_GO_MINOR" ]; t
   skip "found Go ${version:-of unknown version}; install Go 1.$MIN_GO_MINOR or newer (https://go.dev/dl/)."
 fi
 
-# Download and build the pinned demojify first (package.json holds its only version
-# pin), so a failure here, such as no network, is not mistaken for emoji findings.
+# Download and build both pinned tools first (package.json holds their only version
+# pins), so a failure here, such as no network, is not mistaken for findings. A tool
+# that cannot run is skipped; the other still runs.
+run_repogov=1
+if ! output=$(npm run --silent governance:check -- version 2>&1); then
+  printf '%s\n' "$output" >&2
+  echo "pre-commit: could not run repogov (npm run governance:check -- version failed); skipping it, CI still runs it." >&2
+  run_repogov=
+fi
+run_demojify=1
 if ! output=$(npm run --silent emoji:check -- -version 2>&1); then
   printf '%s\n' "$output" >&2
-  skip "could not run demojify (npm run emoji:check -- -version failed)."
+  echo "pre-commit: could not run demojify (npm run emoji:check -- -version failed); skipping it, CI still runs it." >&2
+  run_demojify=
 fi
+[ -n "$run_repogov$run_demojify" ] || exit 0
 
 tmp=$(mktemp -d) || skip "could not create a temporary directory."
 # Remove only the directory mktemp just created, never an empty or unexpected path
@@ -44,8 +57,14 @@ trap 'exit 1' HUP INT TERM
 # The index as this commit will record it (git commit sets GIT_INDEX_FILE when needed)
 git checkout-index --all --prefix="$tmp/" || skip "could not export the staged files."
 
-# demojify keeps the last -root given, so this scans the export, not the working tree
-if ! npm run --silent emoji:check -- -root "$tmp"; then
+# Both tools keep the last -root given, so these check the export, not the working tree.
+# repogov reads the staged .github/repogov-config.json there.
+if [ -n "$run_repogov" ] && ! npm run --silent governance:check -- -root "$tmp"; then
+  echo "pre-commit: repogov found problems in the staged files. Fix each FAIL (or the config error) above, stage the result and commit again." >&2
+  exit 1
+fi
+
+if [ -n "$run_demojify" ] && ! npm run --silent emoji:check -- -root "$tmp"; then
   echo "pre-commit: emoji found in the staged files. Run npm run emoji:fix, review with git diff, stage the result and commit again." >&2
   exit 1
 fi

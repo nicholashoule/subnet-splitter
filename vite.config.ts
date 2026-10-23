@@ -8,7 +8,9 @@
  * - Tailwind CSS v4 via its Vite plugin (Rust engine: Oxide scanner + Lightning CSS
  *   for prefixing and minification; no PostCSS pipeline)
  * - Path aliases (@, @shared)
- * - Strict FS access control
+ * - Vite's default dev server file access rules (server.fs.strict, and a deny list
+ *   covering .env, keys and certificates, .npmrc and .git). Setting server.fs.deny
+ *   here would replace that list, not add to it.
  * - Client root at ./client directory
  * - Build output to dist/public
  */
@@ -30,11 +32,5 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-  },
-  server: {
-    fs: {
-      strict: true,
-      deny: ["**/.*"],
-    },
   },
 });
