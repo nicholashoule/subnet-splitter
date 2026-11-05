@@ -351,7 +351,7 @@ describe("API Endpoints Integration", () => {
     it("should name the pinned Swagger UI version wherever the docs state it", () => {
       // Bumping SWAGGER_UI_VERSION must update these too (the CHANGELOG records history)
       const pinned = `swagger-ui-dist@${SWAGGER_UI_VERSION}`;
-      for (const file of [".github/instructions/backend.instructions.md", "docs/compliance/security-reference.md", "server/swagger-ui.ts"]) {
+      for (const file of [".github/instructions/backend.instructions.md", "docs/security.md", "server/swagger-ui.ts"]) {
         const text = fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
         const mentioned = [...text.matchAll(/swagger-ui-dist@(\d+\.\d+\.\d+)/g)].map((m) => m[0]);
         expect(mentioned.length, file).toBeGreaterThan(0);
@@ -691,14 +691,22 @@ describe("API Endpoints Integration", () => {
       expect(data).toHaveProperty("error");
     });
 
-    it("should handle invalid Content-Type gracefully", async () => {
+    it("should answer a non-JSON Content-Type with 415 and say what to send", async () => {
       const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: "not json"
       });
 
+      expect(response.status).toBe(415);
+      expect(await response.json()).toEqual({ error: "Content-Type must be application/json", code: "INVALID_REQUEST" });
+    });
+
+    it("should answer a missing body with 400, not a schema error about undefined", async () => {
+      const response = await fetch(`${baseUrl}/api/k8s/plan`, { method: "POST" });
+
       expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "Request body must be a JSON object", code: "INVALID_REQUEST" });
     });
 
     it("should ignore unknown fields (forward compatible) without echoing them", async () => {
