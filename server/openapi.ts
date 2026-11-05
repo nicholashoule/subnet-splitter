@@ -12,7 +12,7 @@
  */
 
 import { version as APP_VERSION } from "../package.json";
-import { buildKubernetesNetworkPlan, getDeploymentTierInfo } from "../client/src/lib/kubernetes-network-generator";
+import { buildKubernetesNetworkPlan, getDeploymentTierInfo, PLAN_FORMAT_VERSION } from "../client/src/lib/kubernetes-network-generator";
 
 const EXAMPLE_TIME = new Date("2026-10-02T12:00:00.000Z");
 
@@ -99,7 +99,7 @@ const payloadTooLargeResponse = {
 export const CIDR_PATTERN = "^(0|[1-9]\\d{0,2})(\\.(0|[1-9]\\d{0,2})){3}/(0|[1-9]\\d?)$";
 
 const unsupportedMediaTypeResponse = {
-  description: "Content-Type charset that is not a UTF encoding (its name must start with utf-, so latin1 and us-ascii are refused; send UTF-8), or an unsupported Content-Encoding (always JSON)",
+  description: "Content-Type that is not application/json, a charset that is not a UTF encoding (its name must start with utf-, so latin1 and us-ascii are refused; send UTF-8), or an unsupported Content-Encoding (always JSON)",
   content: {
     "application/json": {
       schema: { $ref: "#/components/schemas/Error" },
@@ -476,7 +476,7 @@ export const openApiSpec = {
             description: "Generation metadata",
             properties: {
               generatedAt: { type: "string", format: "date-time", example: "2026-10-02T12:00:00.000Z" },
-              version: { type: "string", example: "2.0", description: "Plan format and allocation rules version" }
+              version: { type: "string", example: PLAN_FORMAT_VERSION, description: "Plan format and allocation rules version" }
             }
           }
         }
