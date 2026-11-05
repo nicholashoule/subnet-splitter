@@ -59,7 +59,7 @@ export function createApiRateLimiter(): RequestHandler {
 const MAX_REPORTED_ISSUES = 5;
 
 /**
- * Turn Zod issues into a short, readable message (e.g. "deploymentSize: Required").
+ * Turn Zod issues into a short, readable message (e.g. "region: Region must be lowercase ...").
  * Capped: an array of thousands of bad elements in a 16 KB body would otherwise make
  * an error response hundreds of KB long.
  */

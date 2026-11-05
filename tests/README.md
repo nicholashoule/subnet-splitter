@@ -4,9 +4,7 @@ This directory contains all test suites for the CIDR Subnet Calculator project.
 
 ## Test Suite Overview
 
-**What each file covers**: see the [test inventory](../docs/test-suite-analysis.md#test-inventory); `npm test -- --run` prints the current counts  
-**Pass Rate**: 100% passing  
-**Overall Grade**: A+ (from the February 8, 2026 audit; see [Test Quality & Audit](#test-quality--audit))
+**What each file covers**: see [Test Organization](#test-organization); `npm test -- --run` runs them all and prints the results
 
 ## Test Categories
 
@@ -27,7 +25,8 @@ tests/
 │   ├── network-separation.test.ts  # Address space separation invariants (every tier x provider)
 │   ├── ip-calculation-compliance.test.ts  # IP allocation compliance
 │   ├── ui-styles.test.ts         # WCAG accessibility
-│   └── config.test.ts            # Configuration validation
+│   ├── config.test.ts            # Configuration validation
+│   └── site-check.test.ts        # GitHub Pages site check
 ├── integration/                   # Integration tests - Self-contained with test servers
 │   ├── api-endpoints.test.ts     # API infrastructure - Starts own server
 │   ├── calculator-ui.test.ts     # Calculator logic via subnet-utils - No server
@@ -133,6 +132,11 @@ Unit tests verify individual functions and utilities in isolation.
 - Repository checks: `governance:check` pins repogov once and `emoji:check`/`emoji:fix` pin demojify once; CI and the pre-commit hook both call them, governance first; `validate-instructions.yml` is gone; the repogov config keeps the instruction-file limits (200 lines, 10 for `copilot-instructions.md`) and skips `node_modules` and `dist`
 - Pre-commit hook: the `prepare` script (`node scripts/install-hooks.mjs || exit 0`) points `core.hooksPath` at `.githooks`; `.githooks/pre-commit` has a `#!/bin/sh` shebang, LF line endings, and the executable bit in git. The hook itself runs in temporary repositories with stub `go` and `npm`: it skips (exit 0) without Go 1.24+, skips only the tool that cannot run (or both), fails fast (exit 1) on repogov findings without running demojify, fails on emoji in staged files, ignores findings in unstaged or untracked files, and removes its temporary export
 - Frontend instructions recommend a real browser over VS Code Simple Browser
+
+**site-check.test.ts:**
+- The published `site/` passes `scripts/site-check.ts`
+- A page missing its title, `lang`, viewport, or description is reported
+- Plain HTTP, `javascript:`/`vbscript:`, `data:`, protocol-relative, absolute, out-of-site, missing, and badly percent-encoded references are refused; fragments, HTTPS, `mailto:`, and existing files pass
 
 ### Integration Tests (`tests/integration/`)
 
@@ -290,57 +294,6 @@ Tests are configured in `vitest.config.ts` at the project root:
 - **Environment**: Node.js
 - **Globals enabled**: `describe`, `it`, `expect` available without imports (optional)
 
-## Test Quality & Audit
-
-**For detailed analysis of test suite health, see [test-suite-analysis.md](../docs/test-suite-analysis.md)**
-
-**Assessment** (grade from the February 8, 2026 audit in [test-suite-analysis.md](../docs/test-suite-analysis.md), whose inventory is kept current):
-- **Grade**: A+ (comprehensive coverage with proper organization)
-- **Pass Rate**: 100%
-- **Test Files**: unit + integration
-
-**Key Strengths**:
-- [PASS] Comprehensive core logic coverage
-- [PASS] Security-first testing
-- [PASS] Production-ready infrastructure
-- [PASS] Fast execution
-- [PASS] Proper unit/integration separation
-- [PASS] WCAG accessibility compliance validated
-
-See [test-suite-analysis.md](../docs/test-suite-analysis.md) for complete analysis and recommendations.
-
-### Strengths
-
-1. **Comprehensive Core Logic Coverage**
-   - Subnet calculations: 100% of functions tested with edge cases
-   - Kubernetes generator: All tiers, providers, and security rules covered
-   - IP calculation compliance: All deployment tier formulas validated
-   - Mathematical correctness: Bitwise operations validated
-
-2. **Security-First Testing**
-   - RFC 1918 enforcement prevents production security incidents
-   - Rate limiting protects against DoS attacks
-   - CSP middleware validation
-   - CSP violation endpoint compliance
-   - Public IP rejection with security guidance
-
-3. **Production-Ready Infrastructure**
-   - Health checks work for Kubernetes probes
-   - API versioning supports backward compatibility
-   - OpenAPI documentation is functional
-   - K8s network planning API fully tested
-
-4. **Calculator Logic Tests**
-   - Form validation before calculation, through the real `subnet-utils.ts` functions
-   - Subnet splitting, tree expansion, and the tree size limit
-   - Which rows are selected and exported
-   - Hide parents feature
-   - Depth indicator visual hierarchy
-
-5. **Fast Execution**
-   - Developers will actually run tests
-   - CI/CD integration is practical
-
 ## CI/CD Integration
 
 Tests should pass before:
@@ -359,7 +312,3 @@ npm run smoke              # Start dist/index.cjs on port 5099 and check it over
 ```
 
 `.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, the app with its CSP and security headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's pinned assets, which it downloads from the CDN to check that their SRI hashes match (this check needs network access). `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `repo-checks` job runs `npm run governance:check` (repogov, Go) and then `npm run emoji:check` (demojify, Go).
-
----
-
-**Last Updated**: October 2, 2026

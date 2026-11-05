@@ -2,9 +2,8 @@
 
 > **Note**: Tier configurations updated February 8, 2026. See [api.md](../api.md) for current subnet sizes and VPC requirements.
 >
-> **Updated**: October 2, 2026 (plan format 2.0). Services are `/20` (`/18` for hyperscale), every plan adds a control-plane network inside the VPC (one `/28`; for EKS one `/27` split into two `/28`s in two AZs), and generated pod and service ranges avoid `172.17.0.0/16`. `"networkMode": "private"` replaces public subnets with internal load-balancer subnets. See [api.md](../api.md#address-space-separation).
+> **Plan format 2.0**: Services are `/20` (`/18` for hyperscale), every plan adds a control-plane network inside the VPC (one `/28`; for EKS one `/27` split into two `/28`s in two AZs), and generated pod and service ranges avoid `172.17.0.0/16`. `"networkMode": "private"` replaces public subnets with internal load-balancer subnets. See [api.md](../api.md#address-space-separation).
 
-**Last Updated**: October 2, 2026  
 **Purpose**: Comprehensive comparison of how IPv4 addresses are consumed across EKS, GKE, and AKS
 
 ---
@@ -626,5 +625,4 @@ Each Elastic IP past 2 on an AWS NAT gateway needs a quota increase. One NAT gat
 
 ---
 
-**Last Updated**: October 2, 2026  
 **Maintained By**: CIDR Subnet Calculator Team

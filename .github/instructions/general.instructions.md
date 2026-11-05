@@ -28,7 +28,7 @@ shared/             # Shared TypeScript types and Zod schemas
 tests/unit/         # Unit tests
 tests/integration/  # Integration tests
 scripts/            # build.ts (production build), smoke-test.ts, install-hooks.mjs (git hooks)
-docs/               # API reference, compliance audits, test audit
+docs/               # API reference, compliance audits, conventions
 ```
 
 ## Running the Project
@@ -103,6 +103,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 5. **Testing** -- run `npm run dev`, `npm run check`, test both themes
 6. **Icons** -- use Lucide React only, no unicode icons
 7. **Emoji** -- none anywhere; use text tokens (`[PASS]`, `[FAIL]`, `[WARNING]`). CI checks with demojify (`npm run emoji:check`, needs Go); see [emoji-prevention.md](../emoji-prevention.md)
+8. **Docs** -- no figures that go stale: no test or file counts, pass rates, grades, or "Last Updated" dates (the CHANGELOG and git history carry those). Keep README.md short; detail goes under `docs/`
 
 ## Agent Token Optimization
 
@@ -142,5 +143,6 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Testing instructions](testing.instructions.md)
 - [Emoji prevention](../emoji-prevention.md)
 - [Security reference](../../docs/compliance/security-reference.md)
-- [Test suite analysis](../../docs/test-suite-analysis.md)
+- [Development guide](../../docs/development.md)
+- [Test inventory](../../tests/README.md#test-organization)
 - [API reference](../../docs/api.md)
