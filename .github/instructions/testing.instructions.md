@@ -49,7 +49,7 @@ import { KubernetesNetworkPlanRequestSchema } from "@shared/kubernetes-schema"; 
 import { registerRoutes } from "../../server/routes";      // server
 ```
 
-See [docs/test-templates.md](../../docs/test-templates.md) for full templates and patterns.
+See [Writing New Tests](../../tests/README.md#writing-new-tests) for a template.
 
 ### Structure Rules
 
@@ -73,9 +73,8 @@ See [docs/test-templates.md](../../docs/test-templates.md) for full templates an
 |----------|-------|
 | **Unit** | subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config, site-check |
 | **Integration** | API, calculator-ui, k8s-api, rate-limiting, CSP middleware, CSP violation endpoint, Swagger theming, static-serving |
-| **Pass Rate** | 100% |
 
-Docs keep no test counts: `npm test -- --run` prints them. The [test inventory](../../docs/test-suite-analysis.md#test-inventory) says what each file covers.
+Docs keep no test counts: `npm test -- --run` prints them. The [test inventory](../../tests/README.md#test-organization) says what each file covers.
 
 ## Quality Gates
 
@@ -103,7 +102,7 @@ All must pass before committing:
 1. Run API tests: `npm run test -- tests/integration/kubernetes-network-api.test.ts --run` (no server needed; HTTP routes are covered by `api-endpoints.test.ts` and `npm run smoke`)
 2. For manual requests, start the dev server: `npm run dev` (wait for the `Server started` log line with host `127.0.0.1`, port `5000`)
 
-See [docs/test-templates.md](../../docs/test-templates.md) for manual API testing examples.
+See the [API reference](../../docs/api.md) for request examples.
 
 ## Test File Summary
 

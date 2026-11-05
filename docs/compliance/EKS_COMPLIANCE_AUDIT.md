@@ -1365,7 +1365,7 @@ For automated deployments:
 
 ### Test Coverage
 
-`npm run test -- --run` runs every unit and integration test; the [test inventory](../test-suite-analysis.md#test-inventory) says what each file covers.
+`npm run test -- --run` runs every unit and integration test; the [test inventory](../../tests/README.md#test-organization) says what each file covers.
 
 **Unit Tests** (`tests/unit/`):
 - Subnet calculation verification
@@ -1507,5 +1507,4 @@ These optional configurations can improve scalability and observability for larg
 ---
 
 **Document Status**: Complete and ready for reference  
-**Last Updated**: October 2, 2026  
 **Compliance Level**: Meets EKS subnet requirements, with warnings (see the Executive Summary)

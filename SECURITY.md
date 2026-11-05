@@ -169,7 +169,3 @@ Before deploying to production:
 - [Express Security Best Practices](https://expressjs.com/en/advanced/best-practice-security.html)
 - [CWE Top 25](https://cwe.mitre.org/top25/)
 - [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
-
----
-
-**Last Updated**: October 2026

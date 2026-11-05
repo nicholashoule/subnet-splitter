@@ -1238,7 +1238,7 @@ AKS requires a service CIDR smaller than /12
 
 ### Test Coverage
 
-`npm run test -- --run` runs every unit and integration test; the [test inventory](../test-suite-analysis.md#test-inventory) says what each file covers.
+`npm run test -- --run` runs every unit and integration test; the [test inventory](../../tests/README.md#test-organization) says what each file covers.
 
 **Unit Tests** (`tests/unit/`):
 - Subnet calculation verification
@@ -1394,5 +1394,4 @@ These optional configurations can improve scalability and observability for larg
 ---
 
 **Document Status**: Complete and ready for reference  
-**Last Updated**: February 4, 2026  
 **Compliance Level**: Production Ready 

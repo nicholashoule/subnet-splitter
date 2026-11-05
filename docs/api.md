@@ -380,8 +380,8 @@ Get every deployment tier's layout as the generator applies it for one provider 
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `provider` | No | `kubernetes` | `eks`, `gke`, `aks`, `kubernetes`, or `k8s`. Any other value returns 400 `INVALID_REQUEST`, e.g. `Invalid request: provider: Invalid enum value. Expected 'eks' \| 'gke' \| 'aks' \| 'kubernetes' \| 'k8s', received 'foo'` |
-| `networkMode` | No | `public` | `public` or `private` (see [Private network mode](#private-network-mode)). Any other value returns 400 `INVALID_REQUEST`, e.g. `Invalid request: networkMode: Invalid enum value. Expected 'public' \| 'private', received 'foo'` |
+| `provider` | No | `kubernetes` | `eks`, `gke`, `aks`, `kubernetes`, or `k8s`. Any other value returns 400 `INVALID_REQUEST`, e.g. `Invalid request: provider: Invalid option: expected one of "eks"\|"gke"\|"aks"\|"kubernetes"\|"k8s"` |
+| `networkMode` | No | `public` | `public` or `private` (see [Private network mode](#private-network-mode)). Any other value returns 400 `INVALID_REQUEST`, e.g. `Invalid request: networkMode: Invalid option: expected one of "public"\|"private"` |
 | `format` | No | `json` | `json` or `yaml` |
 
 #### Response (default, generic Kubernetes)
@@ -1252,7 +1252,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 
 **Network Mode (`networkMode`):**
 - Optional; `public` (default) or `private`, case-sensitive
-- Any other value returns `INVALID_REQUEST`, e.g. `Invalid request: networkMode: Invalid enum value. Expected 'public' | 'private', received 'isolated'`
+- Any other value returns `INVALID_REQUEST`, e.g. `Invalid request: networkMode: Invalid option: expected one of "public"|"private"`
 - Echoed as `networkMode` in every plan. `private` empties `subnets.public` and fills `subnets.loadBalancer`; `public` leaves `subnets.loadBalancer` empty (see [Private network mode](#private-network-mode))
 
 **Deployment Name:**
@@ -1289,7 +1289,7 @@ Because the VPC is random, omit `vpcCidr` only for exploration. Send an explicit
 
 | Code | Status | Cause | Example |
 |------|--------|-------|---------|
-| `INVALID_REQUEST` | 400 / 413 / 415 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, body is over 16 KB, or body uses an unsupported charset or encoding. Only the first 5 validation issues are listed, then "and N more" | `{ "error": "Invalid request: deploymentSize: Required", "code": "INVALID_REQUEST" }` |
+| `INVALID_REQUEST` | 400 / 413 / 415 | Request failed schema validation (missing or unknown `deploymentSize`, unknown `provider` or `networkMode` in the body or the tiers `?provider=`/`?networkMode=` query, bad `region`, `availabilityZones` with a bad name, repeats, or outside 1-6 entries, field too long), body is not valid JSON, body is over 16 KB, or body uses an unsupported charset or encoding. Only the first 5 validation issues are listed, then "and N more" | `{ "error": "Invalid request: region: Region must be lowercase ...", "code": "INVALID_REQUEST" }` |
 | `NETWORK_GENERATION_ERROR` | 400 | VPC CIDR is malformed, not entirely private RFC 1918 space, too small for the tier, larger than `/16`, or overlapping `172.30.0.0/16` or `172.31.0.0/16` for AKS; `podsCidr`/`servicesCidr` malformed, outside the allowed blocks or sizes, or overlapping the VPC, each other, `172.17.0.0/16`, or (AKS) `172.30.0.0/16` or `172.31.0.0/16`; `availabilityZones` sent for GKE/AKS or with one zone for EKS | `{ "error": "Invalid VPC CIDR \"999.999.999.999/16\": Invalid IP octet: 999", "code": "NETWORK_GENERATION_ERROR" }` |
 | `NOT_FOUND` | 404 | No API route matches the path and method (for example `GET /api/k8s/plan`, which only accepts POST). API paths work in any letter case (`/API/K8s/Tiers` is served like `/api/k8s/tiers`; query values keep their case). Unknown `/api` paths never fall back to the web app | `{ "error": "Not found", "code": "NOT_FOUND" }` |
 | `RATE_LIMITED` | 429 | More than 100 `/api` requests per minute from one IP | `{ "error": "Too many requests. Please wait a minute and try again.", "code": "RATE_LIMITED" }` |
@@ -1308,7 +1308,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 Response (400):
 ```json
 {
-  "error": "Invalid request: deploymentSize: Required",
+  "error": "Invalid request: deploymentSize: Invalid option: expected one of \"micro\"|\"standard\"|\"professional\"|\"enterprise\"|\"hyperscale\"",
   "code": "INVALID_REQUEST"
 }
 ```
@@ -1322,7 +1322,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 Response (400):
 ```json
 {
-  "error": "Invalid request: deploymentSize: Invalid enum value. Expected 'micro' | 'standard' | 'professional' | 'enterprise' | 'hyperscale', received 'invalid'",
+  "error": "Invalid request: deploymentSize: Invalid option: expected one of \"micro\"|\"standard\"|\"professional\"|\"enterprise\"|\"hyperscale\"",
   "code": "INVALID_REQUEST"
 }
 ```
@@ -2101,7 +2101,6 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 
 ---
 
-**Last Updated:** October 2, 2026  
 **API Status:**  Production Ready  
-**Tests:** run `npm test -- --run` (CI runs it on every push and pull request); the [test inventory](test-suite-analysis.md#test-inventory) says what each file covers; no coverage tool is configured  
+**Tests:** run `npm test -- --run` (CI runs it on every push and pull request); the [test inventory](../tests/README.md#test-organization) says what each file covers; no coverage tool is configured  
 **Vulnerabilities:** 0
