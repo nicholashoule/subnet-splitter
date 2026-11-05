@@ -374,7 +374,7 @@ describe("API Endpoints Integration", () => {
       expect(response.status).toBe(400);
       const data = await response.json();
       expect(data.code).toBe("INVALID_REQUEST");
-      expect(data.error).toContain("deploymentSize: Required");
+      expect(data.error).toContain("deploymentSize: Invalid option: expected one of");
       expect(data.error).toContain("region: Region must be lowercase");
     });
 
@@ -811,12 +811,11 @@ describe("API Endpoints Integration", () => {
     });
 
     it("should cap the issues a validation error lists", async () => {
-      // A 16 KB body can hold thousands of bad array elements; listing each would make
-      // the error response hundreds of KB
+      // More invalid elements than the response lists exercise the issue cap
       const response = await fetch(`${baseUrl}/api/k8s/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deploymentSize: "micro", availabilityZones: Array(3000).fill(1) })
+        body: JSON.stringify({ deploymentSize: "micro", availabilityZones: Array(6).fill(1) })
       });
       const data = await response.json();
 
