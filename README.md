@@ -115,11 +115,13 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 ├── scripts/                # Build and utility tools
 │   ├── build.ts            # Production build (client with Vite, server bundle with esbuild)
 │   ├── smoke-test.ts       # Starts the production build and checks it over HTTP
+│   ├── site-check.ts       # Checks site/ before GitHub Pages publishes it
 │   └── install-hooks.mjs   # Points git at .githooks/ (runs on npm install)
+├── site/                   # GitHub Pages site: hand-written index.html and images, no build step
 ├── .githooks/
 │   └── pre-commit          # repogov, then emoji check of staged files (skips a tool that cannot run)
 ├── .github/
-│   ├── workflows/          # CI (ci.yml)
+│   ├── workflows/          # CI (ci.yml), GitHub Pages (pages.yml)
 │   ├── repogov-config.json # repogov: .github/ layout and Markdown line limits
 │   ├── instructions/       # Development guidelines (backend, frontend, testing, general)
 │   └── swagger-ui-theming.md # How the API docs page is styled and upgraded

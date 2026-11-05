@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="subnet-splitter is a CIDR subnet calculator that splits networks down to /32 in your browser, and a Kubernetes network-planning API that generates non-overlapping CIDRs for EKS, GKE, AKS, and self-hosted clusters.">
+<meta name="color-scheme" content="light dark">
+<title>subnet-splitter</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --text: #0f172a;
+    --muted: #475569;
+    --line: #dbe1e8;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --code-bg: #eef2f6;
+    --code-text: #1e293b;
+    --max: 52rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1120;
+      --surface: #111827;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --line: #1e293b;
+      --accent: #3b82f6;
+      --accent-text: #0b1120;
+      --code-bg: #172033;
+      --code-text: #e2e8f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Phones keep the sizes set here rather than enlarging some text on their
+     own, as Android Chrome and iOS Safari otherwise may. */
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  code, pre, kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.92em;
+  }
+  /* A long inline command breaks where it must rather than widen the page
+     past a phone's screen. */
+  code { background: var(--code-bg); color: var(--code-text); padding: 0.1em 0.35em; border-radius: 0.3em; overflow-wrap: anywhere; }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    border: 1px solid var(--line);
+    border-radius: 0.6rem;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; font-size: 0.88rem; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 1.25rem; }
+
+  header.site {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 2;
+  }
+  header.site .wrap {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    min-height: 3.5rem; flex-wrap: wrap;
+  }
+  .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--text); display: inline-flex; align-items: center; gap: 0.45rem; }
+  .brand:hover { text-decoration: none; }
+  .brand svg { flex: none; color: var(--accent); }
+  nav {
+    display: flex; align-items: stretch; flex-wrap: wrap;
+    border: 1px solid var(--line); background: var(--code-bg);
+    border-radius: 0.4rem;
+  }
+  nav a {
+    display: inline-flex; align-items: center;
+    color: var(--muted); font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.55rem 0.9rem; border-left: 1px solid var(--line);
+    position: relative;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  nav a:first-child { border-left: 0; border-radius: 0.4rem 0 0 0.4rem; }
+  nav a:last-child { border-radius: 0 0.4rem 0.4rem 0; }
+  nav a::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: var(--accent); transform: scaleX(0); transition: transform 0.15s ease;
+  }
+  nav a:hover, nav a:focus-visible, nav a[aria-current="true"] { color: var(--text); background: var(--surface); text-decoration: none; }
+  nav a:hover::after, nav a:focus-visible::after, nav a[aria-current="true"]::after { transform: scaleX(1); }
+  nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  nav a.github { padding: 0.55rem 0.7rem; }
+  @media (prefers-reduced-motion: reduce) { nav a, nav a::after { transition: none; } }
+
+  /* Top and bottom only: .hero shares its element with .wrap, whose side
+     padding is the page's gutter on a phone. */
+  .hero { padding-block: 4.5rem 3rem; }
+  .hero h1 {
+    font-size: clamp(2.2rem, 6vw, 3.4rem);
+    line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 1rem;
+  }
+  .hero p.lead { font-size: 1.2rem; color: var(--muted); max-width: 42rem; margin: 0 0 1.75rem; }
+  .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 0.65rem 1.1rem; border-radius: 0.5rem;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 600;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .btn:hover { text-decoration: none; filter: brightness(1.05); }
+  .shot {
+    display: block; width: 100%; height: auto; margin: 2.25rem 0 0;
+    border: 1px solid var(--line); border-radius: 0.75rem; background: var(--surface);
+  }
+
+  section { padding: 2.5rem 0; border-top: 1px solid var(--line); scroll-margin-top: 4.5rem; }
+  #top { scroll-margin-top: 0; }
+  h2 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0 0 0.75rem; }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  p { margin: 0 0 1rem; }
+  .muted { color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 1.25rem 0 0; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1.1rem 1.2rem;
+  }
+  .card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+  .card p { margin: 0; font-size: 0.95rem; color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td code { white-space: nowrap; }
+
+  ul.docs { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.5rem; }
+  ul.docs li { padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--surface); }
+  ul.docs span { color: var(--muted); }
+
+  footer.site { border-top: 1px solid var(--line); background: var(--code-bg); padding: 2rem 0 3rem; color: var(--muted); font-size: 0.9rem; }
+  footer.site a { color: var(--muted); text-decoration: underline; }
+  /* Phones: the header is not sticky, since with the menu on its own row it
+     would cover a third of the screen, and the bar becomes a grid of three
+     by two cells that share the width. Tables scroll inside themselves
+     rather than widen the page. */
+  @media (max-width: 40rem) {
+    header.site { position: static; }
+    header.site .wrap { padding-block: 0.75rem; row-gap: 0.75rem; }
+    nav { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; }
+    nav a {
+      justify-content: center; padding: 0.6rem 0.4rem; font-size: 0.7rem; letter-spacing: 0.04em;
+      border-left: 1px solid var(--line); border-top: 1px solid var(--line); margin: -1px 0 0 -1px;
+    }
+    nav a:first-child { border-left: 1px solid var(--line); }
+    nav a:first-child, nav a:last-child { border-radius: 0; }
+    section { scroll-margin-top: 1rem; }
+    .hero { padding-block: 2.5rem 1.75rem; }
+    .hero h1 { font-size: 1.9rem; }
+    .hero p.lead { font-size: 1.05rem; }
+    pre code { font-size: 0.8rem; }
+    table { display: block; overflow-x: auto; }
+    td code { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="#top"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="16" y="16" width="6" height="6" rx="1"/>
+        <rect x="2" y="16" width="6" height="6" rx="1"/>
+        <rect x="9" y="2" width="6" height="6" rx="1"/>
+        <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/>
+        <path d="M12 12V8"/>
+      </svg> subnet-splitter</a>
+    <nav aria-label="Sections">
+      <a href="#calculator">Calculator</a>
+      <a href="#api">API</a>
+      <a href="#run">Run</a>
+      <a href="#security">Security</a>
+      <a href="#docs">Docs</a>
+      <a class="github" href="https://github.com/nicholashoule/subnet-splitter" aria-label="subnet-splitter on GitHub" title="GitHub">
+        <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" focusable="false" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>Split any CIDR, and plan Kubernetes networks that never overlap.</h1>
+    <p class="lead">
+      subnet-splitter is a subnet calculator that splits a network recursively, down to a single host, entirely in
+      your browser, and an API that lays out VPC, node, control-plane, pod, and service ranges for EKS, GKE, AKS,
+      and self-hosted clusters, as JSON or YAML for Terraform and other infrastructure tools. No database, no
+      accounts, nothing stored.
+    </p>
+    <div class="actions">
+      <a class="btn primary" href="#run">Run it</a>
+      <a class="btn" href="https://github.com/nicholashoule/subnet-splitter/releases/latest">Latest release</a>
+    </div>
+    <img class="shot" src="images/subnet-splitter.png" width="1900" height="993" alt="The subnet-splitter calculator with 172.16.0.0/12 entered, showing its total addresses, usable hosts, wildcard mask, and prefix length above the subnet table.">
+  </div>
+
+  <section id="calculator">
+    <div class="wrap">
+      <h2>The calculator</h2>
+      <p class="muted">Enter a CIDR and split it, then split the halves, as far as you need. The math runs in the browser; nothing is sent to the server.</p>
+      <div class="grid">
+        <div class="card">
+          <h3>Recursive splitting</h3>
+          <p>Split any subnet in two, down to <code>/32</code>. Each split appears under its parent with a color bar for its prefix length; remove it to restore the parent.</p>
+        </div>
+        <div class="card">
+          <h3>Every number you need</h3>
+          <p>Network and broadcast addresses, first and last host, total and usable hosts, subnet and wildcard masks, and the network class.</p>
+        </div>
+        <div class="card">
+          <h3>Copy and export</h3>
+          <p>Copy any address or mask in one click, or select rows and export them to CSV for a spreadsheet.</p>
+        </div>
+        <div class="card">
+          <h3>Leaves only</h3>
+          <p>Turn on Hide Parents to list only the smallest subnets: the allocation you will actually use.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="api">
+    <div class="wrap">
+      <h2>Kubernetes network planning API</h2>
+      <p>Ask for a deployment size and a provider, and get back a plan whose node, control-plane, pod, and service ranges are checked never to overlap. EKS subnets span at least two availability zones; GKE and AKS subnets are regional.</p>
+<pre><code>curl -X POST http://127.0.0.1:5000/api/k8s/plan \
+  -H "Content-Type: application/json" \
+  -d '{"deploymentSize":"professional","provider":"eks","vpcCidr":"10.100.0.0/18"}'</code></pre>
+      <p>Add <code>?format=yaml</code> for YAML. <code>"networkMode": "private"</code> drops public subnets for internal load-balancer subnets and NAT egress, and <code>podsCidr</code>, <code>servicesCidr</code>, and <code>availabilityZones</code> fit a plan beside clusters you already run. Providers are <code>eks</code>, <code>gke</code>, <code>aks</code>, and <code>kubernetes</code>.</p>
+
+      <h3>Deployment tiers</h3>
+      <table>
+        <tr><th>Tier</th><th>For</th></tr>
+        <tr><td><code>micro</code></td><td>One node, minimal allocation: a proof of concept.</td></tr>
+        <tr><td><code>standard</code></td><td>Development and testing, 1 to 3 nodes.</td></tr>
+        <tr><td><code>professional</code></td><td>Small production, 3 to 10 nodes, two availability zones.</td></tr>
+        <tr><td><code>enterprise</code></td><td>Large production, 10 to 50 nodes, three availability zones with high availability.</td></tr>
+        <tr><td><code>hyperscale</code></td><td>Global scale, 50 to 5,000 nodes across three availability zones.</td></tr>
+      </table>
+      <p><code>GET /api/k8s/tiers</code> returns every tier's subnet sizes, and the running server documents the whole API at <code>/api/docs/ui</code>. The <a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/api.md">API reference</a> describes every field.</p>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="wrap">
+      <h2>Run it</h2>
+      <p>With Node.js 24 or 26 and npm 11, clone the repository, install the exact dependencies from its lockfile, and start the development server on <code>127.0.0.1:5000</code>:</p>
+<pre><code>git clone https://github.com/nicholashoule/subnet-splitter.git
+cd subnet-splitter
+npm ci
+npm audit       # 0 vulnerabilities before running anything
+npm run dev     # http://127.0.0.1:5000</code></pre>
+      <p>For production, build once and run the self-contained bundle anywhere Node.js runs; <code>node_modules</code> is not needed at runtime.</p>
+<pre><code>npm run build   # client to dist/public, server to dist/index.cjs
+npm run smoke   # start the build and check it over HTTP
+node dist/index.cjs</code></pre>
+
+      <h3>Configuration</h3>
+      <table>
+        <tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
+        <tr><td><code>PORT</code></td><td><code>5000</code></td><td>Port for the API and the web app.</td></tr>
+        <tr><td><code>HOST</code></td><td><code>0.0.0.0</code> in production</td><td>Interface to bind; development binds <code>127.0.0.1</code>.</td></tr>
+        <tr><td><code>TRUST_PROXY</code></td><td><code>false</code></td><td>Trusted proxy hops or addresses, so rate limiting sees real client IPs behind a load balancer.</td></tr>
+      </table>
+      <p>Health checks for load balancers and Kubernetes probes are at <code>/health</code>, <code>/health/ready</code>, and <code>/health/live</code>, and are never rate limited.</p>
+    </div>
+  </section>
+
+  <section id="security">
+    <div class="wrap">
+      <h2>Security by design</h2>
+      <p>There is no database and no stored user data, so there is nothing to leak. The calculator runs in the browser, and the API computes each plan from its request alone.</p>
+      <p>Production serves a strict Content Security Policy with <code>script-src 'self'</code> and Helmet's security headers. Every API request is validated with Zod and capped at 16 KB, API routes are rate limited per client, and server errors never include internal details. <a href="https://github.com/nicholashoule/subnet-splitter/blob/main/SECURITY.md">SECURITY.md</a> says how to report a vulnerability.</p>
+    </div>
+  </section>
+
+  <section id="docs">
+    <div class="wrap">
+      <h2>Documentation</h2>
+      <ul class="docs">
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/README.md">README</a> <span>features, setup, configuration, and testing</span></li>
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/api.md">API reference</a> <span>every endpoint, field, and response</span></li>
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/compliance/kubernetes-network-reference.md">Kubernetes network reference</a> <span>the formulas behind each plan</span></li>
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/compliance/EKS_COMPLIANCE_AUDIT.md">EKS</a>, <a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/compliance/GKE_COMPLIANCE_AUDIT.md">GKE</a>, and <a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/compliance/AKS_COMPLIANCE_AUDIT.md">AKS</a> audits <span>how each plan meets the provider's requirements</span></li>
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/docs/compliance/security-reference.md">Security reference</a> <span>CSP, headers, and rate limits</span></li>
+        <li><a href="https://github.com/nicholashoule/subnet-splitter/blob/main/CHANGELOG.md">Changelog</a> <span>what changed in each release</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>subnet-splitter is open source under the <a href="https://github.com/nicholashoule/subnet-splitter/blob/main/LICENSE">MIT license</a>. Source, issues, and releases are on <a href="https://github.com/nicholashoule/subnet-splitter">GitHub</a>; you can also <a href="https://github.com/sponsors/nicholashoule">sponsor the project</a>. Built and maintained by <a href="https://github.com/nicholashoule">Nicholas Houle</a>.</p>
+  </div>
+</footer>
+
+<script>
+  // Marks the menu item for the section in view, so the bar reads as a menu.
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav a[href^="#"]'));
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+    var sections = Object.keys(byId).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+    if (!('IntersectionObserver' in window) || sections.length === 0) return;
+    var visible = {};
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { visible[e.target.id] = e.isIntersecting ? e.intersectionRatio : 0; });
+      var best = null;
+      sections.forEach(function (s) { if (visible[s.id] > 0 && (best === null || visible[s.id] > visible[best])) best = s.id; });
+      links.forEach(function (a) {
+        if (a.getAttribute('href') === '#' + best) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      });
+    }, { rootMargin: '-20% 0px -60% 0px', threshold: [0, 0.25, 0.5, 1] });
+    sections.forEach(function (s) { observer.observe(s); });
+  })();
+</script>
+</body>
+</html>
