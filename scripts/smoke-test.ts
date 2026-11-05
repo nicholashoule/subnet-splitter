@@ -137,7 +137,7 @@ try {
     assert(![...csp.values()].flat().some(isCdn), "global CSP allows the CDN");
     // Over plain HTTP on a LAN address, upgrade-insecure-requests would blank the page
     assert(!csp.has("upgrade-insecure-requests"), "global CSP upgrades requests to https");
-    // The other headers SECURITY.md lists (Helmet's defaults)
+    // The other headers docs/security.md lists (Helmet's defaults)
     const expected: Record<string, string | null> = {
       "x-content-type-options": "nosniff",
       "strict-transport-security": "max-age=31536000; includeSubDomains",

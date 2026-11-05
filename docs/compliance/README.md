@@ -1,6 +1,6 @@
-# Cloud Provider IPv4 Allocation Cross-Reference
+# Provider Compliance
 
-How EKS, GKE, and AKS consume IPv4 addresses, side by side, for sizing subnets and pod ranges. This page compares the providers; each provider's details, formulas, and quotas are in its audit:
+How EKS, GKE, and AKS consume IPv4 addresses, side by side, for sizing subnets and pod ranges. Each provider's audit checks the API's plans against that provider's documented requirements; this page compares the providers and links to each audit's details:
 
 | Topic | EKS | GKE | AKS |
 |-------|-----|-----|-----|
@@ -10,7 +10,7 @@ How EKS, GKE, and AKS consume IPv4 addresses, side by side, for sizing subnets a
 | Load balancer IPs | [EKS](EKS_COMPLIANCE_AUDIT.md#load-balancer-ip-consumption) | [GKE](GKE_COMPLIANCE_AUDIT.md#load-balancer-ip-consumption) | [AKS](AKS_COMPLIANCE_AUDIT.md#load-balancer-ip-consumption) |
 | Pod range formula | [Prefix delegation](EKS_COMPLIANCE_AUDIT.md#ip-prefix-delegation-aws-specific) | [Alias range per node](GKE_COMPLIANCE_AUDIT.md#0-ipv4-address-consumption-model-gke-alias-ip) | [Overlay formula](AKS_COMPLIANCE_AUDIT.md#ip-allocation-formula---azure-cni-overlay) |
 
-Tier sizes, address space separation, and private network mode are in [api.md](../api.md#address-space-separation); the network formulas are in [kubernetes-network-reference.md](kubernetes-network-reference.md).
+Tier sizes, address space separation, and private network mode are in [api.md](../api.md#address-space-separation); the layout rules and sizing formulas are in [kubernetes.md](../kubernetes.md).
 
 ## IP allocation models
 
@@ -38,9 +38,10 @@ Two allocation models give different capacities for the same range:
 - **Per address**: the formula above. It fits IPAM that hands out small blocks as nodes need them, such as Calico's.
 - **A fixed `/24` per node**: GKE sizes each node's alias range by max pods (a `/24` at 65-128), and AKS CNI Overlay gives every node a `/24` whatever its max pods. A range then holds `2^(24 - prefix)` nodes, however few pods each runs.
 
-| CIDR | Addresses | Nodes at 110 pods (per address) | Nodes at a `/24` each | Fit |
-|------|-----------|--------------------------------|------------------------|-----|
-| `/13` | 524,288 | 4,766 | 2,048 | Hyperscale only |
+| CIDR | Addresses | Nodes at 110 pods (per address) | Nodes at a `/24` each  | Fit |
+|------|-----------|---------------------------------|------------------------|-----|
+| `/11` | 2,097,152 | 19,065 | 8,192 | Hyperscale (5,000 nodes) |
+| `/13` | 524,288 | 4,766 | 2,048 | Up to about 2,000 nodes |
 | `/16` | 65,536 | 595 | 256 | Large production |
 | `/18` | 16,384 | 148 | 64 | Mid-sized clusters |
 | `/20` | 4,096 | 37 | 16 | Small, fixed-size clusters |
@@ -52,19 +53,19 @@ Two allocation models give different capacities for the same range:
 | 500 nodes | 55,000 + 20% = 66,000 | `/15` (`/16` holds the pods, not the buffer) | `/15` (512 nodes); `/14` with the buffer |
 | 5,000 nodes | 550,000 + 20% = 660,000 | `/12` (a `/13` is too small even before the buffer) | `/11` (8,192 nodes) |
 
-A 5,000-node cluster therefore needs more than the hyperscale tier's generated `/13`: a `/11` `podsCidr`, or on GKE Standard max pods per node of 32 or fewer (a `/26` per node), which fits 5,000 nodes in a `/13`. On AKS, lowering max pods does not shrink the `/24`, so only a larger range helps.
+That is why the hyperscale tier generates a `/11`: it fits 5,000 nodes under either model, including AKS, where lowering max pods does not shrink a node's `/24`.
 
-**Address space for pods:** `100.64.0.0/10` (RFC 6598 shared address space) avoids clashes with corporate RFC 1918 networks, and EKS, GKE, and AKS overlay all accept it for pods. Pass it as `podsCidr`; the API also falls back to it when no RFC 1918 block outside the VPC has room (AKS hyperscale on a `10.x` VNet gets `100.64.0.0/13`). Do not use `198.19.0.0/16`: AWS refuses to associate it with an RFC 1918 VPC ([AWS: CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)), and the API rejects it. Services must stay RFC 1918, since EKS requires it.
+**Address space for pods:** `100.64.0.0/10` (RFC 6598 shared address space) avoids clashes with corporate RFC 1918 networks, and EKS, GKE, and AKS overlay all accept it for pods. Pass it as `podsCidr`; the API also falls back to it when no RFC 1918 block outside the VPC has room (hyperscale on a `10.x` VPC gets `100.64.0.0/11`). Do not use `198.19.0.0/16`: AWS refuses to associate it with an RFC 1918 VPC ([AWS: CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)), and the API rejects it. Services must stay RFC 1918, since EKS requires it.
 
 ## Hyperscale tier compared (5,000 nodes, 110 pods per node)
 
 | Provider | Node IPs | Pod IPs | Service IPs | VPC/VNet addresses needed |
 |----------|----------|---------|-------------|---------------------------|
 | **EKS** (VPC CNI) | 5,000 | 550,000 from the VPC | `/18`, virtual | **About 555,000**, plus load balancers |
-| **GKE** | 5,000 | Up to 225,280 in the `/13` alias range | `/18`, virtual | **About 5,000**, plus internal load balancers |
+| **GKE** | 5,000 | `/11` alias range (8,192 nodes at a `/24` each) | `/18`, virtual | **About 5,000**, plus internal load balancers |
 | **AKS** | 5,000 | Up to 200,000 in the overlay (cluster scale target) | `/18`, virtual | **About 5,000**, plus internal load balancers and Application Gateway subnets |
 
-Every provider gets 3 × `/20` node subnets (4,091 usable each on AWS and Azure, which reserve 5 per subnet; 4,092 on GCP, which reserves 4) and 3 × `/23` public subnets. A GKE cluster takes its nodes from one subnet, so 5,000 nodes need a `/19` or [additional subnets](https://cloud.google.com/kubernetes-engine/docs/how-to/multi-subnet-cluster).
+EKS and AKS get 3 × `/20` node subnets (4,091 usable each; AWS and Azure reserve 5 per subnet), and GKE one `/19` (8,188 usable; GCP reserves 4), since a GKE cluster takes its nodes from one subnet. Every provider gets 3 × `/23` public subnets.
 
 ## Outbound NAT compared
 

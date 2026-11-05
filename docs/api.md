@@ -107,7 +107,7 @@ Every plan, for every tier and provider, separates four kinds of address space. 
 
 Load-balancer subnets are also inside the VPC: public subnets (`subnets.public`, for internet-facing load balancers and NAT) in the default `public` network mode, or internal load-balancer subnets (`subnets.loadBalancer`) in [private network mode](#private-network-mode). Generated ranges keep the VPC, pods, and services in three different blocks. The `100.64.0.0/10` fallback (RFC 6598 shared address space, which EKS, GKE, and AKS overlay accept for pods) is needed for AKS hyperscale on a `10.x` VNet, and when the blocks left by the VPC and a `servicesCidr` you pass have no room (for example hyperscale pods with a `10.x` VPC and a `servicesCidr` in `172.16.0.0/12`). Ranges you pass as `podsCidr` and `servicesCidr` only have to stay clear of the VPC, each other, and the reserved ranges.
 
-**Layout inside the VPC (first-fit):** each subnet takes the lowest offset, aligned to its own size, that is still free. Load-balancer subnets (public, or internal in private mode) are placed first, then node subnets, then the control-plane network, which usually fills the alignment gap between the two. The control plane is placed as one aligned block and then split, so the two EKS `/28`s always form one contiguous `/27`. In the [example response](#response-json) below, the EKS control-plane subnets `10.100.1.0/28` and `10.100.1.16/28` (together `10.100.1.0/27`) sit between the public `/25`s and the first node `/23`.
+**Layout inside the VPC (first-fit):** each subnet takes the lowest offset, aligned to its own size, that is still free. Load-balancer subnets (public, or internal in private mode) are placed first, then node subnets, then the control-plane network, which usually fills the alignment gap between the two. The control plane is placed as one aligned block and then split, so the two EKS `/28`s always form one contiguous `/27`. In the [example response](#response-json) below, the EKS control-plane subnets `10.100.1.0/28` and `10.100.1.16/28` (together `10.100.1.0/27`) sit between the public `/25`s and the first node `/22`.
 
 **Control plane by provider:** the control plane is one network in every tier.
 
@@ -118,9 +118,9 @@ Load-balancer subnets are also inside the VPC: public subnets (`subnets.public`,
 | AKS | 1 | API Server VNet Integration subnet |
 | Kubernetes | 1 | Self-hosted control-plane nodes. One subnet lets a floating API server address (keepalived, kube-vip) move between control-plane nodes |
 
-**Reserved ranges:** `172.17.0.0/16` is Docker's default bridge network, and AWS also reserves it for some services (Cloud9, SageMaker). Generated pod and service ranges never overlap it, so hyperscale pods for a VPC in `10.0.0.0/8` are `172.24.0.0/13` rather than `172.16.0.0/13`. A `vpcCidr` that overlaps it is accepted, and the plan carries a non-fatal `warnings` array (omitted when there are no warnings).
+**Reserved ranges:** `172.17.0.0/16` is Docker's default bridge network, and AWS also reserves it for some services (Cloud9, SageMaker). Generated pod and service ranges never overlap it. A `vpcCidr` that overlaps it is accepted, and the plan carries a non-fatal `warnings` array (omitted when there are no warnings).
 
-For AKS, Microsoft also reserves `172.30.0.0/16` and `172.31.0.0/16` for the cluster's virtual network, pod, and service ranges, and AKS rejects ranges that overlap them ([Microsoft: AKS CNI networking prerequisites](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview#aks-cni-networking-prerequisites)). With `"provider": "aks"` the API rejects a `vpcCidr`, `podsCidr`, or `servicesCidr` that overlaps them (`NETWORK_GENERATION_ERROR`, not a warning), and never generates them. Every `/13` left in `172.16.0.0/12` then holds a reserved range, so AKS hyperscale pods for a VNet in `10.0.0.0/8` are `100.64.0.0/13`.
+For AKS, Microsoft also reserves `172.30.0.0/16` and `172.31.0.0/16` for the cluster's virtual network, pod, and service ranges, and AKS rejects ranges that overlap them ([Microsoft: AKS CNI networking prerequisites](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview#aks-cni-networking-prerequisites)). With `"provider": "aks"` the API rejects a `vpcCidr`, `podsCidr`, or `servicesCidr` that overlaps them (`NETWORK_GENERATION_ERROR`, not a warning), and never generates them.
 
 For `{"deploymentSize":"micro","vpcCidr":"172.17.0.0/24"}`:
 
@@ -230,7 +230,7 @@ Response:
   },
   "metadata": {
     "generatedAt": "2026-10-02T12:00:00.000Z",
-    "version": "2.0"
+    "version": "2.1"
   }
 }
 ```
@@ -303,13 +303,13 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
     ],
     "private": [
       {
-        "cidr": "10.100.2.0/23",
+        "cidr": "10.100.4.0/22",
         "name": "private-1",
         "type": "private",
         "availabilityZone": "us-east-1a"
       },
       {
-        "cidr": "10.100.4.0/23",
+        "cidr": "10.100.8.0/22",
         "name": "private-2",
         "type": "private",
         "availabilityZone": "us-east-1b"
@@ -339,7 +339,7 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
   },
   "metadata": {
     "generatedAt": "2026-10-02T12:00:00.000Z",
-    "version": "2.0"
+    "version": "2.1"
   }
 }
 ```
@@ -361,11 +361,11 @@ Generate a complete Kubernetes network plan with optimized subnet allocation.
 
 | VPC inside | Pod CIDR | Service CIDR |
 |------------|----------|--------------|
-| `10.0.0.0/8` | `172.16.0.0/<podsPrefix>` (hyperscale: `172.24.0.0/13`; AKS hyperscale: `100.64.0.0/13`) | `192.168.0.0/<servicesPrefix>` |
+| `10.0.0.0/8` | `172.16.0.0/<podsPrefix>` (hyperscale: `100.64.0.0/11`) | `192.168.0.0/<servicesPrefix>` |
 | `172.16.0.0/12` | `10.0.0.0/<podsPrefix>` | `192.168.0.0/<servicesPrefix>` |
 | `192.168.0.0/16` | `10.0.0.0/<podsPrefix>` | `172.16.0.0/<servicesPrefix>` |
 
-`podsPrefix` and `servicesPrefix` come from the deployment tier (see [Deployment Tiers](#deployment-tiers)). Hyperscale pods for a VPC in `10.0.0.0/8` skip to `172.24.0.0/13` because `172.16.0.0/13` contains the reserved `172.17.0.0/16`; for AKS, `172.24.0.0/13` contains the AKS-reserved `172.30.0.0/16` and `172.31.0.0/16`, so the pods fall back to `100.64.0.0/13`. A `podsCidr` or `servicesCidr` override replaces the generated range, and generated pods also skip the RFC 1918 block of a `servicesCidr` you pass.
+`podsPrefix` and `servicesPrefix` come from the deployment tier (see [Deployment Tiers](#deployment-tiers)). Hyperscale's `/11` pods fit in neither `172.16.0.0/12` nor `192.168.0.0/16`, so for a VPC in `10.0.0.0/8` they fall back to `100.64.0.0/11`. A `podsCidr` or `servicesCidr` override replaces the generated range, and generated pods also skip the RFC 1918 block of a `servicesCidr` you pass.
 
 ---
 
@@ -461,7 +461,7 @@ Get every deployment tier's layout as the generator applies it for one provider 
     "podsPrefix": 13,
     "servicesPrefix": 18,
     "minVpcPrefix": 18,
-    "description": "Global Scale: 50-5,000 nodes across 3 AZs. The /13 pod range holds 2,048 nodes at a /24 per node (AKS overlay; GKE at 65-128 max pods per node). 5,000 nodes needs GKE max pods per node of 32 or fewer, or a /11 podsCidr"
+    "description": "Global Scale: 50-5,000 nodes across 3 AZs. The /11 pod range holds 8,192 nodes at a /24 per node; GKE gets one /19 node subnet (8,188 nodes), since a cluster takes its nodes from one subnet"
   }
 }
 ```
@@ -543,88 +543,7 @@ Get every deployment tier's layout as the generator applies it for one provider 
 }
 ```
 
-#### Example Request
-
-```bash
-curl -X POST http://localhost:5000/api/kubernetes/network-plan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "deploymentSize": "professional",
-    "provider": "eks",
-    "vpcCidr": "10.100.0.0/18",
-    "deploymentName": "prod-cluster-us-east-1"
-  }'
-```
-
-#### Example Response
-
-```json
-{
-  "deploymentSize": "professional",
-  "provider": "eks",
-  "networkMode": "public",
-  "region": "us-east-1",
-  "deploymentName": "prod-cluster-us-east-1",
-  "vpc": {
-    "cidr": "10.100.0.0/18"
-  },
-  "subnets": {
-    "public": [
-      {
-        "cidr": "10.100.0.0/25",
-        "name": "public-1",
-        "type": "public",
-        "availabilityZone": "us-east-1a"
-      },
-      {
-        "cidr": "10.100.0.128/25",
-        "name": "public-2",
-        "type": "public",
-        "availabilityZone": "us-east-1b"
-      }
-    ],
-    "private": [
-      {
-        "cidr": "10.100.2.0/23",
-        "name": "private-1",
-        "type": "private",
-        "availabilityZone": "us-east-1a"
-      },
-      {
-        "cidr": "10.100.4.0/23",
-        "name": "private-2",
-        "type": "private",
-        "availabilityZone": "us-east-1b"
-      }
-    ],
-    "loadBalancer": [],
-    "controlPlane": [
-      {
-        "cidr": "10.100.1.0/28",
-        "name": "control-plane-1",
-        "type": "control-plane",
-        "availabilityZone": "us-east-1a"
-      },
-      {
-        "cidr": "10.100.1.16/28",
-        "name": "control-plane-2",
-        "type": "control-plane",
-        "availabilityZone": "us-east-1b"
-      }
-    ]
-  },
-  "pods": {
-    "cidr": "172.16.0.0/18"
-  },
-  "services": {
-    "cidr": "192.168.0.0/20"
-  },
-  "metadata": {
-    "generatedAt": "2026-10-02T12:00:00.000Z",
-    "version": "2.0"
-  }
-}
-```
+See [POST `/api/k8s/plan`](#post-apik8splan) for an example request and response.
 
 **HTTP Status Codes:**
 - `200 OK` - Successfully generated network plan
@@ -676,93 +595,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 }
 ```
 
-#### Example Request
-
-```bash
-curl http://localhost:5000/api/kubernetes/tiers
-```
-
-#### Example Response
-
-```json
-{
-  "micro": {
-    "networkMode": "public",
-    "publicSubnets": 1,
-    "loadBalancerSubnets": 0,
-    "privateSubnets": 1,
-    "controlPlaneSubnets": 1,
-    "publicSubnetSize": 26,
-    "loadBalancerSubnetSize": 26,
-    "privateSubnetSize": 25,
-    "controlPlaneSubnetSize": 28,
-    "podsPrefix": 20,
-    "servicesPrefix": 20,
-    "minVpcPrefix": 24,
-    "description": "Single Node: 1 node, minimal subnet allocation (proof of concept)"
-  },
-  "standard": {
-    "networkMode": "public",
-    "publicSubnets": 1,
-    "loadBalancerSubnets": 0,
-    "privateSubnets": 1,
-    "controlPlaneSubnets": 1,
-    "publicSubnetSize": 25,
-    "loadBalancerSubnetSize": 25,
-    "privateSubnetSize": 24,
-    "controlPlaneSubnetSize": 28,
-    "podsPrefix": 16,
-    "servicesPrefix": 20,
-    "minVpcPrefix": 23,
-    "description": "Development/Testing: 1-3 nodes, minimal subnet allocation"
-  },
-  "professional": {
-    "networkMode": "public",
-    "publicSubnets": 2,
-    "loadBalancerSubnets": 0,
-    "privateSubnets": 2,
-    "controlPlaneSubnets": 1,
-    "publicSubnetSize": 25,
-    "loadBalancerSubnetSize": 25,
-    "privateSubnetSize": 23,
-    "controlPlaneSubnetSize": 28,
-    "podsPrefix": 18,
-    "servicesPrefix": 20,
-    "minVpcPrefix": 21,
-    "description": "Small Production: 3-10 nodes, dual AZ ready"
-  },
-  "enterprise": {
-    "networkMode": "public",
-    "publicSubnets": 3,
-    "loadBalancerSubnets": 0,
-    "privateSubnets": 3,
-    "controlPlaneSubnets": 1,
-    "publicSubnetSize": 24,
-    "loadBalancerSubnetSize": 24,
-    "privateSubnetSize": 21,
-    "controlPlaneSubnetSize": 28,
-    "podsPrefix": 16,
-    "servicesPrefix": 20,
-    "minVpcPrefix": 19,
-    "description": "Large Production: 10-50 nodes, triple AZ ready with HA"
-  },
-  "hyperscale": {
-    "networkMode": "public",
-    "publicSubnets": 3,
-    "loadBalancerSubnets": 0,
-    "privateSubnets": 3,
-    "controlPlaneSubnets": 1,
-    "publicSubnetSize": 23,
-    "loadBalancerSubnetSize": 23,
-    "privateSubnetSize": 20,
-    "controlPlaneSubnetSize": 28,
-    "podsPrefix": 13,
-    "servicesPrefix": 18,
-    "minVpcPrefix": 18,
-    "description": "Global Scale: 50-5,000 nodes across 3 AZs. The /13 pod range holds 2,048 nodes at a /24 per node (AKS overlay; GKE at 65-128 max pods per node). 5,000 nodes needs GKE max pods per node of 32 or fewer, or a /11 podsCidr"
-  }
-}
-```
+See [GET `/api/k8s/tiers`](#get-apik8stiers) for an example response.
 
 **HTTP Status Codes:**
 - `200 OK` - Successfully retrieved tier information
@@ -782,11 +615,11 @@ All deployment tiers have been validated against real-world Kubernetes platform 
 |------|-------|-----|---------------|----------------|----------|----------|---------|---------------|----------|
 | **Micro** | 1 | 1 (EKS: 2) | /26 (64 IPs) | /25 (128 IPs) | /20 | /20 | /24 | /23 | POC, Development |
 | **Standard** | 1-3 | 1 (EKS: 2) | /25 (128 IPs) | /24 (256 IPs) | /16 | /20 | /23 | /22 | Dev/Testing |
-| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /18 | /20 | /21 | /21 | Small Production |
+| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs; EKS: /22) | /18 | /20 | /21 | /20 | Small Production |
 | **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /20 | /19 | /19 | Large Production |
-| **Hyperscale** | 50-5,000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 | /18 | /18 | Global Scale |
+| **Hyperscale** | 50-5,000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /11 | /18 | /18 | /18 | Global Scale |
 
-Every tier also gets a control-plane network inside the VPC: one `/28` for generic Kubernetes, GKE, and AKS, and for EKS one `/27` split into two `/28`s in two AZs. "Min VPC" is `minVpcPrefix` from `GET /api/k8s/tiers` for generic Kubernetes, GKE, and AKS; "Min VPC (EKS)" is the same field with `?provider=eks`. Both are computed from the actual subnet layout, and both are the same in private network mode, where the "Public Subnet" size applies to the internal load-balancer subnets instead.
+Every tier also gets a control-plane network inside the VPC: one `/28` for generic Kubernetes, GKE, and AKS, and for EKS one `/27` split into two `/28`s in two AZs. EKS professional uses `/22` node subnets so they also hold the default VPC CNI's pods (18 nodes at 110 pods), and GKE hyperscale uses one `/19` node subnet. "Min VPC" is `minVpcPrefix` from `GET /api/k8s/tiers` for generic Kubernetes, GKE, and AKS; "Min VPC (EKS)" is the same field with `?provider=eks`. Both are computed from the actual subnet layout, and both are the same in private network mode, where the "Public Subnet" size applies to the internal load-balancer subnets instead.
 
 ### Tier Validation Status
 
@@ -798,21 +631,13 @@ Every tier also gets a control-plane network inside the VPC: one `/28` for gener
 - Multi-AZ availability requirements
 - Network performance best practices
 
-| Tier | Nodes | AZs | Public Subnet | Private Subnet | Pods | Min VPC (EKS) | Use Case |
-|------|-------|-----|---------------|----------------|------|---------------|----------|
-| **Micro** | 1 | 1 (EKS: 2) | /26 (64 IPs) | /25 (128 IPs) | /20 | /24 (/23) | POC, Development |
-| **Standard** | 1-3 | 1 (EKS: 2) | /25 (128 IPs) | /24 (256 IPs) | /16 | /23 (/22) | Development, Testing |
-| **Professional** | 3-10 | 2 | /25 (128 IPs) | /23 (512 IPs) | /18 | /21 (/21) | Small Production (HA) |
-| **Enterprise** | 10-50 | 3 | /24 (256 IPs) | /21 (2,048 IPs) | /16 | /19 (/19) | Large Production (Multi-AZ) |
-| **Hyperscale** | 50-5,000 | 3 | /23 (512 IPs) | /20 (4,096 IPs) | /13 | /18 (/18) | Global Scale (3-AZ HA) |
-
 ### Tier Selection Guide
 
 - **Micro**: Single-node clusters for testing and proof-of-concept (fits in a /24 VPC; EKS needs a /23 for two AZs)
 - **Standard**: Development and testing environments with minimal infrastructure (fits in a /23 VPC; EKS needs a /22)
-- **Professional**: Small production deployments requiring high availability (2 AZs, fits in a /21 VPC)
+- **Professional**: Small production deployments requiring high availability (2 AZs, fits in a /21 VPC; EKS needs a /20 for its /22 node subnets)
 - **Enterprise**: Large production deployments with guaranteed multi-AZ deployment (3 AZs, fits in a /19 VPC)
-- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes with realistic subnet sizing (3 AZs, fits in a /18 VPC). Its `/13` pod CIDR (524,288 IPs) is sized to GKE's 200,000 pods-per-cluster limit and holds 2,048 nodes at a `/24` per node. AKS CNI Overlay gives every node a fixed `/24` whatever its max pods, so on AKS the only way to 5,000 nodes is a larger pod range: pass a `/11` `podsCidr`. GKE sizes each node's range from its max pods per node (65-128 pods: `/24`; 17-32 pods: `/26`), so on GKE 5,000 nodes fit the `/13` at 32 or fewer max pods per node, or use a `/11` `podsCidr`.
+- **Hyperscale**: Global-scale deployments supporting up to 5,000 nodes with realistic subnet sizing (3 AZs, fits in a /18 VPC). Its `/11` pod CIDR holds 8,192 nodes at a `/24` per node, the size GKE (65-128 max pods), AKS CNI Overlay (always), and kube-controller-manager (by default) give each node. GKE gets one `/19` node subnet (8,188 nodes) instead of 3 x `/20`, since a GKE cluster takes its nodes from one subnet.
 
 ### Design Rationale
 
@@ -1450,7 +1275,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
 - 3 public subnets at /23 (512 IPs each) for NAT/LB: `10.42.192.0/23`, `10.42.194.0/23`, `10.42.196.0/23`
 - 3 private subnets at /20 (4,096 IPs each) for nodes: `10.42.208.0/20`, `10.42.224.0/20`, `10.42.240.0/20`
 - 2 control-plane subnets at /28 in `us-east-1a` and `us-east-1b`, together one /27 (for `vpc_config.subnet_ids`): `10.42.198.0/28`, `10.42.198.16/28`, in the gap before the first /20
-- Pods `172.24.0.0/13` and services `192.168.0.0/18` (the VPC is in `10.0.0.0/8`; `172.16.0.0/13` would contain the reserved `172.17.0.0/16`)
+- Pods `100.64.0.0/11` and services `192.168.0.0/18` (the VPC is in `10.0.0.0/8`, and a `/11` fits in neither `172.16.0.0/12` nor `192.168.0.0/16`)
 - Total: 13,856 subnet IPs. The private subnets start on the next /20 boundary after the public subnets, so the layout spans the full /18 VPC (`minVpcPrefix` 18)
 
 ### Example 4: Multi-Region Deployment
@@ -1499,7 +1324,7 @@ Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ran
 - Pods share VPC subnet IPs with nodes (no separate pod CIDR)
 - High IP exhaustion risk for large clusters
 - Simpler setup, no custom CNI required
-- **Our API output does NOT support this model directly**: `pods.cidr` goes unused, and the node subnets hold every pod. At 110 pods per node they fit 2 nodes (micro), 4 (standard), 8 (professional), 54 (enterprise) and 108 (hyperscale), at most ([EKS tier table](compliance/kubernetes-network-reference.md#eks-tier-compliance))
+- **Our API output does NOT support this model directly**: `pods.cidr` goes unused, and the node subnets hold every pod. At 110 pods per node they fit 2 nodes (micro), 4 (standard), 18 (professional), 54 (enterprise) and 108 (hyperscale), at most ([EKS tier table](kubernetes.md#eks-tier-compliance))
 
 **Model 2: Custom CNI or Secondary CIDR (Our API)**
 - Pods use separate CIDR range (our API's `pods.cidr` field)
@@ -1507,13 +1332,12 @@ Both plans get the same pod (`172.16.0.0/18`) and service (`192.168.0.0/20`) ran
 - `pods.cidr` is an **overlay** range: use it as the IP pool of an overlay CNI (Calico or Cilium in VXLAN/IP-in-IP mode)
 - **Our API generates configurations for this model**
 
-WARNING: A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR. The API places it in a different RFC 1918 block than the VPC, and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges; secondary blocks must also be /16 to /28, which also rules out the hyperscale `/13` even when it falls back to `100.64.0.0/10` ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, use a secondary block from `100.64.0.0/10` that you choose (Option B below); `198.19.0.0/16` is refused for RFC 1918 VPCs.
+WARNING: A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR. The API places it in a different RFC 1918 block than the VPC, and AWS refuses to associate a CIDR from a different RFC 1918 block than the VPC's existing ranges; secondary blocks must also be /16 to /28, which also rules out the hyperscale `/11` ([AWS: IPv4 CIDR block association restrictions](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html#add-cidr-block-restrictions)). For VPC CNI custom networking, use a secondary block from `100.64.0.0/10` that you choose (Option B below); `198.19.0.0/16` is refused for RFC 1918 VPCs.
 
 **Recommended Settings:**
 - Use `professional` or `enterprise` tier for production
 - Enable IP prefix delegation for large clusters (1000+ nodes)
-- Pod CIDR `/13` supports up to 200,000 pods per cluster
-- Choose Model 2 for clusters >1000 nodes or >100 pods/node
+- Pod CIDR `/11` (overlay CNI pool) holds 8,192 nodes at a `/26` block per node or more- Choose Model 2 for clusters >1000 nodes or >100 pods/node
 
 **Terraform Integration (Model 2 - Custom CNI):**
 ```hcl
@@ -1715,8 +1539,8 @@ variable "service_ipv4_cidr" {
 **Recommended Settings:**
 - Use `professional` or `enterprise` tier for production
 - GKE automatically manages pod CIDR (alias ranges)
-- Pod CIDR `/13` supports up to 200,000 pods per cluster (2,048 nodes at 65-128 max pods per node, since each node then takes a `/24`; 5,000 nodes needs 32 or fewer max pods per node, or a `/11` `podsCidr`)
-- Subnets are regional: one node subnet (`subnets.private[0]`) serves every zone. A cluster's nodes, pods, and services come from its one default subnet, so hyperscale's `/20` gives 4,092 node addresses (GCP reserves 4 per subnet); for more, add subnets to the cluster for new node pools (GKE 1.30.3-gke.1211000 or later, up to eight, each with its own pod secondary range, which this plan does not generate; [Google: add subnets to clusters](https://cloud.google.com/kubernetes-engine/docs/how-to/multi-subnet-cluster))
+- Pod CIDR `/11` holds 8,192 nodes at 65-128 max pods per node (a `/24` each); the cluster limit is 200,000 pods
+- Subnets are regional: one node subnet (`subnets.private[0]`) serves every zone. A cluster's nodes, pods, and services come from its one default subnet, so hyperscale gets one `/19` (8,188 node addresses; GCP reserves 4 per subnet)
 
 **Terraform Integration:**
 ```hcl
@@ -1818,8 +1642,8 @@ gcloud container clusters create prod-cluster \
 **Recommended Settings:**
 - Use `professional` or `enterprise` tier for production
 - Use Azure CNI Overlay (`network_plugin_mode = "overlay"`): `pods.cidr` is an overlay range outside the VNet
-- CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250 pods per node, 5,000 nodes), so the hyperscale `/13` holds 2,048 nodes; for 5,000 nodes pass a `/11` `podsCidr`
-- AKS reserves `172.30.0.0/16` and `172.31.0.0/16` for the VNet, pod, and service ranges, so the API keeps every range clear of them. Hyperscale on a `10.x` VNet therefore gets `pods.cidr` `100.64.0.0/13`; Microsoft supports pod CIDRs in RFC 1918 or RFC 6598 (`100.64.0.0/10`) space ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#ip-address-planning))
+- CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250 pods per node, 5,000 nodes), so the hyperscale `/11` holds 8,192 nodes
+- AKS reserves `172.30.0.0/16` and `172.31.0.0/16` for the VNet, pod, and service ranges, so the API keeps every range clear of them. Hyperscale on a `10.x` VNet gets `pods.cidr` `100.64.0.0/11`; Microsoft supports pod CIDRs in RFC 1918 or RFC 6598 (`100.64.0.0/10`) space ([Microsoft: Azure CNI Overlay IP address planning](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay#ip-address-planning))
 - Subnet sizing: Azure reserves 5 addresses in every subnet (the first four and the last), so a `/20` node subnet holds 4,091 nodes
 - Subnets are regional: node pools choose zones, and the plan carries no `availabilityZone`
 
@@ -2071,33 +1895,7 @@ curl -X POST http://localhost:5000/api/kubernetes/network-plan \
   - [AKS Compliance Audit](./compliance/AKS_COMPLIANCE_AUDIT.md)
 - **Project README**: [README.md](../README.md)
 - **Developer Guidelines**: [.github/copilot-instructions.md](../.github/copilot-instructions.md)
-
----
-
-## Changelog
-
-### Version 2.0 (Current)
-- Four separated address spaces in every plan: nodes and new `/28` control-plane subnets (`subnets.controlPlane`) inside the VPC; pods and services outside it, each generated in a block of its own (pods fall back to `100.64.0.0/10` when no RFC 1918 block has room, and skip the block of a caller's `servicesCidr`)
-- AKS: `172.30.0.0/16` and `172.31.0.0/16` are rejected in `vpcCidr`, `podsCidr`, and `servicesCidr` and never generated (AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`). Every provider: `vpcCidr` no larger than `/16`. GKE: `servicesCidr` `/16` to `/24`
-- The control plane is one network: one `/28` for GKE, AKS, and generic Kubernetes in every tier; for EKS exactly two `/28`s in two AZs, forming one contiguous `/27`
-- First-fit subnet layout; existing public and private positions are unchanged
-- New optional request field `networkMode` (`public` by default, or `private`: no public subnets, internal load-balancer subnets instead); every plan now includes `networkMode` and `subnets.loadBalancer` (empty in public mode), and subnet `type` adds `load-balancer`
-- EKS: every subnet type in at least two AZs in every tier (micro and standard EKS now need `/23` and `/22` VPCs)
-- GKE and AKS subnets carry no `availabilityZone` (regional subnets)
-- Services are `/20` (`/18` for hyperscale) instead of `/16`
-- Generated pods and services avoid `172.17.0.0/16`; a VPC overlapping it adds a `warnings` entry (hyperscale pods for a `10.x` VPC moved to `172.24.0.0/13`)
-- New optional request fields `podsCidr`, `servicesCidr`, and `availabilityZones`
-- `minVpcPrefix` computed from the real layout per provider (enterprise is `/19`); `GET /api/k8s/tiers?provider=` and `?networkMode=`, and new tier fields `networkMode`, `loadBalancerSubnets`, `controlPlaneSubnets`, `loadBalancerSubnetSize`, and `controlPlaneSubnetSize`
-- "VPC too small" errors name the minimum prefix
-- `metadata.version` is `"2.0"`
-
-### Version 1.0
--  POST `/api/kubernetes/network-plan` - Generate network plans
--  GET `/api/kubernetes/tiers` - Retrieve tier information
--  Support for EKS, GKE, AKS, and generic Kubernetes
--  All 5 deployment tiers (Micro → Hyperscale)
--  RFC 1918 private address support
--  Unit and integration tests
+- **Changes**: [CHANGELOG.md](../CHANGELOG.md) and the [GitHub releases](https://github.com/nicholashoule/subnet-splitter/releases). Plans report their allocation rules version in `metadata.version` (currently `"2.1"`)
 
 ---
 

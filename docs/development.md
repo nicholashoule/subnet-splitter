@@ -1,6 +1,6 @@
 # Development
 
-How to run, build, test, and contribute to subnet-splitter. For the API, see [api.md](api.md); for security settings, [compliance/security-reference.md](compliance/security-reference.md).
+How to run, build, test, and contribute to subnet-splitter. For the API, see [api.md](api.md); for security settings, [security.md](security.md).
 
 ## Setup
 

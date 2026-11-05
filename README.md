@@ -63,9 +63,9 @@ Pods and services are placed outside the VPC, each in an RFC 1918 block of its o
 |------|-------|--------|------|------|----------|---------------|
 | **Micro** | 1 | /26 | /25 | /20 | /20 | /24 (/23) |
 | **Standard** | 1-3 | /25 | /24 | /16 | /20 | /23 (/22) |
-| **Professional** | 3-10 | /25 | /23 | /18 | /20 | /21 (/21) |
+| **Professional** | 3-10 | /25 | /23 | /18 | /20 | /21 (/20) |
 | **Enterprise** | 10-50 | /24 | /21 | /16 | /20 | /19 (/19) |
-| **Hyperscale** | 50-5,000 | /23 | /20 | /13 | /18 | /18 (/18) |
+| **Hyperscale** | 50-5,000 | /23 | /20 | /11 | /18 | /18 (/18) |
 
 The [API reference](docs/api.md) describes every field, response, and error, the [address space rules](docs/api.md#address-space-separation), [private network mode](docs/api.md#private-network-mode), [deployment tiers](docs/api.md#deployment-tiers), and Terraform examples for each provider.
 
@@ -76,13 +76,15 @@ The [API reference](docs/api.md) describes every field, response, and error, the
 - Every API request is validated with Zod and capped at 16 KB; API routes are rate limited per client; server errors never include internal details
 - `npm audit` must report 0 vulnerabilities, in CI and before running any code
 
-[SECURITY.md](SECURITY.md) says how to report a vulnerability; the [security reference](docs/compliance/security-reference.md) lists every header, CSP directive, and rate limit.
+[SECURITY.md](SECURITY.md) says how to report a vulnerability; the [security reference](docs/security.md) lists every header, CSP directive, and rate limit.
 
 ## Documentation
 
 - [docs/development.md](docs/development.md): setup, build, configuration, testing, CI, the website, and contributing
 - [docs/api.md](docs/api.md): Kubernetes Network Planning API reference
-- [docs/compliance/](docs/compliance/): [network formulas](docs/compliance/kubernetes-network-reference.md), [cross-provider IP comparison](docs/compliance/ip-allocation-cross-reference.md), [security reference](docs/compliance/security-reference.md), and the [EKS](docs/compliance/EKS_COMPLIANCE_AUDIT.md), [GKE](docs/compliance/GKE_COMPLIANCE_AUDIT.md), and [AKS](docs/compliance/AKS_COMPLIANCE_AUDIT.md) audits
+- [docs/security.md](docs/security.md): headers, CSP, rate limits, and the dependency audit protocol
+- [docs/kubernetes.md](docs/kubernetes.md): how plans are laid out, tier sizes, and the sizing formulas
+- [docs/compliance/](docs/compliance/): the cross-provider comparison, and the [EKS](docs/compliance/EKS_COMPLIANCE_AUDIT.md), [GKE](docs/compliance/GKE_COMPLIANCE_AUDIT.md), and [AKS](docs/compliance/AKS_COMPLIANCE_AUDIT.md) audits
 - [tests/README.md](tests/README.md): what each test file covers
 - [.github/instructions/](.github/instructions/): guidelines for contributors and AI agents, indexed from [copilot-instructions.md](.github/copilot-instructions.md)
 - [docs/git-conventions.md](docs/git-conventions.md): commit message conventions

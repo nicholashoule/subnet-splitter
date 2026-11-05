@@ -101,7 +101,7 @@ Unit tests verify individual functions and utilities in isolation.
 - Control plane is one network: GKE, AKS, and generic Kubernetes get a single `/28`; EKS gets exactly two `/28`s in two AZs, starting on a `/27` boundary and contiguous
 - Private network mode: no public subnets for any provider or tier; `subnets.loadBalancer` holds `load-balancer` subnets (GKE: one regional proxy-only-sized subnet, `/26` to `/23`; AKS: one regional subnet; EKS: at least two AZs); `subnets.loadBalancer` is empty in public mode; private tier layouts; an unknown `networkMode` is rejected
 - Generated pod and service ranges avoid `172.17.0.0/16`; a VPC overlapping it yields a `warnings` entry (omitted otherwise)
-- Provider address rules: AKS rejects a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16`, and AKS hyperscale on a `10.x` VNet gets pods `100.64.0.0/13`; GKE `servicesCidr` is capped at `/16`; a VPC larger than `/16` is rejected; generated pods stay out of a caller `servicesCidr`'s block
+- Provider address rules: AKS rejects a VNet, `podsCidr`, or `servicesCidr` in `172.30.0.0/16` or `172.31.0.0/16`, and hyperscale on a `10.x` VPC gets pods `100.64.0.0/11` for every provider; GKE `servicesCidr` is capped at `/16`; a VPC larger than `/16` is rejected; generated pods stay out of a caller `servicesCidr`'s block
 - EKS puts every subnet type in at least two AZs; GKE and AKS subnets carry no zone
 - `podsCidr`, `servicesCidr`, and `availabilityZones` overrides and their rejections; a blank `vpcCidr`, `podsCidr` or `servicesCidr` is rejected, not treated as omitted
 - Provider-specific tier layouts and `minVpcPrefix` ("VPC too small" errors name the minimum)
@@ -110,7 +110,7 @@ Unit tests verify individual functions and utilities in isolation.
 - IP allocation formulas for pod and node capacity
 - Deployment tier compliance testing
 - Network sizing validation
-- Hyperscale capacity as it is: the `/13` pod range holds 2,048 nodes at a `/24` per node; 5,000 nodes need a `/11` `podsCidr` (the override is accepted)
+- Hyperscale capacity: the `/11` pod range holds 8,192 nodes at a `/24` per node, and GKE's one `/19` node subnet 8,188, so 5,000 nodes fit by default
 - EKS under the default VPC CNI: pods share the node subnets, which hold 2, 4, 8, 54 and 108 nodes at 110 pods per node (micro to hyperscale), the figures the docs quote
 
 **ui-styles.test.ts:**
@@ -187,7 +187,7 @@ Integration tests verify system-wide features and API behavior.
 - Serves the real routes behind the production global headers (`createSecurityHeaders()` from `server/csp-config.ts`)
 - `/api/docs/ui` sends one policy (`buildSwaggerUICSP()`) in place of the global one; jsDelivr only in `script-src`, `style-src`, and `connect-src`
 - Every other route keeps the strict global CSP
-- The security headers SECURITY.md lists (HSTS, `nosniff`, `X-Frame-Options`, `X-XSS-Protection: 0`, Referrer-Policy, COOP, CORP, no `X-Powered-By`) on the docs page and the API
+- The security headers docs/security.md lists (HSTS, `nosniff`, `X-Frame-Options`, `X-XSS-Protection: 0`, Referrer-Policy, COOP, CORP, no `X-Powered-By`) on the docs page and the API
 - Global headers in production vs development (`'unsafe-inline'`, HMR websockets, and `report-uri` only in development)
 - Headers parsed into directives and compared source token by source token
 
@@ -275,17 +275,7 @@ When adding new tests:
 
 ## Emoji Checking and Fixing
 
-The repository is emoji-free. The check is not a Vitest test: CI runs [demojify](https://github.com/nicholashoule/demojify-sanitize) (pinned to v1.2.0) as its own job, and the npm scripts run the same command locally (Go 1.24+ required). The pre-commit hook `.githooks/pre-commit`, installed by `npm install` (the `prepare` script), runs `npm run governance:check` (repogov) and then `npm run emoji:check` on the staged files before each commit, stops at the first that fails, and skips a check with a message when Go 1.24+ is missing or its tool cannot be downloaded or built. `config.test.ts` checks that the scripts, CI, and the hook stay wired together.
-
-```bash
-# Audit every text file; exits 1 and reports file, line, and column for each emoji
-npm run emoji:check
-
-# Replace emoji with text tokens such as [PASS], [FAIL], [WARNING]; review with git diff
-npm run emoji:fix
-```
-
-A test that needs emoji should build them from code points (`String.fromCodePoint(0x2705)`) so the file stays emoji-free. See [.github/emoji-prevention.md](../.github/emoji-prevention.md).
+The repository is emoji-free; the check runs outside Vitest (`npm run emoji:check`, and `emoji:fix` to replace them). A test that needs emoji should build them from code points (`String.fromCodePoint(0x2705)`) so the file stays emoji-free. See [.github/emoji-prevention.md](../.github/emoji-prevention.md).
 
 ## Test Configuration
 
@@ -296,19 +286,4 @@ Tests are configured in `vitest.config.ts` at the project root:
 
 ## CI/CD Integration
 
-Tests should pass before:
-- Committing code
-- Creating pull requests
-- Deploying to production
-
-Include test verification in development workflow (the same steps CI runs):
-```bash
-npm ci                     # Install exact dependencies
-npm audit                  # Security audit (0 vulnerabilities required)
-npm run check              # Type checking
-npm run test -- --run      # Full test suite
-npm run build              # Production build
-npm run smoke              # Start dist/index.cjs on port 5099 and check it over HTTP
-```
-
-`.github/workflows/ci.yml` runs these steps on every push to `main` and every pull request, on Node.js 24 and 26, then validates the OpenAPI document the smoke test saved: `npx --yes @apidevtools/swagger-cli@4.0.4 validate dist/openapi.json`. Unit and integration tests import the source; `npm run smoke` (`scripts/smoke-test.ts`, port `SMOKE_PORT`, default 5099) is what exercises the built bundle: health, the app with its CSP and security headers, SPA fallback, the plan and tiers APIs (including private mode and validation errors), and the API docs page's pinned assets, which it downloads from the CDN to check that their SRI hashes match (this check needs network access). `swagger-ui-theming.test.ts` starts its own in-process server, so it runs in CI like every other test. A separate `repo-checks` job runs `npm run governance:check` (repogov, Go) and then `npm run emoji:check` (demojify, Go).
+Unit and integration tests import the source; `npm run smoke` exercises the built bundle. [docs/development.md](../docs/development.md#continuous-integration) lists what CI runs and the commands to run the same checks locally.
