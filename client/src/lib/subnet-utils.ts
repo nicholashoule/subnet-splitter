@@ -234,7 +234,8 @@ export function getSubnetClass(cidr: string | SubnetInfo): string {
     return 'Unknown';
   }
   
-  if (firstOctet >= 1 && firstOctet <= 126) return 'A';
+  // Class A is every address with a leading 0 bit (RFC 791), including 0.x and 127.x
+  if (firstOctet >= 0 && firstOctet <= 127) return 'A';
   if (firstOctet >= 128 && firstOctet <= 191) return 'B';
   if (firstOctet >= 192 && firstOctet <= 223) return 'C';
   if (firstOctet >= 224 && firstOctet <= 239) return 'D (Multicast)';
