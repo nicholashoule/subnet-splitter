@@ -1,0 +1,117 @@
+# Pages: publish site/ as the repository's GitHub Pages site whenever main
+# changes it. The site is hand-written HTML with no build step, so the
+# workflow checks the page and the files it references (scripts/site-check.ts),
+# uploads the directory, deploys it, and checks that the page is served. A pull
+# request that touches the site gets the check alone. Pages must be enabled
+# once in the repository settings with "GitHub Actions" as the source; the
+# workflow cannot do that itself, so it says so plainly when it is not.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "scripts/site-check.ts", ".github/workflows/pages.yml"]
+  pull_request:
+    paths: ["site/**", "scripts/site-check.ts", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the page and the files it references
+        run: npm run site:check
+
+  deploy:
+    name: Deploy
+    needs: check
+    # Pull requests only check; main and manual runs deploy.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A job's permissions replace the workflow's rather than add to them, so
+    # the checkout's read access is repeated here.
+    permissions:
+      contents: read
+      pages: write # publish the deployment
+      id-token: write # prove to Pages that this workflow made it
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deployment at a time, never cancelled midway, as Pages recommends.
+    # The group is on this job, not the workflow, so pull request checks
+    # cannot cancel a deployment of main that is waiting its turn.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The configure step fails with a generic message when Pages is off;
+      # this says what to do instead.
+      - name: Check that Pages is enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh api "repos/$GITHUB_REPOSITORY/pages" --jq .build_type >"$RUNNER_TEMP/pages" 2>"$RUNNER_TEMP/pages-error"; then
+            # Only a 404 means Pages is off; anything else is reported as GitHub gave it.
+            if grep -q 'HTTP 404' "$RUNNER_TEMP/pages-error"; then
+              echo "::error::GitHub Pages is not enabled for $GITHUB_REPOSITORY. In Settings > Pages, set Source to \"GitHub Actions\", then rerun this workflow."
+            else
+              echo "::error::Could not read the Pages settings: $(cat "$RUNNER_TEMP/pages-error")"
+            fi
+            exit 1
+          fi
+          if [[ $(cat "$RUNNER_TEMP/pages") != workflow ]]; then
+            echo "::error::GitHub Pages is set to deploy from a branch, which publishes the repository root, not site/. In Settings > Pages, set Source to \"GitHub Actions\", then rerun this workflow."
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      # The deployment reports success before the CDN serves it everywhere,
+      # so the page is fetched with retries until it is byte for byte the
+      # page just deployed. Twelve tries of at most 20 seconds each.
+      - name: Check that the page is served
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          want=$(sha256sum site/index.html | cut -d' ' -f1)
+          for attempt in $(seq 1 12); do
+            got=$(curl -fsSL --proto '=https' --max-time 10 -H 'Cache-Control: no-cache' "$PAGE_URL" | sha256sum | cut -d' ' -f1)
+            if [[ $got == "$want" ]]; then
+              echo "served: $PAGE_URL"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$PAGE_URL did not serve the page just deployed within four minutes"
+          exit 1

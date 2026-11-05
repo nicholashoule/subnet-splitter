@@ -71,7 +71,7 @@ See [docs/test-templates.md](../../docs/test-templates.md) for full templates an
 
 | Category | Files |
 |----------|-------|
-| **Unit** | subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config |
+| **Unit** | subnet-utils, k8s-generator, network-separation, ip-compliance, ui-styles, config, site-check |
 | **Integration** | API, calculator-ui, k8s-api, rate-limiting, CSP middleware, CSP violation endpoint, Swagger theming, static-serving |
 | **Pass Rate** | 100% |
 
