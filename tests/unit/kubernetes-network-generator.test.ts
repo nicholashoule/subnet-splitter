@@ -454,7 +454,7 @@ describe("Kubernetes Network Generator", () => {
         });
 
         expect(plan.metadata.version).toBe(PLAN_FORMAT_VERSION);
-        expect(PLAN_FORMAT_VERSION).toBe("2.0");
+        expect(PLAN_FORMAT_VERSION).toBe("2.1");
       });
 
       it("should include deployment name when provided", async () => {

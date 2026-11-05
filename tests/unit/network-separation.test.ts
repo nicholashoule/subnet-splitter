@@ -290,9 +290,9 @@ describe("Zones", () => {
 });
 
 describe("Reserved ranges and warnings", () => {
-  it("moves hyperscale pods off 172.17.0.0/16 for a 10.x VPC", () => {
+  it("puts hyperscale pods in 100.64.0.0/11 for a 10.x VPC, since a /11 is larger than 172.16.0.0/12", () => {
     const plan = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", vpcCidr: "10.0.0.0/16" });
-    expect(plan.pods.cidr).toBe("172.24.0.0/13");
+    expect(plan.pods.cidr).toBe("100.64.0.0/11");
   });
 
   it("warns, without failing, when the VPC overlaps 172.17.0.0/16", () => {
@@ -407,15 +407,17 @@ describe("VPC sizing", () => {
 });
 
 describe("Provider address rules", () => {
-  it("gives AKS hyperscale on a 10.x VNet pods from 100.64.0.0/10, clear of the AKS-reserved ranges", () => {
-    // Every /13 left in 172.16.0.0/12 holds 172.17.0.0/16 or 172.30-31.0.0/16
-    const aks = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "aks", vpcCidr: "10.0.0.0/16" });
-    expect(aks.pods.cidr).toBe("100.64.0.0/13");
-    assertSeparated(aks);
+  it("gives hyperscale on a 10.x VPC pods from 100.64.0.0/10 for every provider, AKS included", () => {
+    // A /11 fits in neither 172.16.0.0/12 nor 192.168.0.0/16
+    for (const provider of ["aks", "eks", "gke", "kubernetes"] as const) {
+      const plan = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider, vpcCidr: "10.0.0.0/16" });
+      expect(plan.pods.cidr, provider).toBe("100.64.0.0/11");
+      assertSeparated(plan);
+    }
 
-    // Other providers keep the RFC 1918 range
-    const eks = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "eks", vpcCidr: "10.0.0.0/16" });
-    expect(eks.pods.cidr).toBe("172.24.0.0/13");
+    // Outside 10.x the pods take 10.0.0.0/11
+    const eks = buildKubernetesNetworkPlan({ deploymentSize: "hyperscale", provider: "eks", vpcCidr: "172.20.0.0/16" });
+    expect(eks.pods.cidr).toBe("10.0.0.0/11");
   });
 
   it("rejects AKS VNets, pod and service ranges in 172.30.0.0/16 or 172.31.0.0/16", () => {
