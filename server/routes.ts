@@ -220,14 +220,14 @@ export async function registerRoutes(
 
   /** Handler for POST /api/k8s/plan and its aliases */
   const handleNetworkPlan = async (req: Request, res: Response) => {
-    // express.json leaves req.body undefined unless the request carries a JSON body
+    // express.json leaves req.body undefined unless the request carries a JSON body.
+    // Body rejections are always JSON, like the parser's own 400/413/415 (errorHandler).
     if (req.body === undefined) {
       const wrongType = req.headers["content-type"] !== undefined && !req.is("application/json");
-      const { contentType, body } = formatResponse({
+      return res.status(wrongType ? 415 : 400).json({
         error: wrongType ? "Content-Type must be application/json" : "Request body must be a JSON object",
         code: "INVALID_REQUEST"
-      }, formatOf(req));
-      return res.status(wrongType ? 415 : 400).type(contentType).send(body);
+      });
     }
     try {
       const plan = await generateKubernetesNetworkPlan(req.body);

@@ -84,7 +84,7 @@ curl -X POST "http://localhost:5000/api/k8s/plan?format=yaml" \
   }' > network-plan.yaml
 ```
 
-Every string in the YAML is double-quoted, so it reads back as the same string with any YAML reader: unquoted, YAML 1.1 readers such as PyYAML load `no`, `yes`, `on` and `off` (possible `region` or `deploymentName` values) as booleans, and YAML 1.2 readers load `0o17` as a number. Terraform's `yamldecode` reads YAML 1.2. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
+Every string in the YAML is double-quoted, so it reads back as the same string with any YAML reader: unquoted, YAML 1.1 readers such as PyYAML load `no`, `yes`, `on` and `off` (possible `region` or `deploymentName` values) as booleans, and YAML 1.2 readers load `0o17` as a number. Terraform's `yamldecode` reads YAML 1.2. Validation and planning errors from the plan and tiers routes follow `?format=` too; malformed, missing, oversized or wrongly encoded bodies (400/413/415), unknown API paths (404), and rate limiting (429) are always JSON. A repeated `format` parameter (`?format=json&format=yaml`) is ignored and the response is JSON.
 
 **Use Cases:**
 - Import into Terraform/Pulumi configurations
@@ -458,7 +458,7 @@ Get every deployment tier's layout as the generator applies it for one provider 
     "loadBalancerSubnetSize": 23,
     "privateSubnetSize": 20,
     "controlPlaneSubnetSize": 28,
-    "podsPrefix": 13,
+    "podsPrefix": 11,
     "servicesPrefix": 18,
     "minVpcPrefix": 18,
     "description": "Global Scale: 50-5,000 nodes across 3 AZs. The /11 pod range holds 8,192 nodes at a /24 per node; GKE gets one /19 node subnet (8,188 nodes), since a cluster takes its nodes from one subnet"
@@ -1337,7 +1337,8 @@ WARNING: A generated `pods.cidr` cannot be added to the VPC as a secondary CIDR.
 **Recommended Settings:**
 - Use `professional` or `enterprise` tier for production
 - Enable IP prefix delegation for large clusters (1000+ nodes)
-- Pod CIDR `/11` (overlay CNI pool) holds 8,192 nodes at a `/26` block per node or more- Choose Model 2 for clusters >1000 nodes or >100 pods/node
+- Pod CIDR `/11` (overlay CNI pool) holds 8,192 nodes at a `/24` per node
+- Choose Model 2 for clusters >1000 nodes or >100 pods/node
 
 **Terraform Integration (Model 2 - Custom CNI):**
 ```hcl

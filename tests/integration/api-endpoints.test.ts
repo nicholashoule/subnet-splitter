@@ -709,6 +709,17 @@ describe("API Endpoints Integration", () => {
       expect(await response.json()).toEqual({ error: "Request body must be a JSON object", code: "INVALID_REQUEST" });
     });
 
+    it("should answer body rejections in JSON even when ?format=yaml is requested", async () => {
+      for (const init of [
+        { method: "POST", headers: { "Content-Type": "text/plain" }, body: "not json" },
+        { method: "POST" },
+      ]) {
+        const response = await fetch(`${baseUrl}/api/k8s/plan?format=yaml`, init);
+        expect(response.headers.get("content-type")).toContain("application/json");
+        expect((await response.json()).code).toBe("INVALID_REQUEST");
+      }
+    });
+
     it("should ignore unknown fields (forward compatible) without echoing them", async () => {
       const response = await fetch(`${baseUrl}/api/v1/kubernetes/network-plan`, {
         method: "POST",
