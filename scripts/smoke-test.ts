@@ -188,7 +188,7 @@ try {
 
   await check("plan: readable validation errors and RFC 1918 enforcement", async () => {
     const missing = await (await fetch(`${base}/api/k8s/plan`, json({ provider: "eks" }))).json();
-    assert(missing.code === "INVALID_REQUEST" && missing.error.includes("deploymentSize: Required"), JSON.stringify(missing));
+    assert(missing.code === "INVALID_REQUEST" && missing.error.includes("deploymentSize: Invalid option: expected one of"), JSON.stringify(missing));
     const spill = await fetch(`${base}/api/k8s/plan`, json({ deploymentSize: "micro", vpcCidr: "10.0.0.0/7" }));
     assert(spill.status === 400 && (await spill.json()).code === "NETWORK_GENERATION_ERROR", "10.0.0.0/7 accepted");
   });

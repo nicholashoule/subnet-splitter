@@ -504,10 +504,9 @@ describe("Kubernetes Network Generator", () => {
       it("should report a plan that fails its output schema as a bug, not a ZodError", async () => {
         // The route answers a ZodError as 400 "Invalid request"; a plain Error is logged
         // and answered 500 (tests/integration/rate-limiting.test.ts)
-        const check = vi.spyOn(KubernetesNetworkPlanSchema, "safeParse").mockReturnValueOnce({
-          success: false,
-          error: new ZodError([{ code: "custom", path: ["vpc", "cidr"], message: "broken" }]),
-        });
+        const invalidPlan = KubernetesNetworkPlanSchema.safeParse({});
+        if (invalidPlan.success) throw new Error("Expected an invalid plan");
+        const check = vi.spyOn(KubernetesNetworkPlanSchema, "safeParse").mockReturnValueOnce(invalidPlan);
         try {
           const error = await generateKubernetesNetworkPlan({ deploymentSize: "micro", vpcCidr: "10.0.0.0/16" }).catch((e) => e);
           expect(error).toBeInstanceOf(Error);
