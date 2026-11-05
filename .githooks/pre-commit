@@ -11,7 +11,6 @@
 # Fails fast: exits 1 at the first check with findings, so demojify does not run when
 # repogov fails. A check that cannot run (no Go 1.24+, its tool cannot be downloaded or
 # built, the index cannot be exported) is skipped with the reason; CI still runs it.
-
 MIN_GO_MINOR=24 # repogov and demojify need Go 1.24 or newer
 
 skip() {
