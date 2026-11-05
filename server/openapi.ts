@@ -316,7 +316,7 @@ export const openApiSpec = {
             }
           },
           "400": {
-            description: "Invalid request parameters (follows ?format=), or a malformed JSON body (always JSON)",
+            description: "Invalid request parameters (follows ?format=), or a malformed or missing JSON body (always JSON)",
             content: errorContent
           },
           "413": payloadTooLargeResponse,
