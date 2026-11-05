@@ -192,11 +192,13 @@ describe("Utility Functions", () => {
 
   describe("getSubnetClass", () => {
     it("returns correct subnet class based on IP address (not prefix length)", () => {
-      // Class A networks (1-126)
+      // Class A networks (0-127)
       expect(getSubnetClass("10.0.0.0/8")).toBe("A");
       expect(getSubnetClass("10.0.0.0/16")).toBe("A"); // Same class despite /16 prefix
       expect(getSubnetClass("1.0.0.0/24")).toBe("A");
       expect(getSubnetClass("126.0.0.0/8")).toBe("A");
+      expect(getSubnetClass("0.0.0.0/8")).toBe("A");
+      expect(getSubnetClass("127.0.0.0/8")).toBe("A"); // Loopback is still Class A space
       
       // Class B networks (128-191)
       expect(getSubnetClass("172.16.0.0/12")).toBe("B");
