@@ -63,7 +63,7 @@ Health checks: `/health`, `/health/ready`, `/health/live`, and the same under `/
 3. Check browser DevTools for blocked resources
 4. Test in Chrome/Edge/Firefox (enforcement varies)
 
-See [docs/compliance/security-reference.md](../../docs/compliance/security-reference.md) for detailed CSP examples, rate limiting code, and security issue history.
+See [docs/security.md](../../docs/security.md) for detailed CSP examples, rate limiting code, and security issue history.
 
 ## Security: Rate Limiting
 
@@ -105,7 +105,7 @@ See [docs/compliance/security-reference.md](../../docs/compliance/security-refer
 - `networkMode`: `public` (default) or `private`. Every plan has top-level `networkMode` and `subnets.loadBalancer` (empty in public mode); private mode empties `subnets.public` and puts internal load-balancer subnets (type `load-balancer`) in `subnets.loadBalancer`. OpenAPI includes generated `gke_private` and `eks_private` examples
 - Plan format version is `metadata.version` (`PLAN_FORMAT_VERSION`, currently `"2.0"`)
 - See [docs/api.md](../../docs/api.md) for full API reference
-- See [docs/compliance/kubernetes-network-reference.md](../../docs/compliance/kubernetes-network-reference.md) for provider compliance formulas
+- See [docs/kubernetes.md](../../docs/kubernetes.md) for the layout rules and sizing formulas
 
 ### Planned Endpoints (Future)
 

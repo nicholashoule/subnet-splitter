@@ -124,6 +124,19 @@ Browsers send each violation as an `application/csp-report` body wrapped in a `"
 - `referrerPolicy: "strict-origin-when-cross-origin"`
 - `crossOriginEmbedderPolicy: false` (allow SPA resource embedding)
 
+### Response Headers
+
+Every response carries these, checked by `tests/integration/swagger-ui-csp-middleware.test.ts` and, on the production bundle, by `npm run smoke`:
+
+- `Content-Security-Policy` (above)
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (honored by browsers over HTTPS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'`
+- `X-XSS-Protection: 0` (the explicit `0` disables the legacy auditor, which itself introduced XSS holes)
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`
+- No `X-Powered-By` header
+
 ## Rate Limiting Configuration
 
 ### API Routes (`server/routes.ts`)

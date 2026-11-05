@@ -33,7 +33,7 @@ How the API documentation page (`/api/docs/ui`) is styled, and how to keep it wo
 
 Assets load from `https://cdn.jsdelivr.net/npm/swagger-ui-dist@<version>` with `sha384` Subresource Integrity; a stale hash makes the browser refuse the file. To upgrade:
 
-1. Set `SWAGGER_UI_VERSION` in `server/swagger-ui.ts`, and the `swagger-ui-dist@<version>` it names in the header comment there, `.github/instructions/backend.instructions.md` and `docs/compliance/security-reference.md` (a test fails until they match).
+1. Set `SWAGGER_UI_VERSION` in `server/swagger-ui.ts`, and the `swagger-ui-dist@<version>` it names in the header comment there, `.github/instructions/backend.instructions.md` and `docs/security.md` (a test fails until they match).
 2. Recompute both hashes and replace `SRI.css` and `SRI.bundle`:
    ```bash
    V=5.33.1   # the new version

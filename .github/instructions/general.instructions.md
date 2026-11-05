@@ -15,7 +15,7 @@ applyTo: "**"
 | Layer | Technologies |
 |-------|-------------|
 | **Frontend** | React 18, TypeScript, Tailwind CSS 4, shadcn/ui, Vite 8 (forms use plain React state) |
-| **Backend** | Express.js 5, TypeScript, Node.js 24 or 26, Zod 3, no database |
+| **Backend** | Express.js 5, TypeScript, Node.js 24 or 26, Zod 4, no database |
 | **Testing** | Vitest 5 (unit + integration), supertest |
 | **Dev Tools** | TypeScript 5.6 strict mode, Tailwind CSS v4 (Vite plugin), tsx, esbuild (server bundle) |
 
@@ -58,7 +58,7 @@ npm run audit           # Step 3: Verify 0 vulnerabilities
 npm run check           # Step 4: TypeScript compilation
 ```
 
-See [docs/compliance/security-reference.md](../../docs/compliance/security-reference.md) for detailed security configuration.
+See [docs/security.md](../../docs/security.md) for detailed security configuration.
 
 ## Pre-Commit Checklist
 
@@ -142,7 +142,7 @@ See [docs/git-conventions.md](../../docs/git-conventions.md) for full examples.
 - [Frontend instructions](frontend.instructions.md)
 - [Testing instructions](testing.instructions.md)
 - [Emoji prevention](../emoji-prevention.md)
-- [Security reference](../../docs/compliance/security-reference.md)
+- [Security reference](../../docs/security.md)
 - [Development guide](../../docs/development.md)
 - [Test inventory](../../tests/README.md#test-organization)
 - [API reference](../../docs/api.md)

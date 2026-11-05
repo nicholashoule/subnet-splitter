@@ -1,21 +1,18 @@
 # AKS Compliance Audit - Kubernetes Network Planning API
 
-> **Updated**: February 4, 2026. Tier configurations now use differentiated subnet sizes with 3 AZs for production tiers. See [api.md](../api.md) for current tier values.
->
-> **Updated**: October 2, 2026 (plan format 2.0). AKS plans now carry no `availabilityZone` (Azure subnets are regional; node pools choose zones 1, 2, 3), include one `/28` subnet (`subnets.controlPlane[0]`) for API Server VNet Integration, and use a `/20` service range (`/18` for hyperscale). Generated ranges avoid `172.17.0.0/16`, and for AKS also `172.30.0.0/16` and `172.31.0.0/16`, which AKS reserves; a VNet, `podsCidr`, or `servicesCidr` overlapping those two is rejected, and hyperscale pods for a VNet in `10.0.0.0/8` are `100.64.0.0/13` (see [RFC 1918 Private Address Space Compliance](#8-rfc-1918-private-address-space-compliance)). A `vpcCidr` larger than `/16` is rejected (a project standard for every provider; Azure VNets may be larger). CNI Overlay gives every node a fixed `/24`, so 5,000 nodes needs a `/11` `podsCidr`. `"networkMode": "private"` replaces the public subnets with one internal load-balancer subnet (see [Private Network Mode](#private-network-mode)). See [api.md](../api.md#address-space-separation).
+> **Plan format 2.1**: AKS plans carry no `availabilityZone` (Azure subnets are regional; node pools choose zones 1, 2, 3), include one `/28` subnet (`subnets.controlPlane[0]`) for API Server VNet Integration, and use a `/20` service range (`/18` for hyperscale). Generated ranges avoid `172.17.0.0/16`, and for AKS also `172.30.0.0/16` and `172.31.0.0/16`, which AKS reserves; a VNet, `podsCidr`, or `servicesCidr` overlapping those two is rejected, and hyperscale pods for a VNet in `10.0.0.0/8` are `100.64.0.0/11` (see [RFC 1918 Private Address Space Compliance](#8-rfc-1918-private-address-space-compliance)). A `vpcCidr` larger than `/16` is rejected (a project standard for every provider; Azure VNets may be larger). CNI Overlay gives every node a fixed `/24`, so the hyperscale `/11` holds 8,192 nodes. `"networkMode": "private"` replaces the public subnets with one internal load-balancer subnet (see [Private Network Mode](#private-network-mode)). See [api.md](../api.md#address-space-separation).
 
-**Date**: February 1, 2026  
 **Scope**: Azure Kubernetes Service (AKS)  
-**Status**:  **COMPLIANT, with one WARNING**: the default hyperscale pod range (`/13`) holds 2,048 nodes at CNI Overlay's fixed `/24` per node; a 5,000-node cluster needs a `/11` `podsCidr`
+**Status**:  **COMPLIANT**
 
 ---
 
 ## 1. Executive Summary
 
-The Kubernetes Network Planning API has been validated against Microsoft Azure Kubernetes Service (AKS) best practices and requirements. All five deployment tiers (Micro, Standard, Professional, Enterprise, Hyperscale) are compliant with AKS constraints and recommended configurations, with one WARNING for hyperscale at full scale (below).
+The Kubernetes Network Planning API has been validated against Microsoft Azure Kubernetes Service (AKS) best practices and requirements. All five deployment tiers (Micro, Standard, Professional, Enterprise, Hyperscale) are compliant with AKS constraints and recommended configurations.
 
 **Key Findings**:
--  WARNING: Hyperscale's node subnets hold 12,273 node IPs (enough for 5,000 nodes), but its default `/13` pod range holds 2,048 nodes, because CNI Overlay gives every node a fixed `/24`. A 5,000-node cluster (the AKS maximum) needs a `/11` `podsCidr`. 200,000 pods is the AKS control-plane scale target with CNI Overlay
+-  Hyperscale's node subnets hold 12,273 node IPs and its default `/11` pod range holds 8,192 nodes at CNI Overlay's fixed `/24` per node, so a 5,000-node cluster (the AKS maximum) fits by default. 200,000 pods is the AKS control-plane scale target with CNI Overlay
 -  Azure CNI Overlay compatibility verified for all configurations
 -  Token bucket throttling algorithm documented
 -  Azure Resource Manager (ARM) quota system compatible
@@ -45,67 +42,7 @@ Azure regions follow a simplified naming pattern: `<location><direction?><number
 - **Uses programmatic names**: `eastus` not `East US`
 - **Human-readable display names**: Separate from programmatic names
 
-### Azure Regions by Geography (Programmatic Names)
-
-| Geography | Region Code | Display Name | Physical Location | AZ Support |
-|-----------|-------------|--------------|-------------------|------------|
-| **United States** | | | | |
-| | `eastus` | East US | Virginia | Yes |
-| | `eastus2` | East US 2 | Virginia | Yes |
-| | `centralus` | Central US | Iowa | Yes |
-| | `northcentralus` | North Central US | Illinois | No |
-| | `southcentralus` | South Central US | Texas | Yes |
-| | `westcentralus` | West Central US | Wyoming | No |
-| | `westus` | West US | California | No |
-| | `westus2` | West US 2 | Washington | Yes |
-| | `westus3` | West US 3 | Arizona | Yes |
-| **Canada** | | | | |
-| | `canadacentral` | Canada Central | Toronto | Yes |
-| | `canadaeast` | Canada East | Quebec | No |
-| **Europe** | | | | |
-| | `northeurope` | North Europe | Ireland | Yes |
-| | `westeurope` | West Europe | Netherlands | Yes |
-| | `uksouth` | UK South | London | Yes |
-| | `ukwest` | UK West | Cardiff | No |
-| | `francecentral` | France Central | Paris | Yes |
-| | `francesouth` | France South | Marseille | No |
-| | `germanywestcentral` | Germany West Central | Frankfurt | Yes |
-| | `germanynorth` | Germany North | Berlin | No |
-| | `switzerlandnorth` | Switzerland North | Zurich | Yes |
-| | `switzerlandwest` | Switzerland West | Geneva | No |
-| | `norwayeast` | Norway East | Oslo | Yes |
-| | `norwaywest` | Norway West | Stavanger | No |
-| | `swedencentral` | Sweden Central | Gävle | Yes |
-| | `polandcentral` | Poland Central | Warsaw | Yes |
-| | `italynorth` | Italy North | Milan | Yes |
-| | `spaincentral` | Spain Central | Madrid | Yes |
-| **Asia Pacific** | | | | |
-| | `eastasia` | East Asia | Hong Kong | Yes |
-| | `southeastasia` | Southeast Asia | Singapore | Yes |
-| | `japaneast` | Japan East | Tokyo | Yes |
-| | `japanwest` | Japan West | Osaka | Yes |
-| | `koreacentral` | Korea Central | Seoul | Yes |
-| | `koreasouth` | Korea South | Busan | No |
-| | `centralindia` | Central India | Pune | Yes |
-| | `southindia` | South India | Chennai | No |
-| | `westindia` | West India | Mumbai | No |
-| | `australiaeast` | Australia East | Sydney | Yes |
-| | `australiasoutheast` | Australia Southeast | Melbourne | No |
-| | `australiacentral` | Australia Central | Canberra | No |
-| | `indonesiacentral` | Indonesia Central | Jakarta | Yes |
-| | `malaysiawest` | Malaysia West | Kuala Lumpur | Yes |
-| | `newzealandnorth` | New Zealand North | Auckland | Yes |
-| **South America** | | | | |
-| | `brazilsouth` | Brazil South | São Paulo | Yes |
-| | `brazilsoutheast` | Brazil Southeast | Rio | No |
-| | `chilecentral` | Chile Central | Santiago | Yes |
-| **Middle East & Africa** | | | | |
-| | `uaenorth` | UAE North | Dubai | Yes |
-| | `uaecentral` | UAE Central | Abu Dhabi | No |
-| | `qatarcentral` | Qatar Central | Doha | Yes |
-| | `israelcentral` | Israel Central | Tel Aviv | Yes |
-| | `southafricanorth` | South Africa North | Johannesburg | Yes |
-| | `southafricawest` | South Africa West | Cape Town | No |
+For the current list of regions and which support availability zones, see [Microsoft: Azure regions list](https://learn.microsoft.com/en-us/azure/reliability/regions-list), or run `az account list-locations -o table` (shown below).
 
 ### Availability Zone Naming Convention
 
@@ -198,7 +135,7 @@ Azure reserves 5 addresses in every subnet, the first four and the last ([Micros
 
 #### 2. Pod IP Allocation (Overlay CIDR)
 
-**Source**: Overlay CIDR (e.g., `/13` = 524,288 IPs for Hyperscale)  
+**Source**: Overlay CIDR (e.g., `/11` = 2,097,152 IPs for Hyperscale)  
 **Consumption**: Pods use overlay IPs **separate from VNet subnet**  
 **Calculation**: Simple pod capacity calculation
 
@@ -206,9 +143,9 @@ Azure reserves 5 addresses in every subnet, the first four and the last ([Micros
 With Azure CNI Overlay:
 Pod_Addresses = 2^(32 - pod_prefix)
 
-Example (Hyperscale with /13 Pod CIDR):
-Pod_Addresses = 2^(32 - 13) = 524,288 IPs
-Node capacity: 2^(24 - 13) = 2,048 nodes (a fixed /24 per node)
+Example (Hyperscale with /11 Pod CIDR):
+Pod_Addresses = 2^(32 - 11) = 2,097,152 IPs
+Node capacity: 2^(24 - 11) = 8,192 nodes (a fixed /24 per node)
 AKS scale target: 200,000 pods per cluster (performance degrades past it; not a hard limit)
 ```
 
@@ -251,7 +188,7 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 
 ### IP Exhaustion Risk Analysis
 
-**AKS pods cause no VNet IP exhaustion** due to the overlay CIDR model; the pod CIDR caps the node count instead (a fixed `/24` per node: 2,048 nodes on the default hyperscale `/13`):
+**AKS pods cause no VNet IP exhaustion** due to the overlay CIDR model; the pod CIDR caps the node count instead (a fixed `/24` per node: 8,192 nodes on the default hyperscale `/11`):
 
 **Problem Scenario (Theoretical - Does NOT Apply to AKS)**:
 - If AKS used EKS's model: `/24` subnet (256 IPs) exhausted by 10 Nodes + 1,100 Pods = 1,110 IPs needed -> FAIL
@@ -264,8 +201,8 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 
 **Hyperscale Tier IP Exhaustion Risk (AKS)**:
 - Node subnets: 3 × `/20` = 12,273 usable IPs for Nodes
-- Pod overlay: `/13` = 524,288 IPs for Pods (AKS scale target: 200,000 pods)
-- CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250), so `/13` covers 2,048 nodes. Lowering max pods per node does not help on AKS; 5,000 nodes needs a larger pod CIDR, such as a `/11` passed as `podsCidr`
+- Pod overlay: `/11` = 2,097,152 IPs for Pods (AKS scale target: 200,000 pods)
+- CNI Overlay gives every node a fixed `/24` from the pod CIDR, whatever its max pods (up to 250), so `/11` covers 8,192 nodes, enough for 5,000
 - Pod overlay can scale independently of VNet
 
 ### Comparison to EKS and GKE
@@ -276,12 +213,12 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 | **Pod IPs** | Same VPC subnet (secondary IPs) | Alias ranges (Google-managed) | Overlay CIDR (separate) |
 | **Service IPs** | Separate virtual range | Separate virtual range | Separate virtual range |
 | **LoadBalancer IPs** | External AWS resources | External Google Cloud LB | External Azure LB |
-| **IP Exhaustion Risk** | **HIGH** (Pods compete with Nodes) | **LOW** (Google manages) | **No VNet exhaustion from pods**; the pod CIDR caps nodes (2,048 on the default `/13`) |
+| **IP Exhaustion Risk** | **HIGH** (Pods compete with Nodes) | **LOW** (Google manages) | **No VNet exhaustion from pods**; the pod CIDR caps nodes (8,192 on the default `/11`) |
 | **VNet IP Consumption** | 5K Nodes + 550K Pods = 555K IPs | 5K Nodes = 5K IPs (Pods separate) | 5K Nodes = 5K IPs (Pods separate) |
 
 ### Key Takeaways for AKS
 
-1. **No VNet Exhaustion from Pods**: Overlay CIDR keeps pods out of the VNet; the pod CIDR caps the node count instead (a fixed `/24` per node: 2,048 nodes on the default `/13`, so 5,000 nodes need a `/11`)
+1. **No VNet Exhaustion from Pods**: Overlay CIDR keeps pods out of the VNet; the pod CIDR caps the node count instead (a fixed `/24` per node: 8,192 nodes on the default `/11`, enough for 5,000)
 2. **Simple Node Subnet Sizing**: Only need to account for Node count (1 IP per Node)
 3. **Independent Pod Scaling**: Pod CIDR can be sized independently of VNet
 4. **200K Pod Scale Target**: Microsoft's control-plane scale target is 200,000 pods per cluster with CNI Overlay; crossing it degrades performance but doesn't immediately fail the cluster ([Microsoft: large workloads](https://learn.microsoft.com/en-us/azure/aks/best-practices-performance-scale-large))
@@ -289,7 +226,7 @@ Example: /20 = 4,096 ClusterIP addresses (AKS requires a service CIDR smaller th
 6. **Service CIDR**: Virtual IPs only, do NOT consume VNet space
 7. **LoadBalancers**: Public load balancers use Azure public IPs, not VNet space; internal load balancers take a VNet IP from the node subnet unless annotated with another subnet
 
-**Cross-Reference**: For detailed comparison of IPv4 allocation across all three platforms, see [ip-allocation-cross-reference.md](ip-allocation-cross-reference.md).
+**Cross-Reference**: For a comparison of IPv4 allocation across all three platforms, see the [compliance overview](README.md).
 
 ---
 
@@ -319,9 +256,8 @@ Private subnets (lowest free /20 slots):
 API server subnet (fills the gap after the public subnets):
   control-plane-1: 10.0.6.0/28  (10.0.6.0 - 10.0.6.15)  [16 IPs] [PASS] No overlap
 
-Pod overlay: 100.64.0.0/13   Service CIDR: 192.168.0.0/18   (outside the VNet)
-(Every /13 left in 172.16.0.0/12 holds 172.17.0.0/16 or the AKS-reserved
-172.30.0.0/16 and 172.31.0.0/16, so the pods fall back to RFC 6598 space.)
+Pod overlay: 100.64.0.0/11   Service CIDR: 192.168.0.0/18   (outside the VNet)
+(A /11 doesn't fit in 172.16.0.0/12, so the pods use RFC 6598 space.)
 ```
 
 **Test Coverage**:
@@ -343,13 +279,13 @@ Based on Microsoft Azure AKS documentation:
 
 | Aspect | Azure Limit | Our Hyperscale | Status |
 |--------|-----------|----------------|--------|
-| **Max Nodes per Cluster** | 5,000 nodes | 5,000 node IPs (3 × `/20`), but the default `/13` pod range holds 2,048 nodes at a `/24` each |  WARNING: pass a `/11` `podsCidr` for 5,000 nodes |
-| **Max Pods per Cluster** | 200,000 pods (CNI Overlay scale target, not a hard limit) | ~225,000 pods at this doc's planning assumption of 110 pods per node (not the AKS default): the `/13` holds 2,048 nodes at a `/24` each |  Over-provisioned |
+| **Max Nodes per Cluster** | 5,000 nodes | 5,000 node IPs (3 × `/20`); the default `/11` pod range holds 8,192 nodes at a `/24` each |  Compliant |
+| **Max Pods per Cluster** | 200,000 pods (CNI Overlay scale target, not a hard limit) | Up to 200,000 pods (the AKS CNI Overlay scale target); the `/11` holds 8,192 nodes at a `/24` each |  Over-provisioned |
 | **Max Nodes per Node Pool** | 1,000 nodes | 1,000 nodes (suggest 5 pools for 5K) |  Supported |
 | **Max Node Pools** | 100 pools | Supports multiple pools |  Compliant |
 | **Max Pods per Node** | 250 pods (max), 10 (min) with CNI Overlay | CNI Overlay default 250; this doc's pod figures assume 110 ([Microsoft: CNI Overlay](https://learn.microsoft.com/en-us/azure/aks/concepts-network-azure-cni-overlay)) |  Supported |
 | **Primary Subnet** | VNet subnet required | /20 × 3 hyperscale |  Compliant |
-| **Pod CIDR** | CNI secondary range | /13 hyperscale |  Compliant |
+| **Pod CIDR** | CNI secondary range | /11 hyperscale |  Compliant |
 | **Service CIDR** | Smaller than /12 | /20 (/18 hyperscale) |  Compliant |
 | **API Server Subnet** | /28 minimum, delegated to `Microsoft.ContainerService/managedClusters` | /28 (`subnets.controlPlane[0]`) |  Compliant |
 
@@ -373,7 +309,7 @@ Based on Microsoft Azure AKS documentation:
 | Standard | 1-3 | ~110-330 | Standard |
 | Professional | 3-10 | ~330-1,100 | Standard |
 | Enterprise | 10-50 | ~1,100-5,500 | Standard |
-| Hyperscale | 50-5000 | ~5,500-225,000 (the `/13` pod range holds 2,048 nodes; WARNING: 5,000 nodes need a `/11` `podsCidr`) | Standard/Premium |
+| Hyperscale | 50-5000 | ~5,500-200,000 (200,000 is the AKS CNI Overlay scale target; the `/11` pod range holds 8,192 nodes at a `/24` each) | Standard/Premium |
 
 ---
 
@@ -499,11 +435,11 @@ With `"networkMode": "private"` the plan has no public subnets (`subnets.public`
 With Azure CNI Overlay (each node takes a fixed /24 from the pod CIDR):
 Pod_Addresses = 2^(32 - pod_prefix)
 Node_Capacity = 2^(24 - pod_prefix)
-Overlay_CIDR = Secondary range (e.g., /13)
+Overlay_CIDR = Secondary range (e.g., /11)
 
-Example: /13 overlay CIDR
-Addresses = 2^(32-13) = 524,288
-Nodes     = 2^(24-13) = 2,048
+Example: /11 overlay CIDR
+Addresses = 2^(32-11) = 2,097,152
+Nodes     = 2^(24-11) = 8,192
 AKS scale target: 200,000 pods per cluster (performance degrades past it; not a hard limit)
 ```
 
@@ -701,24 +637,23 @@ Header: Retry-After: <delay-seconds>
 **Configuration**:
 - Primary Subnets: 3 × `/20` (4,096 addresses each)
 - API Server Subnet: 1 × `/28`
-- Pod CIDR: `/13` (524,288 addresses)
+- Pod CIDR: `/11` (2,097,152 addresses)
 - Service CIDR: `/18` (16,384 addresses)
 - Nodes: 50-5,000
 - Node Pools: 5 minimum (5 × 1,000 = 5,000 nodes)
-- Pod Limit: 5,500-225,000 at this doc's planning assumption of 110 pods per node, not the AKS default of 250 (the `/13` holds 2,048 nodes at a `/24` each; AKS scale target: 200,000 pods with CNI Overlay)
+- Pod Limit: up to 200,000 pods (the AKS CNI Overlay scale target); the `/11` holds 8,192 nodes at a `/24` each
 
 **AKS Compliance**:
 -  Standard or Premium Tier control plane
 -  3 × `/20` primaries (12,273 node IPs) support a full 5,000-node cluster
 -  Multiple node pools required (5-10 pools for 5K nodes)
 -  Azure CNI Overlay mandatory for 200K pods
--  Pod CIDR `/13` supports 200K+ pod addresses, but CNI Overlay gives every node a fixed `/24` whatever its max pods, so `/13` covers 2,048 nodes. A 5,000-node cluster needs a larger pod CIDR: pass a `/11` `podsCidr` (lowering max pods per node does not shrink the per-node `/24`)
+-  Pod CIDR `/11` supports 2,097,152 pod addresses; CNI Overlay gives every node a fixed `/24` whatever its max pods, so `/11` covers 8,192 nodes, enough for a 5,000-node cluster
 -  Service CIDR `/18` provides 16,384 ClusterIPs (above Kubernetes' tested limit of 10,000 services)
--  WARNING: The maximum AKS scale (5,000 nodes) needs a `/11` `podsCidr`; with the default `/13` pod range the cluster stops at 2,048 nodes
 
 **Multi-Node Pool Strategy**:
 ```
-Example 5,000 node configuration (the AKS maximum; needs a /11 podsCidr):
+Example 5,000 node configuration (the AKS maximum):
 - System pool: 2 nodes (for kube-system)
 - User pool 1: 1,000 nodes (application workloads)
 - User pool 2: 1,000 nodes (application workloads)
@@ -732,7 +667,7 @@ Total: 5,000 nodes
 - **MANDATORY** for 200K+ pods
 - Reduces VNet IP pressure
 - Enables true cluster-level pod scaling
-- Configuration: `--network-plugin azure --network-plugin-mode overlay --pod-cidr 100.64.0.0/13 --service-cidr 192.168.0.0/18 --dns-service-ip 192.168.0.10` (the API's `pods.cidr` and `services.cidr` for a hyperscale VNet in `10.0.0.0/8`; `--dns-service-ip` must be inside the service CIDR and not its first address). Without `--network-plugin-mode overlay`, `--network-plugin azure` uses node-subnet mode, not the overlay
+- Configuration: `--network-plugin azure --network-plugin-mode overlay --pod-cidr 100.64.0.0/11 --service-cidr 192.168.0.0/18 --dns-service-ip 192.168.0.10` (the API's `pods.cidr` and `services.cidr` for a hyperscale VNet in `10.0.0.0/8`; `--dns-service-ip` must be inside the service CIDR and not its first address). Without `--network-plugin-mode overlay`, `--network-plugin azure` uses node-subnet mode, not the overlay
 - API Server VNet Integration: `--enable-apiserver-vnet-integration --apiserver-subnet-id <subnet id>` with the plan's `/28` `subnets.controlPlane[0]`, delegated to `Microsoft.ContainerService/managedClusters`; nodes use `--vnet-subnet-id <subnet id>` from `subnets.private`
 
 **Scaling Thresholds**:
@@ -765,7 +700,7 @@ Primary VNet: 10.0.0.0/16 (65,536 addresses)
 ├─ API Server Subnet:
 │  └─ 10.0.6.0/28   (16 addresses, API Server VNet Integration)
 ├─ Outside the VNet:
-│  ├─ Pod CIDR:     100.64.0.0/13   (524,288 addresses; overlay, RFC 6598, clear of the AKS-reserved 172.30-31.0.0/16)
+│  ├─ Pod CIDR:     100.64.0.0/11   (2,097,152 addresses; overlay, RFC 6598, clear of the AKS-reserved 172.30-31.0.0/16)
 │  └─ Service CIDR: 192.168.0.0/18  (16,384 addresses)
 └─ Managed Infrastructure:
    ├─ Public IPs (NAT Gateway)
@@ -828,7 +763,7 @@ VNet Subnet: 10.0.0.0/24 (256 addresses)
 └─ Node IPs: 10.0.0.4-10.0.0.254 (251 usable; Azure reserves .0-.3 and .255)
 
 Secondary Ranges (overlay, hyperscale values for a VNet in 10.0.0.0/8):
-├─ Pod CIDR:     100.64.0.0/13   (managed by Azure CNI, not from VNet; a fixed /24 per node)
+├─ Pod CIDR:     100.64.0.0/11   (managed by Azure CNI, not from VNet; a fixed /24 per node)
 └─ Service CIDR: 192.168.0.0/18  (managed by Kubernetes, not from VNet)
 ```
 
@@ -898,9 +833,9 @@ AKS also reserves `169.254.0.0/16`, `192.0.2.0/24`, `172.30.0.0/16`, and `172.31
 | **10.0.0.0/8** | 16.7M | Primary VNet (e.g., 10.0.0.0/18), or pods when the VNet is in another block |
 | **172.16.0.0/12** | 1.0M | Pods for a VNet in 10.0.0.0/8 below hyperscale (e.g., 172.16.0.0/16 for enterprise), clear of 172.17.0.0/16, 172.30.0.0/16, and 172.31.0.0/16 |
 | **192.168.0.0/16** | 65.5K | Service CIDR (192.168.0.0/18 for Hyperscale, 192.168.0.0/20 otherwise) |
-| **100.64.0.0/10** (RFC 6598) | 4.2M | Hyperscale pods for a VNet in 10.0.0.0/8 (100.64.0.0/13): every /13 left in 172.16.0.0/12 holds a reserved range |
+| **100.64.0.0/10** (RFC 6598) | 4.2M | Hyperscale pods for a VNet in 10.0.0.0/8 (100.64.0.0/11): a /11 doesn't fit in 172.16.0.0/12 |
 
-Generated pods and services go in blocks the VNet does not use, and never overlap `172.17.0.0/16` (Docker's default bridge network) or the AKS-reserved ranges. For a VNet in `10.0.0.0/8` the API uses `172.16.0.0/<podsPrefix>` (hyperscale: `100.64.0.0/13`) and `192.168.0.0/<servicesPrefix>`; for a VNet in `172.16.0.0/12`, `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VNet in `192.168.0.0/16`, `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range (for example, a `/11` `podsCidr` for 5,000 nodes, or an existing cluster's service CIDR).
+Generated pods and services go in blocks the VNet does not use, and never overlap `172.17.0.0/16` (Docker's default bridge network) or the AKS-reserved ranges. For a VNet in `10.0.0.0/8` the API uses `172.16.0.0/<podsPrefix>` (hyperscale: `100.64.0.0/11`) and `192.168.0.0/<servicesPrefix>`; for a VNet in `172.16.0.0/12`, `10.0.0.0/<podsPrefix>` and `192.168.0.0/<servicesPrefix>`; for a VNet in `192.168.0.0/16`, `10.0.0.0/<podsPrefix>` and `172.16.0.0/<servicesPrefix>`. `podsCidr` and `servicesCidr` override either range (for example, an existing cluster's service CIDR).
 
 ### Allocation Strategy (Example)
 
@@ -910,7 +845,7 @@ VNet: 10.0.0.0/18 (16,384 addresses)
 ├─ Public Subnets: 3 × /23 (1,536 total for LBs, NAT gateways)
 ├─ Node Subnets: 3 × /20 (12,288 addresses, 12,273 usable; regional, node pools set zones 1, 2, 3)
 ├─ API Server Subnet: 10.0.6.0/28 (API Server VNet Integration)
-├─ Pod Overlay: 100.64.0.0/13 (524,288 addresses, RFC 6598, outside the VNet)
+├─ Pod Overlay: 100.64.0.0/11 (2,097,152 addresses, RFC 6598, outside the VNet)
 └─ Service CIDR: 192.168.0.0/18 (16,384 addresses, outside the VNet)
 ```
 
@@ -950,7 +885,7 @@ Azure subnets are regional, so a plan's node subnets are not tied to zones and c
 Zone 1: System pool (2 nodes) + User pool 1 (1,000 nodes)
 Zone 2: User pool 2 (1,000 nodes) + User pool 3 (1,000 nodes)
 Zone 3: User pool 4 (1,000 nodes) + User pool 5 (998 nodes)
-Total: 5,000 nodes across 3 zones (the AKS maximum; needs a /11 podsCidr)
+Total: 5,000 nodes across 3 zones (the AKS maximum)
 ```
 
 ### AZ Considerations
@@ -1146,8 +1081,7 @@ Node_Capacity = 2^(24 - pod_prefix)   (a fixed /24 per node)
 Examples:
 /18 = 2^14 = 16,384 addresses (64 nodes)
 /16 = 2^16 = 65,536 addresses (256 nodes)
-/13 = 2^19 = 524,288 addresses (2,048 nodes)
-/11 = 2^21 = 2,097,152 addresses (8,192 nodes; covers 5,000)
+/11 = 2^21 = 2,097,152 addresses (8,192 nodes; the hyperscale default, covers 5,000)
 AKS scale target: 200,000 pods per cluster (not a hard limit)
 ```
 
@@ -1164,140 +1098,6 @@ Max_LoadBalancer_Services = 300 per cluster (type LoadBalancer, Standard
     limit of 10,000 services)
 AKS requires a service CIDR smaller than /12
 ```
-
----
-
-## 14. Recommended Next Steps
-
-### Priority 1 (Ready to Implement)
-
-1. **Add AKS-Specific Algorithms to Docs**
-   - Token bucket explanation with examples
-   - Node IP formula: `2^(32-prefix) - 5`
-   - Pod CIDR overlay calculations
-   - Service CIDR allocation
-
-2. **Document Azure CNI Overlay Benefits**
-   - Comparison table: Overlay vs Direct CNI vs Kubenet
-   - 200K pod support explanation
-   - VNet IP pressure reduction
-
-3. **Add Scaling Batch Guidance**
-   - Examples of batch sizes (500-700 nodes)
-   - Timing recommendations (2-5 minute waits)
-   - API throttling prevention
-
-### Priority 2 (Future Enhancement)
-
-1. **Add Multi-Node Pool Calculator**
-   - Accept node count, suggest pool distribution
-   - Zone distribution recommendations
-   - AZ affinity suggestions
-
-2. **Create Azure Quota Planning Tool**
-   - Calculate cluster quota requirements
-   - VM SKU quota calculations
-   - Multi-cluster subscription planning
-
-3. **Add Cluster Upgrade Analyzer**
-   - Detect when cluster is at max nodes
-   - Recommend scale-down before upgrade
-   - Estimate upgrade impact
-
-### Priority 3 (Extended Features)
-
-1. **Azure Cost Calculator Integration**
-   - Estimate NAT gateway costs
-   - Load balancer cost impact
-   - Multi-AZ premium costs
-
-2. **Network Policy Recommendation Engine**
-   - Suggest NPM (up to 250 nodes) vs Cilium
-   - Policy complexity estimation
-   - Performance impact warnings
-
-3. **Multi-Region AKS Planner**
-   - Distribute clusters across regions
-   - Handle Azure quota limits per region
-   - Global network topology planning
-
----
-
-## 15. Summary & Verification
-
-### Compliance Summary
-
-**Status**:  **COMPLIANT** with Azure AKS best practices, with one WARNING: the default hyperscale pod range (`/13`) holds 2,048 nodes at CNI Overlay's fixed `/24` per node, so a 5,000-node cluster needs a `/11` `podsCidr`
-
-**Verified Against**:
-- Microsoft Azure AKS Best Practices for Large Workloads
-- Azure AKS Quotas, SKUs, and Regions documentation
-- Azure CNI Overlay networking guide
-- Azure Resource Manager throttling limits
-- Token bucket algorithm (standard)
-
-### Test Coverage
-
-`npm run test -- --run` runs every unit and integration test; the [test inventory](../../tests/README.md#test-organization) says what each file covers.
-
-**Unit Tests** (`tests/unit/`):
-- Subnet calculation verification
-- CIDR allocation correctness, including the AKS-reserved ranges and the `100.64.0.0/10` pod fallback (`network-separation.test.ts`)
-- Provider formulas (`ip-calculation-compliance.test.ts`)
-
-**Integration Tests** (`tests/integration/`):
-- RFC 1918 compliance
-- Tier scaling characteristics
-
-### Production Readiness
-
--  All tier configurations production-ready
--  Documentation comprehensive
--  Token bucket throttling explained
--  Azure CNI Overlay support documented
--  Multi-node pool strategy included
--  Scaling guidelines provided
--  Upgrade limitations noted
-
-### Configuration Notes
-
-The tier defaults need one change for the largest AKS clusters:
-- Hyperscale's 3 × `/20` private subnets hold 12,273 node IPs, enough for 5,000 nodes
-- WARNING: Pod CIDR `/13` holds 524,288 pod addresses but, at a fixed `/24` per node, only 2,048 nodes; pass a `/11` `podsCidr` for 5,000 nodes
-- Service CIDR `/20` (`/18` for hyperscale)
-- All tier configurations validated for Azure compatibility
-
-**Current AKS Tier Configuration Summary** (`GET /api/k8s/tiers?provider=aks`; every tier also has one `/28` API server subnet):
-- **Micro**: 1 × /26 public, 1 × /25 private, /24 min VPC, /20 pods, /20 services
-- **Standard**: 1 × /25 public, 1 × /24 private, /23 min VPC, /16 pods, /20 services
-- **Professional**: 2 × /25 public, 2 × /23 private, /21 min VPC, /18 pods, /20 services
-- **Enterprise**: 3 × /24 public, 3 × /21 private, /19 min VPC, /16 pods, /20 services
-- **Hyperscale**: 3 × /23 public, 3 × /20 private, /18 min VPC, /13 pods, /18 services
-
----
-
-## 16. Files Modified
-
-**Documentation Files Created/Updated**:
-
-1. **AKS_COMPLIANCE_AUDIT.md** (UPDATED February 4, 2026)
-   - This comprehensive audit document
-   - 16 sections covering all aspects
-   - Updated with differentiated public/private subnet sizes
-   - Ready for reference in Azure documentation
-
-2. **[kubernetes-network-reference.md](kubernetes-network-reference.md#aks-compliance--ip-formulas)** (DONE; `.github/copilot-instructions.md` is now a short index of `.github/instructions/`, so the formulas live in this reference)
-   - "AKS Compliance & IP Formulas" section
-   - Document token bucket algorithm
-   - Include Azure CNI Overlay architecture
-   - Add multi-node pool strategies
-   - Include throttling prevention guidelines
-
-3. **shared/kubernetes-schema.ts** (UPDATED)
-   - `PROVIDER_RESERVED_RANGES.aks` lists `172.30.0.0/16` and `172.31.0.0/16`: the generator never allocates them, and a caller's VNet, `podsCidr`, or `servicesCidr` that overlaps them is rejected
-   - AKS subnets carry no `availabilityZone` (Azure subnets are regional), and every AKS plan has one `/28` control-plane subnet (`CONTROL_PLANE_SUBNET_PREFIX`), the API server subnet
-   - A caller's `servicesCidr` must be `/13` to `/24`, inside AKS's smaller-than-`/12` rule
-   - Tier descriptions note CNI Overlay's fixed `/24` per node (the hyperscale `/13` pod range holds 2,048 nodes)
 
 ---
 

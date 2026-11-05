@@ -78,7 +78,7 @@ describe("Swagger UI CSP Middleware Integration", () => {
     return response.headers.get("content-security-policy");
   };
 
-  it("should send the security headers SECURITY.md lists, on the docs page and the API alike", async () => {
+  it("should send the security headers docs/security.md lists, on the docs page and the API alike", async () => {
     for (const path of ["/api/docs/ui", "/api/version"]) {
       const headers = (await fetch(`${baseUrl}${path}`)).headers;
       expect(headers.get("strict-transport-security"), path).toBe("max-age=31536000; includeSubDomains");
