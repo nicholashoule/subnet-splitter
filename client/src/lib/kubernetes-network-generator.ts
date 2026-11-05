@@ -42,6 +42,7 @@ import {
   PODS_PREFIX_LIMITS,
   SERVICES_PREFIX_LIMITS,
   PROVIDER_SERVICES_PREFIX_LIMITS,
+  PROVIDER_TIER_OVERRIDES,
   LARGEST_VPC_PREFIX,
   LARGEST_VPC_REASON,
   normalizeProvider
@@ -49,7 +50,7 @@ import {
 import { numberToIp, parseCidr, prefixToMask } from "./subnet-utils";
 
 /** Plan format and allocation rules version, reported in metadata.version */
-export const PLAN_FORMAT_VERSION = "2.0";
+export const PLAN_FORMAT_VERSION = "2.1";
 
 export class KubernetesNetworkGenerationError extends Error {
   constructor(message: string) {
@@ -203,15 +204,16 @@ export function getTierConfig(
   const regional = canonical === "gke" || canonical === "aks";
   const minPerType = canonical === "eks" ? 2 : 1;
   const edgeSubnets = regional && networkMode === "private" ? 1 : Math.max(minPerType, base.publicSubnets);
+  const override = PROVIDER_TIER_OVERRIDES[canonical]?.[size] ?? {};
 
   const counts: LayoutCounts = {
     publicSubnets: networkMode === "public" ? edgeSubnets : 0,
     loadBalancerSubnets: networkMode === "private" ? edgeSubnets : 0,
-    privateSubnets: Math.max(minPerType, base.privateSubnets),
+    privateSubnets: override.privateSubnets ?? Math.max(minPerType, base.privateSubnets),
     controlPlaneSubnets: canonical === "eks" ? 2 : 1,
     publicSubnetSize: base.publicSubnetSize,
     loadBalancerSubnetSize: base.publicSubnetSize,
-    privateSubnetSize: base.privateSubnetSize,
+    privateSubnetSize: override.privateSubnetSize ?? base.privateSubnetSize,
     controlPlaneSubnetSize: CONTROL_PLANE_SUBNET_PREFIX,
   };
   return {
@@ -445,8 +447,8 @@ export function buildKubernetesNetworkPlan(request: unknown, now: Date = new Dat
   }
 
   // Generated pods: an RFC 1918 block other than the VPC's and the caller's services
-  // block, then RFC 6598 (AKS hyperscale on a 10.x VNet needs it: every /13 left in
-  // 172.16.0.0/12 holds 172.17.0.0/16 or the AKS-reserved 172.30-31.0.0/16)
+  // block, then RFC 6598 (hyperscale's /11 needs it on a 10.x VPC: a /11 is larger
+  // than 172.16.0.0/12 and 192.168.0.0/16)
   const servicesBlock = servicesOverride ? rfc1918BlockOf(servicesOverride) : undefined;
   const pods = podsOverride ?? allocateRange(
     "pods",

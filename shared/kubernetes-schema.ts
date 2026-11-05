@@ -68,7 +68,7 @@ export const DeploymentSizeEnum = z.enum([
   "standard",      // Dev/Test: 1-3 nodes
   "professional",  // Small Prod: 3-10 nodes
   "enterprise",    // Large Prod: 10-50 nodes
-  "hyperscale"     // Global Scale: 50-5,000 nodes (default /13 pods range: 2,048 nodes at a /24 each)
+  "hyperscale"     // Global Scale: 50-5,000 nodes (default /11 pods range: 8,192 nodes at a /24 each)
 ]);
 export type DeploymentSize = z.infer<typeof DeploymentSizeEnum>;
 
@@ -363,12 +363,23 @@ export const DEPLOYMENT_TIER_CONFIGS: Record<DeploymentSize, DeploymentTierConfi
     publicSubnets: 3,        // 3 AZs (realistic for most regions)
     privateSubnets: 3,       // 3 AZs
     publicSubnetSize: 23,    // /23 = 512 addresses per public subnet (NAT, LB, Bastion)
-    privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (high node density)
-    // /13 = 524,288 IPs, sized for GKE's 200K pods-per-cluster cap. GKE (65-128 max
-    // pods) and AKS overlay (always) reserve a /24 per node, so /13 covers 2,048 nodes;
-    // 5,000 nodes needs GKE max-pods-per-node <= 32 (/26 per node) or a /11 podsCidr.
-    podsPrefix: 13,
+    privateSubnetSize: 20,   // /20 = 4096 addresses per private subnet (GKE: one /19, see PROVIDER_TIER_OVERRIDES)
+    // /11 = 2,097,152 IPs: at a /24 per node (GKE at 65-128 max pods, AKS overlay
+    // always, kube-controller-manager's default) it holds 8,192 nodes, above 5,000.
+    podsPrefix: 11,
     servicesPrefix: 18,      // /18 = 16,384 ClusterIPs
-    description: "Global Scale: 50-5,000 nodes across 3 AZs. The /13 pod range holds 2,048 nodes at a /24 per node (AKS overlay; GKE at 65-128 max pods per node). 5,000 nodes needs GKE max pods per node of 32 or fewer, or a /11 podsCidr"
+    description: "Global Scale: 50-5,000 nodes across 3 AZs. The /11 pod range holds 8,192 nodes at a /24 per node; GKE gets one /19 node subnet (8,188 nodes), since a cluster takes its nodes from one subnet"
   }
+};
+
+/**
+ * Node subnet changes a provider needs to reach a tier's node count:
+ * - GKE hyperscale: a cluster takes its nodes from one subnet, so one /19 (8,188 nodes)
+ *   instead of 3 x /20 (4,092 usable by the cluster)
+ * - EKS professional: with the default VPC CNI pods share the node subnets, and a node
+ *   with 110 pods takes 111 addresses; 2 x /22 hold 18 such nodes, 2 x /23 only 8
+ */
+export const PROVIDER_TIER_OVERRIDES: Partial<Record<CanonicalProvider, Partial<Record<DeploymentSize, Partial<Pick<DeploymentTierConfig, "privateSubnets" | "privateSubnetSize">>>>>> = {
+  gke: { hyperscale: { privateSubnets: 1, privateSubnetSize: 19 } },
+  eks: { professional: { privateSubnetSize: 22 } },
 };
