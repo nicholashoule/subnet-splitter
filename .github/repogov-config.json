@@ -34,7 +34,6 @@
   ],
   "files": {
     ".github/copilot-instructions.md": 10,
-    "docs/api.md": 2500,
-    "docs/compliance/ip-allocation-cross-reference.md": 800
+    "docs/api.md": 2500
   }
 }
