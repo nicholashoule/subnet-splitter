@@ -40,6 +40,8 @@ short enough to read in one screen.
   contributing move to `docs/development.md`, and API detail lives in `docs/api.md`.
 - Docs no longer carry figures that go stale: test counts, pass rates, grades, and
   "Last Updated" dates. The test inventory is in `tests/README.md`.
+- `docs/compliance/ip-allocation-cross-reference.md` keeps only the cross-provider
+  comparisons and links to the EKS, GKE, and AKS audits for each provider's details.
 - Release headings in this file no longer carry dates; each release's date is on its
   GitHub release.
 
