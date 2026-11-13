@@ -10,6 +10,18 @@ heading and its link -- the entries live in the GitHub release for its tag,
 which is where anyone comparing two deployments will look. This file stays
 short enough to read in one screen.
 
+## [Unreleased]
+
+### Added
+
+- The project site tells search engines and link previews what it is: a descriptive
+  title, a canonical link, Open Graph and Twitter tags, schema.org structured data, a
+  favicon, and `sitemap.xml`. `npm run site:check` checks them against each other and
+  against the files in `site/`.
+- A social preview image, `site/images/social-preview.png` (1280x640), rendered from
+  `scripts/social-preview.html`: the image a link to the site shows, and the one to
+  upload as the repository's social preview on GitHub.
+
 ## [2.1.0]
 
 ### Changed
@@ -75,6 +87,7 @@ short enough to read in one screen.
 
 ---
 
+[Unreleased]: https://github.com/nicholashoule/subnet-splitter/compare/v2.1.0...HEAD
 [2.1.0]: https://github.com/nicholashoule/subnet-splitter/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/nicholashoule/subnet-splitter/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/nicholashoule/subnet-splitter/compare/v1.0.0...v2.0.0
