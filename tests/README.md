@@ -135,7 +135,8 @@ Unit tests verify individual functions and utilities in isolation.
 
 **site-check.test.ts:**
 - The published `site/` passes `scripts/site-check.ts`
-- A page missing its title, `lang`, viewport, or description is reported
+- A page missing its title, `lang`, viewport, description, canonical link, or an Open Graph or Twitter tag is reported
+- Search and link previews: a description over 160 characters, a canonical link that is not an HTTPS URL ending in `/`, an `og:url` that differs from it, and structured data that is not JSON are reported; a preview image must be a file in the site addressed under the canonical link, at most 1 MB, with the size its tags declare; `sitemap.xml` must exist and list the canonical URL
 - Plain HTTP, `javascript:`/`vbscript:`, `data:`, protocol-relative, absolute, out-of-site, missing, and badly percent-encoded references are refused; fragments, HTTPS, `mailto:`, and existing files pass
 
 ### Integration Tests (`tests/integration/`)

@@ -96,6 +96,10 @@ npm audit && npm run check && npm test -- --run && npm run build && npm run smok
 
 `site/index.html` is the project's GitHub Pages site: a hand-written page with no build step or framework. `npm run site:check` (`scripts/site-check.ts`) checks it: bounded size, a title, `lang`, viewport, and description, and every reference either HTTPS or a file inside `site/`, with no plain HTTP, script, `data:`, or absolute links.
 
+For search engines and link previews, the page's `<head>` carries a canonical link, Open Graph and Twitter tags, and schema.org structured data, and `site/sitemap.xml` lists the page. The canonical link is the site's address, `https://nicholashoule.github.io/subnet-splitter/`; `og:url`, `og:image`, the structured data, and the sitemap repeat it in full, since link previews do not resolve relative addresses. The check holds them together: `og:url` and the sitemap must match the canonical link, the preview image must be a file in `site/` of at most 1 MB with the size its tags declare, the description must fit in 160 characters, and the structured data must parse. There is no `robots.txt`: crawlers read it only from the root of the host, which a project site does not own.
+
+The preview image, `site/images/social-preview.png` (1280x640), is rendered from `scripts/social-preview.html` with headless Chrome or Edge; the command is at the top of that file. The same image is the repository's social preview, which GitHub takes only by upload (Settings > General > Social preview), so upload it again after changing it.
+
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) runs that check on pull requests that touch the site. On `main` it also deploys `site/` and fetches the live page until it matches the file just deployed. Pages must be enabled once under Settings > Pages with Source "GitHub Actions"; until then the workflow fails and says so.
 
 ## Project structure
@@ -106,7 +110,7 @@ client/src/lib/     subnet-utils (calculator math), kubernetes-network-generator
 server/             Express: app and middleware, routes, OpenAPI, Swagger UI, CSP, static serving
 shared/             schema.ts (dependency-free subnet types), kubernetes-schema.ts (Zod schemas, tiers)
 tests/              unit/, integration/, helpers/, manual/ (see tests/README.md)
-scripts/            build.ts, smoke-test.ts, site-check.ts, install-hooks.mjs
+scripts/            build.ts, smoke-test.ts, site-check.ts, install-hooks.mjs, social-preview.html
 site/               GitHub Pages site
 docs/               API reference, compliance audits, conventions
 .github/            workflows, instructions for contributors and agents, repogov config

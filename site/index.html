@@ -3,9 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="subnet-splitter is a CIDR subnet calculator that splits networks down to /32 in your browser, and a Kubernetes network-planning API that generates non-overlapping CIDRs for EKS, GKE, AKS, and self-hosted clusters.">
+<title>CIDR subnet calculator and Kubernetes network planner | subnet-splitter</title>
+<meta name="description" content="Split any CIDR down to /32 in your browser, and plan non-overlapping Kubernetes networks for EKS, GKE, AKS, and self-hosted clusters. Free and open source.">
 <meta name="color-scheme" content="light dark">
-<title>subnet-splitter</title>
+<!-- Search engines may show the preview image at full size. -->
+<meta name="robots" content="max-image-preview:large">
+<!-- Where the site is published. Link previews do not resolve relative addresses, so
+     og:url and the images below repeat it in full; npm run site:check keeps them in step. -->
+<link rel="canonical" href="https://nicholashoule.github.io/subnet-splitter/">
+<link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+
+<!-- Link previews: Open Graph, read by most apps and sites, and the card type X asks for. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="subnet-splitter">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://nicholashoule.github.io/subnet-splitter/">
+<meta property="og:title" content="CIDR subnet calculator and Kubernetes network planner">
+<meta property="og:description" content="Split any CIDR down to /32 in your browser, and plan non-overlapping Kubernetes networks for EKS, GKE, AKS, and self-hosted clusters. Free and open source.">
+<meta property="og:image" content="https://nicholashoule.github.io/subnet-splitter/images/social-preview.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="subnet-splitter: split any CIDR, and plan Kubernetes networks that never overlap. Beside it, a subnet table splits 10.0.0.0/16 into /17, /18, and /19 subnets.">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- Structured data: what the site and the software are, for search engines. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://nicholashoule.github.io/subnet-splitter/#website",
+      "url": "https://nicholashoule.github.io/subnet-splitter/",
+      "name": "subnet-splitter",
+      "description": "A CIDR subnet calculator and a Kubernetes network planning API.",
+      "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://nicholashoule.github.io/subnet-splitter/#software",
+      "name": "subnet-splitter",
+      "url": "https://nicholashoule.github.io/subnet-splitter/",
+      "description": "A CIDR subnet calculator that splits networks down to /32 in the browser, and a Kubernetes network planning API that generates non-overlapping VPC, node, control-plane, pod, and service CIDRs for EKS, GKE, AKS, and self-hosted clusters, as JSON or YAML.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Windows, macOS, Linux",
+      "softwareRequirements": "Node.js",
+      "image": "https://nicholashoule.github.io/subnet-splitter/images/social-preview.png",
+      "screenshot": "https://nicholashoule.github.io/subnet-splitter/images/subnet-splitter.png",
+      "downloadUrl": "https://github.com/nicholashoule/subnet-splitter/releases/latest",
+      "sameAs": "https://github.com/nicholashoule/subnet-splitter",
+      "license": "https://github.com/nicholashoule/subnet-splitter/blob/main/LICENSE",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Nicholas Houle", "url": "https://github.com/nicholashoule" }
+    }
+  ]
+}
+</script>
 <style>
   :root {
     color-scheme: light dark;
@@ -213,7 +270,7 @@
 
   <section id="calculator">
     <div class="wrap">
-      <h2>The calculator</h2>
+      <h2>The CIDR subnet calculator</h2>
       <p class="muted">Enter a CIDR and split it, then split the halves, as far as you need. The math runs in the browser; nothing is sent to the server.</p>
       <div class="grid">
         <div class="card">

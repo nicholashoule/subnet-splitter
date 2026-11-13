@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  Source of site/images/social-preview.png, the 1280x640 card that link previews show
+  for the website (its og:image) and for the repository (GitHub's Settings > General >
+  Social preview, where it is uploaded by hand). It is not published; only the PNG is.
+
+  Render it with headless Chrome or Edge, from the repository root:
+
+    chrome --headless --hide-scrollbars --force-device-scale-factor=1 \
+      --window-size=1280,640 --screenshot=site/images/social-preview.png \
+      scripts/social-preview.html
+
+  It uses the site's dark palette and system fonts, and loads nothing over the network.
+  Text stays 64px inside the edges, so a 1.91:1 crop of the 2:1 image loses nothing.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>subnet-splitter social preview</title>
+<style>
+  :root {
+    --bg: #0b1120;
+    --surface: #111827;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --line: #1e293b;
+    --accent: #3b82f6;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    display: flex; align-items: stretch; gap: 56px; padding: 64px;
+    color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(760px 520px at 88% 8%, rgba(59, 130, 246, 0.22), transparent 70%),
+      var(--bg);
+  }
+
+  .pitch { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand svg { flex: none; color: var(--accent); }
+  h1 { margin: 34px 0 0; font-size: 58px; line-height: 1.06; letter-spacing: -0.03em; font-weight: 700; }
+  .lead { margin: 24px 0 0; font-size: 27px; line-height: 1.35; color: var(--muted); text-wrap: balance; }
+  .repo { margin-top: auto; font-family: var(--mono); font-size: 22px; color: var(--muted); }
+
+  /* The calculator's subnet table: one row per subnet, indented under its parent,
+     with the bar the app draws for each prefix length (subnet-utils.ts). */
+  .table {
+    flex: none; width: 452px; align-self: center;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+    padding: 12px 28px 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+  .row { display: flex; align-items: center; height: 54px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 24px; }
+  .row.head { border-top: 0; height: 46px; font-family: var(--sans); font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .row .hosts { margin-left: auto; color: var(--muted); }
+  .row.head .hosts { color: inherit; }
+  .bar { flex: none; width: 7px; height: 30px; border-radius: 4px; margin-right: 14px; }
+  .d1 { margin-left: 0; }
+  .d2 { margin-left: 24px; }
+  .d3 { margin-left: 48px; }
+  .p17 { background: oklch(63.7% 0.237 25.331); }
+  .p18 { background: oklch(70.5% 0.213 47.604); }
+  .p19 { background: oklch(76.9% 0.188 70.08); }
+</style>
+</head>
+<body>
+  <div class="pitch">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="16" y="16" width="6" height="6" rx="1"/>
+        <rect x="2" y="16" width="6" height="6" rx="1"/>
+        <rect x="9" y="2" width="6" height="6" rx="1"/>
+        <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/>
+        <path d="M12 12V8"/>
+      </svg>
+      subnet-splitter
+    </div>
+    <h1>Split any CIDR, and plan Kubernetes networks that never overlap.</h1>
+    <p class="lead">A subnet calculator in your browser, and a network planning API for EKS, GKE, AKS, and self-hosted clusters.</p>
+    <div class="repo">github.com/nicholashoule/subnet-splitter</div>
+  </div>
+
+  <div class="table">
+    <div class="row head"><span>Subnet</span><span class="hosts">Usable hosts</span></div>
+    <div class="row"><span>10.0.0.0/16</span><span class="hosts">65,534</span></div>
+    <div class="row"><span class="bar d1 p17"></span><span>10.0.0.0/17</span><span class="hosts">32,766</span></div>
+    <div class="row"><span class="bar d2 p18"></span><span>10.0.0.0/18</span><span class="hosts">16,382</span></div>
+    <div class="row"><span class="bar d2 p18"></span><span>10.0.64.0/18</span><span class="hosts">16,382</span></div>
+    <div class="row"><span class="bar d3 p19"></span><span>10.0.64.0/19</span><span class="hosts">8,190</span></div>
+    <div class="row"><span class="bar d3 p19"></span><span>10.0.96.0/19</span><span class="hosts">8,190</span></div>
+    <div class="row"><span class="bar d1 p17"></span><span>10.0.128.0/17</span><span class="hosts">32,766</span></div>
+  </div>
+</body>
+</html>
