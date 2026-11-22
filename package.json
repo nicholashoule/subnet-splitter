@@ -1,6 +1,6 @@
 {
   "name": "subnet-splitter",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "CIDR subnet calculator and Kubernetes (EKS, GKE, AKS) network planning API",
   "private": true,
   "type": "module",
