@@ -15,7 +15,7 @@
  * and rate limiting (429) are always JSON.
  */
 
-import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
+import type { Express, Request, Response, RequestHandler } from "express";
 import type { Server } from "http";
 import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { z, ZodError } from "zod";
@@ -129,14 +129,16 @@ export async function registerRoutes(
 ): Promise<{ server: Server; routes: Array<{ method: string; path: string }> }> {
   const registeredRoutes: Array<{ method: string; path: string }> = [];
 
-  // Register a route and record it for startup logging
-  const get = (path: string, ...handlers: RequestHandler[]) => {
+  // Register a route and record it for startup logging. One handler, passed to Express
+  // as a plain argument: CodeQL can't follow a spread (app.get(path, ...handlers)) to the
+  // handler, and then ignores the Content-Type it sets (see formatResponse).
+  const get = (path: string, handler: RequestHandler) => {
     registeredRoutes.push({ method: "GET", path });
-    app.get(path, ...handlers);
+    app.get(path, handler);
   };
-  const post = (path: string, ...handlers: RequestHandler[]) => {
+  const post = (path: string, handler: RequestHandler) => {
     registeredRoutes.push({ method: "POST", path });
-    app.post(path, ...handlers);
+    app.post(path, handler);
   };
 
   // Health check endpoints for production monitoring.
@@ -198,23 +200,19 @@ export async function registerRoutes(
     res.set("Content-Type", contentType).send(body);
   });
 
-  // Swagger UI CSP override middleware
-  // IMPORTANT: This completely replaces the global CSP policy to allow 'unsafe-inline' for scripts.
-  // 
-  // Swagger UI requires inline script execution for SwaggerUIBundle initialization, which cannot be 
-  // safely added to global CSP without affecting all endpoints. Route-specific override allows 
-  // Swagger UI to function while keeping strict CSP on all other routes.
-  //
-  // The CSP directives are defined in server/csp-config.ts (buildSwaggerUICSP function)
-  // and are kept in sync with baseCSPDirectives via that shared module.
-  // Note: 'unsafe-inline' is required for Swagger UI to work - it cannot function without it.
-  const swaggerCSPMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
-    next();
-  };
-
   // Swagger UI page (markup and styles live in server/swagger-ui.ts)
-  get("/api/docs/ui", swaggerCSPMiddleware, (req, res) => {
+  get("/api/docs/ui", (req, res) => {
+    // Swagger UI CSP override
+    // IMPORTANT: This completely replaces the global CSP policy to allow 'unsafe-inline' for scripts.
+    //
+    // Swagger UI requires inline script execution for SwaggerUIBundle initialization, which cannot be
+    // safely added to global CSP without affecting all endpoints. Route-specific override allows
+    // Swagger UI to function while keeping strict CSP on all other routes.
+    //
+    // The CSP directives are defined in server/csp-config.ts (buildSwaggerUICSP function)
+    // and are kept in sync with baseCSPDirectives via that shared module.
+    // Note: 'unsafe-inline' is required for Swagger UI to work - it cannot function without it.
+    res.setHeader('Content-Security-Policy', buildSwaggerUICSP());
     // Revalidate every load so a redeploy's page and asset pins take effect immediately
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.type("html").send(swaggerUiHtml);
