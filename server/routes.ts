@@ -102,7 +102,12 @@ function toYaml(data: unknown): string {
 }
 
 /**
- * Format response as JSON or YAML based on the format parameter
+ * Format response as JSON or YAML based on the format parameter.
+ *
+ * Callers send the result with res.set("Content-Type", contentType), not res.type():
+ * the header is the same (res.type calls res.set for a full MIME type), but CodeQL only
+ * counts set/header as declaring a content type. Without one it reads a body that
+ * echoes client input (deploymentName, validation messages) as HTML, i.e. reflected XSS.
  */
 function formatResponse(data: unknown, format?: string): { contentType: string; body: string } {
   const outputFormat = (format || "json").toLowerCase();
@@ -190,7 +195,7 @@ export async function registerRoutes(
   get("/api/docs", (req, res) => {
     const format = (formatOf(req) ?? "json").toLowerCase();
     const { contentType, body } = format === "yaml" || format === "yml" ? openApiYaml : openApiJson;
-    res.type(contentType).send(body);
+    res.set("Content-Type", contentType).send(body);
   });
 
   // Swagger UI CSP override middleware
@@ -234,7 +239,7 @@ export async function registerRoutes(
       const format = formatOf(req);
       const { contentType, body } = formatResponse(plan, format);
       
-      res.type(contentType).send(body);
+      res.set("Content-Type", contentType).send(body);
     } catch (error) {
       const format = formatOf(req);
       let errorResponse: unknown;
@@ -245,7 +250,7 @@ export async function registerRoutes(
           code: "NETWORK_GENERATION_ERROR"
         };
         const { contentType, body } = formatResponse(errorResponse, format);
-        return res.status(400).type(contentType).send(body);
+        return res.status(400).set("Content-Type", contentType).send(body);
       }
       if (error instanceof ZodError) {
         errorResponse = {
@@ -253,7 +258,7 @@ export async function registerRoutes(
           code: "INVALID_REQUEST"
         };
         const { contentType, body } = formatResponse(errorResponse, format);
-        return res.status(400).type(contentType).send(body);
+        return res.status(400).set("Content-Type", contentType).send(body);
       }
       logger.error("Kubernetes network plan generation failed", {
         request: planInputsForLog(req.body),
@@ -263,7 +268,7 @@ export async function registerRoutes(
         code: "INTERNAL_ERROR"
       };
       const { contentType, body } = formatResponse(errorResponse, format);
-      return res.status(500).type(contentType).send(body);
+      return res.status(500).set("Content-Type", contentType).send(body);
     }
   };
 
@@ -279,13 +284,13 @@ export async function registerRoutes(
         error: `Invalid request: ${issue.path.join(".")}: ${issue.message}`,
         code: "INVALID_REQUEST"
       }, format);
-      return res.status(400).type(contentType).send(body);
+      return res.status(400).set("Content-Type", contentType).send(body);
     }
     try {
       const tierInfo = getDeploymentTierInfo(undefined, query.data.provider, query.data.networkMode);
       const { contentType, body } = formatResponse(tierInfo, format);
 
-      res.type(contentType).send(body);
+      res.set("Content-Type", contentType).send(body);
     } catch (error) {
       logger.error("Error fetching tier information", {}, error as Error);
       const errorResponse = {
@@ -293,7 +298,7 @@ export async function registerRoutes(
         code: "INTERNAL_ERROR"
       };
       const { contentType, body } = formatResponse(errorResponse, format);
-      res.status(500).type(contentType).send(body);
+      res.status(500).set("Content-Type", contentType).send(body);
     }
   };
 
